@@ -1,6 +1,6 @@
 # hylianscan
 
-`hylianscan` is an educational Python 3 networking and offensive security lab tool designed for authorized environments, bringing you a Zelda-themed scanning experience built for Kali Linux.
+`hylianscan` is an educational Python3 networking and offensive security lab tool designed for authorized environments, bringing you a Zelda-themed scanning experience built for Kali Linux.
 ## v0.4 Focus
 
 - Clean architecture.
