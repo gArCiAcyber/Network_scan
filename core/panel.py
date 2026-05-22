@@ -40,7 +40,7 @@ def build_final_panel(summary: ScanSummaryView) -> str:
     lines = [
         "",
         separator,
-        f"{HACKER_GREEN}TACTICAL SCAN SUMMARY{RESET}",
+        f"{HACKER_GREEN}SCAN POWERED BY THE TRIFORCE{RESET}",
         separator,
         f"{BRIGHT_WHITE}Target Host        :{RESET} {summary.target_host}",
         f"{BRIGHT_WHITE}Resolved IP        :{RESET} {summary.resolved_ip}",
@@ -64,4 +64,3 @@ def build_final_panel(summary: ScanSummaryView) -> str:
 
     lines.append(separator)
     return "\n".join(lines)
-
