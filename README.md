@@ -13,6 +13,8 @@
 
 ```text
 hylianscan/
+├── assets/ascii
+│   ├──.gitkeep
 ├── core/
 │   ├── __init__.py
 │   ├── banner.py
@@ -20,15 +22,20 @@ hylianscan/
 │   ├── panel.py
 │   └── terminal.py
 ├── docs/
-│   └── README_STUDIES.md
+│   └── TODO.md
 ├── modules/
 │   ├── __init__.py
 │   ├── target.py
 │   └── tcp_scanner.py
 ├── output/
-├── TODO.md
+| └── .gitkeep
+├── versions/
+| └── v0.4_summary.md
+├── gitignore. 
 ├── hylianscan.py
-└── requirements.txt
+├── README.md
+├── requirements.txt
+
 ```
 
 ## Usage
