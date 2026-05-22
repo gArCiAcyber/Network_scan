@@ -19,3 +19,7 @@ output/*
 .DS_Store
 Thumbs.db
 
+# Private study notes
+estudies/
+docs/README_STUDIES.md
+```
