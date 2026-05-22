@@ -7,7 +7,8 @@ import termios
 import threading
 import tty
 
-from core.colors import CLEAR_LINE, HACKER_GREEN, RESET
+from core.banner import build_footer
+from core.colors import CLEAR_LINE
 
 
 _OUTPUT_LOCK = threading.Lock()
@@ -83,5 +84,4 @@ def wait_for_enter_safely(message: str) -> None:
 
 def build_exit_prompt() -> str:
     """Return the final safe-exit prompt."""
-    return f"\n{HACKER_GREEN}[V] Initial investigation complete. Press Enter to exit.{RESET}"
-
+    return f"\n{build_footer()} Press Enter to exit."
