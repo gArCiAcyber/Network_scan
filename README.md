@@ -24,39 +24,53 @@ hylianscan/
 |   |-- banner.py
 |   |-- colors.py
 |   |-- panel.py
-|   `-- terminal.py
+|   |-- terminal.py
 |-- docs/
-|   `-- TODO.md
-|-- estudos/
-|   |-- README.md
-|   `-- v0.5_subdomain_enumeration.md
+|   |-- TODO.md
 |-- modules/
 |   |-- __init__.py
 |   |-- subdomain.py
 |   |-- target.py
-|   `-- tcp_scanner.py
+|   |-- tcp_scanner.py
 |-- output/
 |-- versions/
 |   |-- v0.4_summary.md
-|   `-- v0.5_summary.md
+|   |-- v0.5_summary.md
 |-- .gitignore
 |-- hylianscan.py
-`-- requirements.txt
-Usage
-TCP scan with custom ports
-Bash
+|-- requirements.txt
+````
+
+
+## Usage
+
+### TCP scan with custom ports
+
+```
 python3 hylianscan.py scanme.nmap.org -p 80,443 -T 1.5 -t 20
-TCP scan with top ports
-Bash
+````
+
+### Full TCP range scan
+```
 python3 hylianscan.py example.com --top-ports 400 -t 50
-Full TCP range scan
-Bash
+```
+
+### Full TCP range scan
+```
 python3 hylianscan.py 192.168.0.10 -p - -T 1.0 -t 100
-Subdomain enumeration
-Bash
+```
+
+### Subdomain enumeration
+```
 python3 hylianscan.py example.com -w wordlists/subdomains.txt -t 20
-Save report
-Bash
+```
+
+### Save report
+```
 python3 hylianscan.py example.com -w subs.txt -o subdomains.txt
-Safety Rule
-Use this project only in your own lab, authorized networks, or explicit pentest scopes.
+```
+---
+
+# Be Safe!
+### Use this project only in your own lab, authorized networks, or explicit pentest scopes.
+
