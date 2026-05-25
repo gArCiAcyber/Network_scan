@@ -19,6 +19,7 @@
 
 ```text
 hylianscan/
+<<<<<<< HEAD
 |-- core/
 |   |-- __init__.py
 |   |-- banner.py
@@ -41,6 +42,31 @@ hylianscan/
 |   `-- v0.5_summary.md
 |-- hylianscan.py
 `-- requirements.txt
+=======
+├── assets/ascii
+│   ├──.gitkeep
+├── core/
+│   ├── __init__.py
+│   ├── banner.py
+│   ├── colors.py
+│   ├── panel.py
+│   └── terminal.py
+├── docs/
+│   └── TODO.md
+├── modules/
+│   ├── __init__.py
+│   ├── target.py
+│   └── tcp_scanner.py
+├── output/
+| └── .gitkeep
+├── versions/
+| └── v0.4_summary.md
+├── gitignore. 
+├── hylianscan.py
+├── README.md
+├── requirements.txt
+
+>>>>>>> c42031d54418650e364fd9f4bff71ab698e85ac9
 ```
 
 ## Usage
