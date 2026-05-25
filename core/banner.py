@@ -20,7 +20,7 @@ LINK_ASCII = """⠀⠀⠀⠀⠀⠀⢀⣠⣤⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀�
 
 def build_footer() -> str:
     """Return the standardized HylianScan footer."""
-    return f"{BRIGHT_WHITE}[ HYLIANSCAN v0.4 - BY CYLINK ]{RESET}"
+    return f"{BRIGHT_WHITE}[ HYLIANSCAN v0.5 - BY CYLINK ]{RESET}"
 
 
 def build_banner() -> str:
