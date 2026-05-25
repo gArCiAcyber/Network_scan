@@ -5,7 +5,15 @@ import argparse
 from pathlib import Path
 
 from core.banner import show_banner
-from core.colors import ALERT_RED, INFO_BLUE, RESET, WARNING_YELLOW
+from core.colors import (
+    ALERT_RED,
+    BRIGHT_WHITE,
+    HACKER_GREEN,
+    INFO_BLUE,
+    MUTED_GRAY,
+    RESET,
+    WARNING_YELLOW,
+)
 from core.panel import build_final_panel, format_open_port_line
 from core.terminal import (
     build_exit_prompt,
@@ -15,6 +23,7 @@ from core.terminal import (
     wait_for_enter_safely,
     write_dynamic_line,
 )
+from modules.subdomain import SubdomainFinding, SubdomainResult, enumerate_subdomains
 from modules.target import TargetInfo, TargetResolutionError, format_target_orientation, resolve_target
 from modules.tcp_scanner import PortScanResult, ScanResult, scan_tcp_ports
 
@@ -70,26 +79,40 @@ def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments for the scanner."""
     parser = argparse.ArgumentParser(
         prog="hylianscan",
-        description="High-performance TCP reconnaissance scanner for authorized targets.",
+        description="High-performance reconnaissance scanner for authorized targets.",
     )
     parser.add_argument("target", help="Target IP address or domain name.")
     parser.add_argument(
         "-p",
         "--ports",
-        help="Ports to scan, using comma lists or ranges. Examples: 80,443 or 1-1000.",
+        help=(
+            "Ports to scan, using comma lists or ranges. "
+            "Examples: 80,443 or 1-1000. Use '-p -' for 1-65535."
+        ),
     )
     parser.add_argument(
         "--top-ports",
         type=int,
         help="Scan the top N built-in TCP ports. Example: --top-ports 400.",
     )
-
+    parser.add_argument(
+        "-w",
+        "--wordlist",
+        help="Path to a wordlist for subdomain brute-force enumeration.",
+    )
     parser.add_argument(
         "-t",
+        "--threads",
+        type=int,
+        default=10,
+        help="Number of concurrent threads for scanning. Default: 10.",
+    )
+    parser.add_argument(
+        "-T",
         "--timeout",
         type=float,
         default=1.0,
-        help="Connection timeout per port in seconds. Default: 1.0.",
+        help="Connection timeout per TCP port in seconds. Default: 1.0.",
     )
     parser.add_argument(
         "-o",
@@ -123,6 +146,9 @@ def parse_port_range(port_range: str) -> list[int]:
 
 def parse_custom_ports(ports_value: str) -> list[int]:
     """Parse comma-separated ports and ranges."""
+    if ports_value.strip() == "-":
+        return list(range(1, 65536))
+
     parsed_ports: list[int] = []
 
     for chunk in ports_value.split(","):
@@ -167,6 +193,20 @@ def validate_timeout(timeout: float) -> float:
     return timeout
 
 
+def validate_threads(threads: int) -> int:
+    """Validate the requested worker thread count."""
+    if threads <= 0:
+        raise ValueError("--threads must be greater than zero.")
+
+    return threads
+
+
+def validate_mode(args: argparse.Namespace) -> None:
+    """Prevent ambiguous mode combinations."""
+    if args.wordlist and (args.ports or args.top_ports):
+        raise ValueError("Use --wordlist for subdomain mode or port flags for TCP mode, not both.")
+
+
 def resolve_output_path(output_value: str | None) -> Path | None:
     """Resolve an output filename inside the local output directory."""
     if output_value is None:
@@ -194,7 +234,7 @@ def show_target_orientation(target: TargetInfo) -> None:
 
 
 def handle_progress(completed: int, total: int, port: int) -> None:
-    """Render thread-safe progress updates from the scanner."""
+    """Render thread-safe TCP progress updates from the scanner."""
     write_dynamic_line(
         f"{WARNING_YELLOW}[*] Scanning target ports... "
         f"{completed}/{total} completed (last: {port}){RESET}"
@@ -207,18 +247,36 @@ def handle_open_port(result: PortScanResult) -> None:
     print_safe(format_open_port_line(result))
 
 
-def run_investigation(
+def handle_subdomain_progress(completed: int, total: int, hostname: str) -> None:
+    """Render thread-safe subdomain enumeration progress."""
+    write_dynamic_line(
+        f"{WARNING_YELLOW}[*] Enumerating subdomains... "
+        f"{completed}/{total} tested (last: {hostname}){RESET}"
+    )
+
+
+def handle_subdomain_finding(finding: SubdomainFinding) -> None:
+    """Render a resolved subdomain as soon as it is discovered."""
+    clear_dynamic_line()
+    print_safe(
+        f"{HACKER_GREEN}[+] {finding.hostname:<45} -> {finding.ip_address}{RESET}"
+    )
+
+
+def run_port_scan(
     target: TargetInfo,
     ports_to_scan: list[int],
     timeout: float,
+    threads: int,
 ) -> ScanResult:
-    """Run the threaded scanner without embedding TCP logic in the CLI."""
+    """Run the threaded TCP scanner without embedding TCP logic in the CLI."""
     write_dynamic_line(f"{WARNING_YELLOW}[*] Scanning target ports...{RESET}")
     result = scan_tcp_ports(
         target_host=target.target_host,
         resolved_ip=target.resolved_ip,
         ports=ports_to_scan,
         timeout=timeout,
+        max_workers=threads,
         progress_callback=handle_progress,
         open_port_callback=handle_open_port,
     )
@@ -226,23 +284,82 @@ def run_investigation(
     return result
 
 
+def run_subdomain_enumeration(
+    base_domain: str,
+    wordlist_path: str,
+    threads: int,
+) -> SubdomainResult:
+    """Run threaded subdomain enumeration."""
+    write_dynamic_line(f"{WARNING_YELLOW}[*] Enumerating subdomains...{RESET}")
+    result = enumerate_subdomains(
+        base_domain=base_domain,
+        wordlist_path=wordlist_path,
+        threads=threads,
+        progress_callback=handle_subdomain_progress,
+        finding_callback=handle_subdomain_finding,
+    )
+    clear_dynamic_line()
+    return result
+
+
+def build_subdomain_panel(result: SubdomainResult) -> str:
+    """Build a static report for subdomain enumeration results."""
+    separator = f"{MUTED_GRAY}{'-' * 72}{RESET}"
+    lines = [
+        "",
+        separator,
+        f"{HACKER_GREEN}SUBDOMAINS POWERED BY THE TRIFORCE{RESET}",
+        separator,
+        f"{BRIGHT_WHITE}Base Domain        :{RESET} {result.base_domain}",
+        f"{BRIGHT_WHITE}Wordlist           :{RESET} {result.wordlist_path}",
+        f"{BRIGHT_WHITE}Candidates Tested  :{RESET} {result.tested_count}",
+        f"{BRIGHT_WHITE}Subdomains Found   :{RESET} {len(result.findings)}",
+        f"{BRIGHT_WHITE}Total Scan Time    :{RESET} {result.duration:.2f}s",
+        separator,
+    ]
+
+    if result.findings:
+        lines.append(f"{INFO_BLUE}Hostname                                      IP Address{RESET}")
+
+        for finding in result.findings:
+            lines.append(f"{finding.hostname:<45} {finding.ip_address}")
+    else:
+        lines.append(f"{WARNING_YELLOW}No subdomains resolved from the provided wordlist.{RESET}")
+
+    lines.append(separator)
+    return "\n".join(lines)
+
+
 def main() -> None:
     """Coordinate the full CLI execution flow."""
     try:
         args = parse_arguments()
-        ports_to_scan = parse_ports_list(args)
+        validate_mode(args)
         timeout = validate_timeout(args.timeout)
+        threads = validate_threads(args.threads)
         output_path = resolve_output_path(args.output)
         clear_screen()
         show_banner()
-        target = resolve_target(args.target)
-        show_target_orientation(target)
-        scan_result = run_investigation(
-            target=target,
-            ports_to_scan=ports_to_scan,
-            timeout=timeout,
-        )
-        final_panel = build_final_panel(scan_result)
+
+        if args.wordlist:
+            subdomain_result = run_subdomain_enumeration(
+                base_domain=args.target,
+                wordlist_path=args.wordlist,
+                threads=threads,
+            )
+            final_panel = build_subdomain_panel(subdomain_result)
+        else:
+            ports_to_scan = parse_ports_list(args)
+            target = resolve_target(args.target)
+            show_target_orientation(target)
+            scan_result = run_port_scan(
+                target=target,
+                ports_to_scan=ports_to_scan,
+                timeout=timeout,
+                threads=threads,
+            )
+            final_panel = build_final_panel(scan_result)
+
         print(final_panel)
         save_report(final_panel, output_path)
 
