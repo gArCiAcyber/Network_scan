@@ -205,7 +205,8 @@ def validate_mode(args: argparse.Namespace) -> None:
     """Prevent ambiguous mode combinations."""
     if args.wordlist and (args.ports or args.top_ports):
         raise ValueError("Use --wordlist for subdomain mode or port flags for TCP mode, not both.")
-
+    if args.wordlist and not args.output:
+        raise ValueError("Saving to a text file (-o/--output) is mandatory for subdomain mode.")
 
 def resolve_output_path(output_value: str | None) -> Path | None:
     """Resolve an output filename inside the local output directory."""
@@ -299,24 +300,21 @@ def run_subdomain_enumeration(
         finding_callback=handle_subdomain_finding,
     )
     clear_dynamic_line()
-    return result
-
-
-def build_subdomain_panel(result: SubdomainResult) -> str:
+    
+   def build_subdomain_panel(result: SubdomainResult) -> str:
     """Build a static report for subdomain enumeration results."""
-    separator = f"{MUTED_GRAY}{'-' * 72}{RESET}"
+    nome_arquivo = f"output/{result.base_domain}_subdomains.txt"
+    
     lines = [
-        "",
-        separator,
-        f"{HACKER_GREEN}SUBDOMAINS POWERED BY THE TRIFORCE{RESET}",
-        separator,
-        f"{BRIGHT_WHITE}Base Domain        :{RESET} {result.base_domain}",
-        f"{BRIGHT_WHITE}Wordlist           :{RESET} {result.wordlist_path}",
-        f"{BRIGHT_WHITE}Candidates Tested  :{RESET} {result.tested_count}",
-        f"{BRIGHT_WHITE}Subdomains Found   :{RESET} {len(result.findings)}",
-        f"{BRIGHT_WHITE}Total Scan Time    :{RESET} {result.duration:.2f}s",
-        separator,
+        "============================================================",
+        "[+] KOROK ENCONTRADO!",
+        f"[+] {len(result.findings)} Subdomínios únicos encontrados.",
+        f"[+] Resultados em: {nome_arquivo}",
+        "============================================================"
     ]
+    return "\n".join(lines)
+
+
 
     if result.findings:
         lines.append(f"{INFO_BLUE}Hostname                                      IP Address{RESET}")
