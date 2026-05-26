@@ -208,6 +208,7 @@ def validate_mode(args: argparse.Namespace) -> None:
     if args.wordlist and not args.output:
         raise ValueError("Saving to a text file (-o/--output) is mandatory for subdomain mode.")
 
+
 def resolve_output_path(output_value: str | None) -> Path | None:
     """Resolve an output filename inside the local output directory."""
     if output_value is None:
@@ -300,31 +301,20 @@ def run_subdomain_enumeration(
         finding_callback=handle_subdomain_finding,
     )
     clear_dynamic_line()
-    
-   def build_subdomain_panel(result: SubdomainResult) -> str:
+    return result
+
+
+def build_subdomain_panel(result: SubdomainResult) -> str:
     """Build a static report for subdomain enumeration results."""
     nome_arquivo = f"output/{result.base_domain}_subdomains.txt"
-    
+    separator = "============================================================"
     lines = [
-        "============================================================",
+        separator,
         "[+] KOROK ENCONTRADO!",
         f"[+] {len(result.findings)} Subdomínios únicos encontrados.",
         f"[+] Resultados em: {nome_arquivo}",
-        "============================================================"
+        separator
     ]
-    return "\n".join(lines)
-
-
-
-    if result.findings:
-        lines.append(f"{INFO_BLUE}Hostname                                      IP Address{RESET}")
-
-        for finding in result.findings:
-            lines.append(f"{finding.hostname:<45} {finding.ip_address}")
-    else:
-        lines.append(f"{WARNING_YELLOW}No subdomains resolved from the provided wordlist.{RESET}")
-
-    lines.append(separator)
     return "\n".join(lines)
 
 
@@ -354,7 +344,7 @@ def main() -> None:
                 target=target,
                 ports_to_scan=ports_to_scan,
                 timeout=timeout,
-                threads=threads,
+                max_workers=threads,
             )
             final_panel = build_final_panel(scan_result)
 
