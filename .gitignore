@@ -20,6 +20,6 @@ output/*
 Thumbs.db
 
 # Private study notes
-estudies/
-docs/README_STUDIES.md
+estudos/*
+
 
