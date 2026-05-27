@@ -305,16 +305,16 @@ def run_subdomain_enumeration(
 
 def build_subdomain_panel(result: SubdomainResult) -> str:
     """Build a static report for subdomain enumeration results."""
-    nome_arquivo = f"output/{result.target_host}_subdomains.txt"
+    nome_arquivo = f"output/{result.base_domain}_subdomains.txt"
     
     separator = f"{HACKER_GREEN}{'=' * 72}{RESET}"
     
     lines = [
         "",  
         separator,
-        f"{HACKER_GREEN}[+] KOROK ENCONTRADO!{RESET}",
+        f"{HACKER_GREEN}[+] KOROK FOUND!{RESET}",
         f"{HACKER_GREEN}[+] {len(result.findings)} Unique subdomains found.{RESET}",
-        f"{HACKER_GREEN}[+] Resultados em: {nome_arquivo}{RESET}",
+        f"{HACKER_GREEN}[+] Results in: {nome_arquivo}{RESET}",
         separator,
         "" 
     ]
@@ -366,7 +366,7 @@ def main() -> None:
         print_safe(build_exit_prompt())
     except KeyboardInterrupt:
         clear_dynamic_line()
-        print(f"\n{ALERT_RED}[-] Scan aborted by the Master. Exiting safely.{RESET}")
+        print(f"\n{ALERT_RED}[-] Scan aborted by the Ganondorf. Exiting safely.{RESET}")
 
 
 if __name__ == "__main__":
