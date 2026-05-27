@@ -83,5 +83,5 @@ def wait_for_enter_safely(message: str) -> None:
 
 
 def build_exit_prompt() -> str:
-    """Return the final safe-exit prompt."""
-    return f"\n{build_footer()} Press Enter to exit."
+    """Return the final footer without the pause prompt."""
+    return f"\n{build_footer()}\n"
