@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main CLI orchestrator for hylianscan v0.5-dev."""
+"""Main CLI orchestrator for hylianscan v0.6-dev."""
 
 import argparse
 from pathlib import Path
@@ -20,7 +20,6 @@ from core.terminal import (
     clear_dynamic_line,
     clear_screen,
     print_safe,
-    wait_for_enter_safely,
     write_dynamic_line,
 )
 from modules.subdomain import SubdomainFinding, SubdomainResult, enumerate_subdomains
@@ -306,14 +305,18 @@ def run_subdomain_enumeration(
 
 def build_subdomain_panel(result: SubdomainResult) -> str:
     """Build a static report for subdomain enumeration results."""
-    nome_arquivo = f"output/{result.base_domain}_subdomains.txt"
-    separator = "============================================================"
+    nome_arquivo = f"output/{result.target_host}_subdomains.txt"
+    
+    separator = f"{HACKER_GREEN}{'=' * 72}{RESET}"
+    
     lines = [
+        "",  
         separator,
-        "[+] KOROK ENCONTRADO!",
-        f"[+] {len(result.findings)} Subdomínios únicos encontrados.",
-        f"[+] Resultados em: {nome_arquivo}",
-        separator
+        f"{HACKER_GREEN}[+] KOROK ENCONTRADO!{RESET}",
+        f"{HACKER_GREEN}[+] {len(result.findings)} Unique subdomains found.{RESET}",
+        f"{HACKER_GREEN}[+] Resultados em: {nome_arquivo}{RESET}",
+        separator,
+        "" 
     ]
     return "\n".join(lines)
 
@@ -354,13 +357,13 @@ def main() -> None:
         if output_path is not None:
             print_safe(f"[*] Report saved to: {output_path}")
 
-        wait_for_enter_safely(build_exit_prompt())
+        print_safe(build_exit_prompt())
     except ValueError as error:
         print(f"\n{ALERT_RED}[-] {error}{RESET}")
-        wait_for_enter_safely(build_exit_prompt())
+        print_safe(build_exit_prompt())
     except TargetResolutionError as error:
         print(f"\n{ALERT_RED}[-] {error}{RESET}")
-        wait_for_enter_safely(build_exit_prompt())
+        print_safe(build_exit_prompt())
     except KeyboardInterrupt:
         clear_dynamic_line()
         print(f"\n{ALERT_RED}[-] Scan aborted by the Master. Exiting safely.{RESET}")
