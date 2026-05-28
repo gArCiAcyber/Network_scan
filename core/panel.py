@@ -40,7 +40,7 @@ def build_final_panel(summary: ScanSummaryView) -> str:
     lines = [
         "",
         separator,
-        f"{HACKER_GREEN}SCAN POWERED BY THE TRIFORCE{RESET}",
+        f"{WARNING_YELLOW}[ SCAN POWERED BY THE TRIFORCE ]{RESET}",
         separator,
         f"{BRIGHT_WHITE}Target Host        :{RESET} {summary.target_host}",
         f"{BRIGHT_WHITE}Resolved IP        :{RESET} {summary.resolved_ip}",
@@ -51,8 +51,7 @@ def build_final_panel(summary: ScanSummaryView) -> str:
     ]
 
     if summary.open_ports:
-        lines.append(f"{INFO_BLUE}Port    Service   Response   Banner{RESET}")
-
+        lines.append(f"{INFO_BLUE}Port    Service   Response    Banner{RESET}")
         for finding in summary.open_ports:
             banner = finding.banner or "active (no banner)"
             lines.append(
