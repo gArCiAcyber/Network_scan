@@ -1,4 +1,4 @@
-"""report panel rendering for hylianscan."""
+"""Final report panel rendering for hylianscan."""
 
 from collections.abc import Sequence
 from typing import Protocol
@@ -41,24 +41,30 @@ def build_final_panel(summary: ScanSummaryView) -> str:
     lines = [
         "",
         separator,
-        # Split color: Muted Gray for the bracket/text and Bold Gold for THE TRIFORCE
-        f"{MUTED_GRAY}[ SCAN POWERED BY {BOLD_GOLD}THE TRIFORCE {MUTED_GRAY}]{RESET}",
+        # User's custom style: HACKER_GREEN for the bracket/text and Bold Gold for THE TRIFORCE
+        f"{HACKER_GREEN}[ SCAN POWERED BY THE {BOLD_GOLD}TRIFORCE ▲{RESET}{HACKER_GREEN} ]{RESET}",
         separator,
         f"{BRIGHT_WHITE}Target Host        :{RESET} {summary.target_host}",
         f"{BRIGHT_WHITE}Resolved IP        :{RESET} {summary.resolved_ip}",
-        f"{BRIGHT_WHITE}Ports Tested       :{RESET} {summary.scanned_ports}",
-        f"{BRIGHT_WHITE}Open Ports         :{RESET} {len(summary.open_ports)}",
+        f"{BRIGHT_WHITE}Scan Scope         :{RESET} Default Target List",
         f"{BRIGHT_WHITE}Total Scan Time    :{RESET} {summary.duration:.2f}s",
         separator,
     ]
 
     if summary.open_ports:
-        lines.append(f"{INFO_BLUE}Port    Service   Response    Banner{RESET}")
+        lines.append(f"{INFO_BLUE}Port    Status     Service    Version / Banner{RESET}")
         for finding in summary.open_ports:
             banner = finding.banner or "active (no banner)"
+            
+            # Clean and lowercase the service name (e.g., "HTTP | http://..." becomes "http")
+            raw_service = finding.service.split(" | ")[0] if " | " in finding.service else finding.service
+            clean_service = raw_service.lower()
+            
             lines.append(
-                f"{finding.port:<7} {finding.service:<9} "
-                f"{finding.response_time:.3f}s    {banner}"
+                f"{HACKER_GREEN}{finding.port:<7} "
+                f"[OPEN]     "
+                f"{clean_service:<10} "
+                f"{banner}{RESET}"
             )
     else:
         lines.append(f"{WARNING_YELLOW}No open ports found in the default target list.{RESET}")
