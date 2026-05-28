@@ -273,7 +273,7 @@ def run_port_scan(
     target: TargetInfo,
     ports_to_scan: list[int],
     timeout: float,
-    threads: int,
+    max_workers: int,
 ) -> ScanResult:
     """Run the threaded TCP scanner without embedding TCP logic in the CLI."""
     write_dynamic_line(f"{WARNING_YELLOW}[*] Scanning target ports...{RESET}")
@@ -282,7 +282,7 @@ def run_port_scan(
         resolved_ip=target.resolved_ip,
         ports=ports_to_scan,
         timeout=timeout,
-        max_workers=threads,
+        max_workers=max_workers,
         progress_callback=handle_progress,
         open_port_callback=handle_open_port,
     )
