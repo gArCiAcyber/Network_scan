@@ -1,9 +1,10 @@
-"""Final report panel rendering for hylianscan."""
+"""report panel rendering for hylianscan."""
 
 from collections.abc import Sequence
 from typing import Protocol
 
-from core.colors import BRIGHT_WHITE, HACKER_GREEN, INFO_BLUE, MUTED_GRAY, RESET, WARNING_YELLOW
+# Added BOLD_GOLD to the imports
+from core.colors import BOLD_GOLD, BRIGHT_WHITE, HACKER_GREEN, INFO_BLUE, MUTED_GRAY, RESET, WARNING_YELLOW
 
 
 class PortFindingView(Protocol):
@@ -40,7 +41,8 @@ def build_final_panel(summary: ScanSummaryView) -> str:
     lines = [
         "",
         separator,
-        f"{WARNING_YELLOW}[ SCAN POWERED BY THE TRIFORCE ]{RESET}",
+        # Split color: Muted Gray for the bracket/text and Bold Gold for THE TRIFORCE
+        f"{MUTED_GRAY}[ SCAN POWERED BY {BOLD_GOLD}THE TRIFORCE {MUTED_GRAY}]{RESET}",
         separator,
         f"{BRIGHT_WHITE}Target Host        :{RESET} {summary.target_host}",
         f"{BRIGHT_WHITE}Resolved IP        :{RESET} {summary.resolved_ip}",
