@@ -9,10 +9,17 @@ BRIGHT_WHITE = "\033[97m"
 RESET = "\033[0m"
 CLEAR_LINE = "\033[K"
 
+# --- Bold colors for highlights (The Legend of Zelda Theme) ---
+BOLD_GREEN = "\033[1;32m"   # Green Farore (highlight)
+BOLD_RED = "\033[1;31m"     # Red Din (highlight)
+BOLD_BLUE = "\033[1;34m"    # Blue Nayru (highlight)
+BOLD_GOLD = "\033[1;33m"    # Yellow Triforce (highlight)
+BOLD_WHITE = "\033[1;37m"   # White (highlight)
+
 # --- The colors of the triforce (The Legend of Zelda Theme) ---
-TRIFORCE_GREEN = "\033[1;32m"  # Farore / Coragem (Verde Vivo)
-TRIFORCE_RED = "\033[1;31m"    # Din / Poder (Vermelho Vivo)
-TRIFORCE_BLUE = "\033[1;34m"   # Nayru / Sabedoria (Azul Vivo)
+TRIFORCE_GREEN = "\033[1;32m"  # Farore / Courage
+TRIFORCE_RED = "\033[1;31m"    # Din / Power
+TRIFORCE_BLUE = "\033[1;34m"   # Nayru / Wisdom
 
 
 def paint(text: str, color: str) -> str:
