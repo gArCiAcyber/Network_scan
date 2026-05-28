@@ -1,6 +1,6 @@
 """Multi-colored Larry 3D Triforce banner rendering for hylianscan."""
 
-from core.colors import HACKER_GREEN, RESET, TRIFORCE_GREEN, TRIFORCE_RED, TRIFORCE_BLUE
+from core.colors import HACKER_GREEN, RESET, TRIFORCE_GREEN, TRIFORCE_RED, TRIFORCE_BLUE, BOLD_GOLD, BOLD_BLUE, BOLD_WHITE, BOLD_GREEN, BOLD_RED
 
 VERSION = "0.6"
 
