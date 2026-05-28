@@ -13,6 +13,11 @@ from core.colors import (
     MUTED_GRAY,
     RESET,
     WARNING_YELLOW,
+    BOLD_GREEN, 
+    BOLD_RED,    
+    BOLD_BLUE,   
+    BOLD_GOLD,   
+    BOLD_WHITE,  
 )
 from core.panel import build_final_panel, format_open_port_line
 from core.terminal import (
@@ -304,17 +309,19 @@ def run_subdomain_enumeration(
 
 
 def build_subdomain_panel(result: SubdomainResult) -> str:
-    """Build a static report for subdomain enumeration results."""
+    """static report for subdomain enumeration results with Hylian colors."""
     nome_arquivo = f"output/{result.base_domain}_subdomains.txt"
     
-    separator = f"{HACKER_GREEN}{'=' * 72}{RESET}"
     
+    separator = f"{BOLD_GREEN}{'=' * 72}{RESET}"
+    
+   
     lines = [
         "",  
         separator,
-        f"{HACKER_GREEN}[+] KOROK FOUND!{RESET}",
-        f"{HACKER_GREEN}[+] {len(result.findings)} Unique subdomains found.{RESET}",
-        f"{HACKER_GREEN}[+] Results in: {nome_arquivo}{RESET}",
+        f"{BOLD_GREEN}[+] KOROK FOUND!{RESET}",
+        f"{BOLD_BLUE}[+] {BOLD_WHITE}{len(result.findings)} {BOLD_BLUE}Unique subdomains found.{RESET}",
+        f"{BOLD_RED}[+] Results in: {BOLD_GOLD}{nome_arquivo}{RESET}",
         separator,
         "" 
     ]
@@ -357,13 +364,12 @@ def main() -> None:
         if output_path is not None:
             print_safe(f"[*] Report saved to: {output_path}")
 
-        print_safe(build_exit_prompt())
     except ValueError as error:
         print(f"\n{ALERT_RED}[-] {error}{RESET}")
-        print_safe(build_exit_prompt())
+        
     except TargetResolutionError as error:
         print(f"\n{ALERT_RED}[-] {error}{RESET}")
-        print_safe(build_exit_prompt())
+        
     except KeyboardInterrupt:
         clear_dynamic_line()
         print(f"\n{ALERT_RED}[-] Scan aborted by the Ganondorf. Exiting safely.{RESET}")
