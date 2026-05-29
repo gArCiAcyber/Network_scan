@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main CLI orchestrator for hylianscan v0.6-dev."""
+"""Main CLI orchestrator for hylianscan v0.7-dev."""
 
 import argparse
 from pathlib import Path
@@ -116,7 +116,10 @@ def parse_arguments() -> argparse.Namespace:
         "--output",
         nargs="?",
         const="hylianscan_results.txt",
-        help="Save the final scan report inside the output directory.",
+        help=(
+            "Save TCP reports inside output/ or choose a directory for "
+            "Subfinder results when using -s."
+        ),
     )
     return parser.parse_args()
 
@@ -216,6 +219,25 @@ def resolve_output_path(output_value: str | None) -> Path | None:
     return project_root / "output" / safe_filename
 
 
+def resolve_subdomain_output_path(output_value: str | None) -> Path:
+    """Resolve the mandatory Subfinder output file path."""
+    project_root = Path(__file__).resolve().parent
+    default_output_dir = project_root / "output"
+
+    if output_value is None:
+        return default_output_dir / "hylianscan_subdomains.txt"
+
+    if output_value == "hylianscan_results.txt":
+        return default_output_dir / "subdomains.txt"
+
+    requested_dir = Path(output_value).expanduser()
+
+    if not requested_dir.is_absolute():
+        requested_dir = project_root / requested_dir
+
+    return requested_dir / "subdomains.txt"
+
+
 def save_report(report_text: str, output_path: Path | None) -> None:
     """Persist the final report when requested by the operator."""
     if output_path is None:
@@ -223,6 +245,12 @@ def save_report(report_text: str, output_path: Path | None) -> None:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report_text + "\n", encoding="utf-8")
+
+
+def save_subdomain_results(subdomains: list[str], output_path: Path) -> None:
+    """Persist passive subdomain results without flooding the terminal."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(subdomains) + "\n", encoding="utf-8")
 
 
 def show_target_orientation(target: TargetInfo) -> None:
@@ -267,23 +295,45 @@ def run_port_scan(
     return result
 
 
-def run_passive_subdomain_discovery(domain: str) -> str:
-    """Run passive Subfinder discovery and return a printable report."""
-    print_safe(f"{WARNING_YELLOW}[*] Running passive Subfinder discovery...{RESET}")
-    subdomains = run_subfinder(domain)
+def handle_subfinder_telemetry(message: str) -> None:
+    """Render Subfinder stderr telemetry using the dynamic terminal line."""
+    status = message if message.startswith(("[", "(", "{")) else f"[*] {message}"
+    write_dynamic_line(f"{ALERT_RED}{status}{RESET}")
+
+
+def build_passive_subdomain_summary(
+    domain: str,
+    subdomain_count: int,
+    output_path: Path,
+) -> str:
+    """Build the final passive discovery summary."""
+    separator = f"{HACKER_GREEN}{'=' * 72}{RESET}"
+    return "\n".join(
+        [
+            "",
+            separator,
+            f"{HACKER_GREEN}[+] PASSIVE SUBDOMAIN PHASE SUCCESSFULLY ENDED{RESET}",
+            f"{HACKER_GREEN}[+] Target Domain    : {domain}{RESET}",
+            f"{HACKER_GREEN}[+] Subdomains Found : {subdomain_count}{RESET}",
+            f"{HACKER_GREEN}[+] Results File     : {output_path}{RESET}",
+            separator,
+        ]
+    )
+
+
+def run_passive_subdomain_discovery(domain: str, output_path: Path) -> str:
+    """Run passive Subfinder discovery and return a clean summary."""
+    write_dynamic_line(f"{ALERT_RED}[*] Starting passive Subfinder discovery...{RESET}")
+    subdomains = run_subfinder(domain, telemetry_callback=handle_subfinder_telemetry)
+    clear_dynamic_line()
+    save_subdomain_results(subdomains, output_path)
 
     if not subdomains:
-        return f"{WARNING_YELLOW}No passive subdomains found or Subfinder is unavailable.{RESET}"
+        print_safe(
+            f"{ALERT_RED}[-] No passive subdomains were returned by Subfinder.{RESET}"
+        )
 
-    lines = [
-        "",
-        f"{HACKER_GREEN}[+] Passive subdomains discovered: {len(subdomains)}{RESET}",
-    ]
-
-    for subdomain in subdomains:
-        lines.append(f"{HACKER_GREEN}{subdomain}{RESET}")
-
-    return "\n".join(lines)
+    return build_passive_subdomain_summary(domain, len(subdomains), output_path)
 
 
 def main() -> None:
@@ -293,13 +343,15 @@ def main() -> None:
         validate_mode(args)
         timeout = validate_timeout(args.timeout)
         threads = validate_threads(args.threads)
-        output_path = resolve_output_path(args.output)
         clear_screen()
         show_banner()
 
         if args.subdomains:
-            final_panel = run_passive_subdomain_discovery(args.target)
+            output_path = resolve_subdomain_output_path(args.output)
+            final_panel = run_passive_subdomain_discovery(args.target, output_path)
+            print(final_panel)
         else:
+            output_path = resolve_output_path(args.output)
             ports_to_scan = parse_ports_list(args)
             target = resolve_target(args.target)
             show_target_orientation(target)
@@ -310,12 +362,11 @@ def main() -> None:
                 max_workers=threads,
             )
             final_panel = build_final_panel(scan_result)
+            print(final_panel)
+            save_report(final_panel, output_path)
 
-        print(final_panel)
-        save_report(final_panel, output_path)
-
-        if output_path is not None:
-            print_safe(f"[*] Report saved to: {output_path}")
+            if output_path is not None:
+                print_safe(f"[*] Report saved to: {output_path}")
 
     except ValueError as error:
         print(f"\n{ALERT_RED}[-] {error}{RESET}")
