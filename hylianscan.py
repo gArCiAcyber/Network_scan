@@ -7,27 +7,19 @@ from pathlib import Path
 from core.banner import show_banner
 from core.colors import (
     ALERT_RED,
-    BRIGHT_WHITE,
     HACKER_GREEN,
     INFO_BLUE,
-    MUTED_GRAY,
     RESET,
     WARNING_YELLOW,
-    BOLD_GREEN, 
-    BOLD_RED,    
-    BOLD_BLUE,   
-    BOLD_GOLD,   
-    BOLD_WHITE,  
 )
 from core.panel import build_final_panel, format_open_port_line
 from core.terminal import (
-    build_exit_prompt,
     clear_dynamic_line,
     clear_screen,
     print_safe,
     write_dynamic_line,
 )
-from modules.subdomain import SubdomainFinding, SubdomainResult, enumerate_subdomains
+from modules.subdomain import run_subfinder
 from modules.target import TargetInfo, TargetResolutionError, format_target_orientation, resolve_target
 from modules.tcp_scanner import PortScanResult, ScanResult, scan_tcp_ports
 
@@ -100,9 +92,10 @@ def parse_arguments() -> argparse.Namespace:
         help="Scan the top N built-in TCP ports. Example: --top-ports 400.",
     )
     parser.add_argument(
-        "-w",
-        "--wordlist",
-        help="Path to a wordlist for subdomain brute-force enumeration.",
+        "-s",
+        "--subdomains",
+        action="store_true",
+        help="Enable passive subdomain discovery using Subfinder.",
     )
     parser.add_argument(
         "-t",
@@ -207,10 +200,10 @@ def validate_threads(threads: int) -> int:
 
 def validate_mode(args: argparse.Namespace) -> None:
     """Prevent ambiguous mode combinations."""
-    if args.wordlist and (args.ports or args.top_ports):
-        raise ValueError("Use --wordlist for subdomain mode or port flags for TCP mode, not both.")
-    if args.wordlist and not args.output:
-        raise ValueError("Saving to a text file (-o/--output) is mandatory for subdomain mode.")
+    if args.subdomains and (args.ports or args.top_ports):
+        raise ValueError(
+            "Use --subdomains for passive discovery or port flags for TCP mode, not both."
+        )
 
 
 def resolve_output_path(output_value: str | None) -> Path | None:
@@ -253,22 +246,6 @@ def handle_open_port(result: PortScanResult) -> None:
     print_safe(format_open_port_line(result))
 
 
-def handle_subdomain_progress(completed: int, total: int, hostname: str) -> None:
-    """Render thread-safe subdomain enumeration progress."""
-    write_dynamic_line(
-        f"{WARNING_YELLOW}[*] Enumerating subdomains... "
-        f"{completed}/{total} tested (last: {hostname}){RESET}"
-    )
-
-
-def handle_subdomain_finding(finding: SubdomainFinding) -> None:
-    """Render a resolved subdomain as soon as it is discovered."""
-    clear_dynamic_line()
-    print_safe(
-        f"{HACKER_GREEN}[+] {finding.hostname:<45} -> {finding.ip_address}{RESET}"
-    )
-
-
 def run_port_scan(
     target: TargetInfo,
     ports_to_scan: list[int],
@@ -290,41 +267,22 @@ def run_port_scan(
     return result
 
 
-def run_subdomain_enumeration(
-    base_domain: str,
-    wordlist_path: str,
-    threads: int,
-) -> SubdomainResult:
-    """Run threaded subdomain enumeration."""
-    write_dynamic_line(f"{WARNING_YELLOW}[*] Enumerating subdomains...{RESET}")
-    result = enumerate_subdomains(
-        base_domain=base_domain,
-        wordlist_path=wordlist_path,
-        threads=threads,
-        progress_callback=handle_subdomain_progress,
-        finding_callback=handle_subdomain_finding,
-    )
-    clear_dynamic_line()
-    return result
+def run_passive_subdomain_discovery(domain: str) -> str:
+    """Run passive Subfinder discovery and return a printable report."""
+    print_safe(f"{WARNING_YELLOW}[*] Running passive Subfinder discovery...{RESET}")
+    subdomains = run_subfinder(domain)
 
+    if not subdomains:
+        return f"{WARNING_YELLOW}No passive subdomains found or Subfinder is unavailable.{RESET}"
 
-def build_subdomain_panel(result: SubdomainResult) -> str:
-    """static report for subdomain enumeration results with Hylian colors."""
-    nome_arquivo = f"output/{result.base_domain}_subdomains.txt"
-    
-    
-    separator = f"{BOLD_GREEN}{'=' * 72}{RESET}"
-    
-   
     lines = [
-        "",  
-        separator,
-        f"{BOLD_GREEN}[+] KOROK FOUND!{RESET}",
-        f"{BOLD_BLUE}[+] {BOLD_WHITE}{len(result.findings)} {BOLD_BLUE}Unique subdomains found.{RESET}",
-        f"{BOLD_RED}[+] Results in: {BOLD_GOLD}{nome_arquivo}{RESET}",
-        separator,
-        "" 
+        "",
+        f"{HACKER_GREEN}[+] Passive subdomains discovered: {len(subdomains)}{RESET}",
     ]
+
+    for subdomain in subdomains:
+        lines.append(f"{HACKER_GREEN}{subdomain}{RESET}")
+
     return "\n".join(lines)
 
 
@@ -339,13 +297,8 @@ def main() -> None:
         clear_screen()
         show_banner()
 
-        if args.wordlist:
-            subdomain_result = run_subdomain_enumeration(
-                base_domain=args.target,
-                wordlist_path=args.wordlist,
-                threads=threads,
-            )
-            final_panel = build_subdomain_panel(subdomain_result)
+        if args.subdomains:
+            final_panel = run_passive_subdomain_discovery(args.target)
         else:
             ports_to_scan = parse_ports_list(args)
             target = resolve_target(args.target)
@@ -372,7 +325,7 @@ def main() -> None:
         
     except KeyboardInterrupt:
         clear_dynamic_line()
-        print(f"\n{ALERT_RED}[-] Scan aborted by the Ganondorf. Exiting safely.{RESET}")
+        print(f"\n{WARNING_YELLOW}[-] Scan aborted by {ALERT_RED}Ganondorf{WARNING_YELLOW}. Exiting safely.{RESET}")
 
 
 if __name__ == "__main__":
