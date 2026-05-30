@@ -2,6 +2,9 @@
 """Main CLI orchestrator for hylianscan v0.7-dev."""
 
 import argparse
+import itertools
+import threading
+import time
 from pathlib import Path
 
 from core.banner import show_banner
@@ -295,10 +298,17 @@ def run_port_scan(
     return result
 
 
-def handle_subfinder_telemetry(message: str) -> None:
-    """Render Subfinder stderr telemetry using the dynamic terminal line."""
-    status = message if message.startswith(("[", "(", "{")) else f"[*] {message}"
-    write_dynamic_line(f"{ALERT_RED}{status}{RESET}")
+def run_subdomain_spinner(domain: str, stop_event: threading.Event) -> None:
+    """Render a single-line spinner while passive enumeration is active."""
+    frames = itertools.cycle("|/-\\")
+
+    while not stop_event.is_set():
+        frame = next(frames)
+        write_dynamic_line(
+            f"{ALERT_RED}[*]{RESET} Enumerating subdomains for {domain}... "
+            f"{ALERT_RED}{frame}{RESET}"
+        )
+        time.sleep(0.12)
 
 
 def build_passive_subdomain_summary(
@@ -312,10 +322,10 @@ def build_passive_subdomain_summary(
         [
             "",
             separator,
-            f"{HACKER_GREEN}[+] PASSIVE SUBDOMAIN PHASE SUCCESSFULLY ENDED{RESET}",
-            f"{HACKER_GREEN}[+] Target Domain    : {domain}{RESET}",
-            f"{HACKER_GREEN}[+] Subdomains Found : {subdomain_count}{RESET}",
-            f"{HACKER_GREEN}[+] Results File     : {output_path}{RESET}",
+            f"{HACKER_GREEN}[+] SHEIKAH MAP UPDATED{RESET}",
+            f"{HACKER_GREEN}[+] Target Realm       : {domain}{RESET}",
+            f"{HACKER_GREEN}[+] Shrines Discovered : {subdomain_count}{RESET}",
+            f"{HACKER_GREEN}[+] Slate Database     : {output_path}{RESET}",
             separator,
         ]
     )
@@ -323,9 +333,22 @@ def build_passive_subdomain_summary(
 
 def run_passive_subdomain_discovery(domain: str, output_path: Path) -> str:
     """Run passive Subfinder discovery and return a clean summary."""
-    write_dynamic_line(f"{ALERT_RED}[*] Starting passive Subfinder discovery...{RESET}")
-    subdomains = run_subfinder(domain, telemetry_callback=handle_subfinder_telemetry)
-    clear_dynamic_line()
+    stop_event = threading.Event()
+    spinner_thread = threading.Thread(
+        target=run_subdomain_spinner,
+        args=(domain, stop_event),
+        daemon=True,
+    )
+
+    spinner_thread.start()
+
+    try:
+        subdomains = run_subfinder(domain)
+    finally:
+        stop_event.set()
+        spinner_thread.join()
+        clear_dynamic_line()
+
     save_subdomain_results(subdomains, output_path)
 
     if not subdomains:
@@ -376,7 +399,7 @@ def main() -> None:
         
     except KeyboardInterrupt:
         clear_dynamic_line()
-        print(f"\n{WARNING_YELLOW}[-] Scan aborted by {ALERT_RED}Ganondorf{WARNING_YELLOW}. Exiting safely.{RESET}")
+        print(f"\n{INFO_BLUE}[-] Scan aborted by {ALERT_RED}Ganondorf{INFO_BLUE}. Exiting safely.{RESET}")
 
 
 if __name__ == "__main__":
