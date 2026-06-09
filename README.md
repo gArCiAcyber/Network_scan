@@ -76,6 +76,7 @@ Target IP address or domain name.
 -t, --threads          Number of concurrent TCP scanner workers.
 -T, --timeout          TCP connection timeout per port in seconds.
 -o, --output           Save TCP reports or choose a Subfinder output directory.
+--json-output          Save TCP scan results as JSON inside the output directory.
 ```
 
 ## Usage
@@ -110,6 +111,12 @@ Save a TCP scan report:
 
 ```bash
 python3 hylianscan.py example.com -p 80,443 -o web_report.txt
+```
+
+Save TCP scan results as JSON:
+
+```bash
+python3 hylianscan.py example.com -p 80,443 --json-output tcp_results.json
 ```
 
 ### Subdomain Discovery Examples
