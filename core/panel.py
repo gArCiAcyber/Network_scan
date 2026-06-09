@@ -14,6 +14,7 @@ class PortFindingView(Protocol):
     service: str
     banner: str | None
     response_time: float
+    web_url: str | None
 
 
 class ScanSummaryView(Protocol):
@@ -29,6 +30,10 @@ class ScanSummaryView(Protocol):
 def format_open_port_line(finding: PortFindingView) -> str:
     """Format an open port discovery line."""
     service_detail = finding.banner or f"{finding.service} active (no banner)"
+
+    if finding.banner is None and finding.web_url is not None:
+        service_detail = f"{service_detail} | {finding.web_url}"
+
     return (
         f"{HACKER_GREEN}[+] Port {finding.port:<5} [OPEN] "
         f"-> Service: {service_detail}{RESET}"
@@ -55,11 +60,8 @@ def build_final_panel(summary: ScanSummaryView) -> str:
         lines.append(f"{INFO_BLUE}Port    Status     Service    Version / Banner{RESET}")
         for finding in summary.open_ports:
             banner = finding.banner or "active (no banner)"
-            
-            # Clean and lowercase the service name (e.g., "HTTP | http://..." becomes "http")
-            raw_service = finding.service.split(" | ")[0] if " | " in finding.service else finding.service
-            clean_service = raw_service.lower()
-            
+            clean_service = finding.service.lower()
+
             lines.append(
                 f"{HACKER_GREEN}{finding.port:<7} "
                 f"[OPEN]     "
