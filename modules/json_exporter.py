@@ -14,6 +14,7 @@ class PortFindingExportView(Protocol):
     banner: str | None
     response_time: float
     web_url: str | None
+    tls: dict[str, Any] | None
 
 
 class ScanResultExportView(Protocol):
@@ -28,6 +29,13 @@ class ScanResultExportView(Protocol):
 
 def build_port_document(finding: PortFindingExportView) -> dict[str, Any]:
     """Build one JSON-ready open-port document."""
+    tls_metadata = finding.tls or {
+        "status": "not_collected",
+        "handshake": {},
+        "certificate": {},
+        "error": None,
+    }
+
     return {
         "port": finding.port,
         "transport": "tcp",
@@ -41,10 +49,7 @@ def build_port_document(finding: PortFindingExportView) -> dict[str, Any]:
         "http": {
             "url": finding.web_url,
         },
-        "tls": {
-            "status": "not_collected",
-            "metadata": {},
-        },
+        "tls": tls_metadata,
         "timing": {
             "response_time_seconds": round(finding.response_time, 6),
         },
