@@ -54,6 +54,7 @@
 - [X] Extract TCP banner grabbing into `modules/banner_grabber.py`.
 - [X] Separate raw TCP scan data from ANSI-rendered output where appropriate.
 - [X] Add JSON export into `output/`.
+- [X] Add TLS certificate metadata extraction to TCP JSON export.
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add configurable worker profiles for fast, balanced, and stealthier scan modes.
 - [ ] Add protocol-aware banner probes for HTTP, SMTP, FTP, and TLS.
