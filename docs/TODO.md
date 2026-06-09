@@ -53,7 +53,7 @@
 - [X] Move `TOP_400_TCP_PORTS` from `hylianscan.py` into a dedicated `modules/ports.py` file.
 - [X] Extract TCP banner grabbing into `modules/banner_grabber.py`.
 - [X] Separate raw TCP scan data from ANSI-rendered output where appropriate.
-- [ ] Add JSON export into `output/`.
+- [X] Add JSON export into `output/`.
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add configurable worker profiles for fast, balanced, and stealthier scan modes.
 - [ ] Add protocol-aware banner probes for HTTP, SMTP, FTP, and TLS.
