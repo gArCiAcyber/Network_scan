@@ -22,6 +22,7 @@ from core.terminal import (
     print_safe,
     write_dynamic_line,
 )
+from modules.json_exporter import write_tcp_json_report
 from modules.ports import TOP_400_TCP_PORTS
 from modules.subdomain import run_subfinder
 from modules.target import TargetInfo, TargetResolutionError, format_target_orientation, resolve_target
@@ -77,6 +78,12 @@ def parse_arguments() -> argparse.Namespace:
             "Save TCP reports inside output/ or choose a directory for "
             "Subfinder results when using -s."
         ),
+    )
+    parser.add_argument(
+        "--json-output",
+        nargs="?",
+        const="hylianscan_tcp_results.json",
+        help="Save TCP scan results as JSON inside the output directory.",
     )
     return parser.parse_args()
 
@@ -165,6 +172,9 @@ def validate_mode(args: argparse.Namespace) -> None:
             "Use --subdomains for passive discovery or port flags for TCP mode, not both."
         )
 
+    if args.subdomains and args.json_output:
+        raise ValueError("Use --json-output only with TCP scan mode.")
+
 
 def resolve_output_path(output_value: str | None) -> Path | None:
     """Resolve an output filename inside the local output directory."""
@@ -172,6 +182,20 @@ def resolve_output_path(output_value: str | None) -> Path | None:
         return None
 
     safe_filename = Path(output_value).name or "hylianscan_results.txt"
+    project_root = Path(__file__).resolve().parent
+    return project_root / "output" / safe_filename
+
+
+def resolve_json_output_path(output_value: str | None) -> Path | None:
+    """Resolve a JSON output filename inside the local output directory."""
+    if output_value is None:
+        return None
+
+    safe_filename = Path(output_value).name or "hylianscan_tcp_results.json"
+
+    if Path(safe_filename).suffix.lower() != ".json":
+        safe_filename = f"{safe_filename}.json"
+
     project_root = Path(__file__).resolve().parent
     return project_root / "output" / safe_filename
 
@@ -329,6 +353,7 @@ def main() -> None:
             print(final_panel)
         else:
             output_path = resolve_output_path(args.output)
+            json_output_path = resolve_json_output_path(args.json_output)
             ports_to_scan = parse_ports_list(args)
             target = resolve_target(args.target)
             show_target_orientation(target)
@@ -341,6 +366,9 @@ def main() -> None:
             final_panel = build_final_panel(scan_result)
             print(final_panel)
             save_report(final_panel, output_path)
+
+            if json_output_path is not None:
+                write_tcp_json_report(scan_result, json_output_path)
 
             if output_path is not None:
                 print_safe(f"[*] Report saved to: {output_path}")
