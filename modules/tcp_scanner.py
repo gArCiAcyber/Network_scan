@@ -5,8 +5,13 @@ import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import Any
 
-from modules.banner_grabber import grab_banner
+from modules.banner_grabber import (
+    grab_banner,
+    grab_tls_metadata,
+    should_collect_tls_metadata,
+)
 from modules.ports import build_web_url, get_service_name, normalize_ports
 
 
@@ -26,6 +31,7 @@ class PortScanResult:
     banner: str | None
     response_time: float
     web_url: str | None = None
+    tls: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +46,7 @@ class ScanResult:
 
 
 def scan_single_port(
+    target_host: str,
     resolved_ip: str,
     port: int,
     timeout: float = DEFAULT_TIMEOUT,
@@ -56,7 +63,12 @@ def scan_single_port(
             if connect_code != 0:
                 return None
 
-            banner = grab_banner(client)
+            if should_collect_tls_metadata(port):
+                banner = None
+                tls = grab_tls_metadata(client, target_host)
+            else:
+                banner = grab_banner(client)
+                tls = None
     except OSError:
         return None
 
@@ -69,6 +81,7 @@ def scan_single_port(
         banner=banner,
         response_time=response_time,
         web_url=web_url,
+        tls=tls,
     )
 
 
@@ -100,7 +113,7 @@ def scan_tcp_ports(
 
     try:
         future_map: dict[Future[PortScanResult | None], int] = {
-            executor.submit(scan_single_port, resolved_ip, port, timeout): port
+            executor.submit(scan_single_port, target_host, resolved_ip, port, timeout): port
             for port in ports_to_scan
         }
 
