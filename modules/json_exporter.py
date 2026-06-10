@@ -1,9 +1,19 @@
 """JSON export helpers for hylianscan scan results."""
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol
+
+
+HTTP_STATUS_PATTERN = re.compile(
+    r"^HTTP/(?P<version>\S+)\s+"
+    r"(?P<status_code>\d{3})"
+    r"(?:\s+(?P<reason_phrase>.*?))?"
+    r"(?=\s+[A-Za-z][A-Za-z0-9-]*:\s+|$)"
+)
+HTTP_HEADER_PATTERN = re.compile(r"(?<!\S)(?P<name>[A-Za-z][A-Za-z0-9-]*):\s+")
 
 
 class PortFindingExportView(Protocol):
@@ -27,6 +37,92 @@ class ScanResultExportView(Protocol):
     duration: float
 
 
+def append_header(headers: dict[str, list[str]], name: str, value: str) -> None:
+    """Append one normalized HTTP header value."""
+    header_name = name.lower()
+    header_value = " ".join(value.split())
+
+    if not header_value:
+        return
+
+    headers.setdefault(header_name, []).append(header_value)
+
+
+def parse_http_headers(header_block: str) -> dict[str, list[str]]:
+    """Parse compact HTTP headers into a case-normalized mapping."""
+    headers: dict[str, list[str]] = {}
+    matches = list(HTTP_HEADER_PATTERN.finditer(header_block))
+
+    for index, match in enumerate(matches):
+        value_start = match.end()
+        value_end = (
+            matches[index + 1].start()
+            if index + 1 < len(matches)
+            else len(header_block)
+        )
+        append_header(
+            headers=headers,
+            name=match.group("name"),
+            value=header_block[value_start:value_end],
+        )
+
+    return headers
+
+
+def get_first_header(headers: Mapping[str, Sequence[str]], name: str) -> str | None:
+    """Return the first value for a normalized HTTP header name."""
+    values = headers.get(name)
+
+    if not values:
+        return None
+
+    return values[0]
+
+
+def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
+    """Parse HTTP response metadata while preserving the raw banner elsewhere."""
+    metadata: dict[str, Any] = {
+        "url": url,
+        "protocol": None,
+        "status_code": None,
+        "reason_phrase": None,
+        "server": None,
+        "location": None,
+        "content_type": None,
+        "headers": {},
+    }
+
+    if banner is None:
+        return metadata
+
+    status_match = HTTP_STATUS_PATTERN.match(banner)
+
+    if status_match is None:
+        return metadata
+
+    protocol = f"HTTP/{status_match.group('version')}"
+    status_code = int(status_match.group("status_code"))
+    reason_phrase = (
+        " ".join((status_match.group("reason_phrase") or "").split())
+        or None
+    )
+    headers = parse_http_headers(banner[status_match.end():])
+
+    metadata.update(
+        {
+            "protocol": protocol,
+            "status_code": status_code,
+            "reason_phrase": reason_phrase,
+            "server": get_first_header(headers, "server"),
+            "location": get_first_header(headers, "location"),
+            "content_type": get_first_header(headers, "content-type"),
+            "headers": headers,
+        }
+    )
+
+    return metadata
+
+
 def build_port_document(finding: PortFindingExportView) -> dict[str, Any]:
     """Build one JSON-ready open-port document."""
     tls_metadata = finding.tls or {
@@ -46,9 +142,7 @@ def build_port_document(finding: PortFindingExportView) -> dict[str, Any]:
         "banner": {
             "raw": finding.banner,
         },
-        "http": {
-            "url": finding.web_url,
-        },
+        "http": parse_http_metadata(finding.banner, finding.web_url),
         "tls": tls_metadata,
         "timing": {
             "response_time_seconds": round(finding.response_time, 6),
