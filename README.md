@@ -136,7 +136,7 @@ Save TCP scan results as JSON:
 python3 hylianscan.py example.com -p 80,443 --json-output tcp_results.json
 ```
 
-The JSON export includes future-ready TCP findings with banner, HTTP URL, timing, and TLS certificate metadata when a TLS service is detected.
+The JSON export includes future-ready TCP findings with raw banner evidence, structured HTTP status/header metadata, HTTP URL, timing, and TLS certificate metadata when a TLS service is detected.
 
 ### Subdomain Discovery Examples
 

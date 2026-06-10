@@ -73,7 +73,7 @@
 
 ## v0.9 Ideas
 
-- [ ] Add structured HTTP metadata extraction to JSON reports.
+- [X] Add structured HTTP metadata extraction to JSON reports.
 - [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
 - [ ] Add TLS certificate expiry and hostname-mismatch risk indicators.
 - [ ] Add protocol probe registry to make service fingerprinting easier to extend.
