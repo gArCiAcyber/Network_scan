@@ -57,7 +57,7 @@
 - [X] Add TLS certificate metadata extraction to TCP JSON export.
 - [X] Add compact HTTP terminal summaries for protocol-aware banners.
 - [ ] Add TXT report export templates into `output/`.
-- [ ] Add configurable worker profiles for fast, balanced, and stealthier scan modes.
+- [X] Add configurable worker profiles for fast, balanced, and stealthier scan modes.
 - [X] Add protocol-aware banner probes for HTTP, SMTP, FTP, and TLS.
 - [ ] Add IPv6 support with `socket.getaddrinfo()`.
 - [ ] Add unit tests for target parsing, port normalization, banner cleanup, and Subfinder parsing.

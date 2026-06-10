@@ -49,6 +49,7 @@ hylianscan/
 |   |-- __init__.py
 |   |-- banner_grabber.py
 |   |-- ports.py
+|   |-- scan_stance.py
 |   |-- subdomain.py
 |   |-- target.py
 |   |-- tcp_scanner.py
@@ -73,8 +74,9 @@ Target IP address or domain name.
 -p, --ports            Ports to scan. Supports comma lists, ranges, and "-".
 --top-ports            Scan the top N built-in TCP ports.
 -s, --subdomains       Enable passive subdomain discovery using Subfinder.
--t, --threads          Number of concurrent TCP scanner workers.
--T, --timeout          TCP connection timeout per port in seconds.
+--stance               TCP scan stance: fast/din, balanced/nayru, or stealthier/farore.
+-t, --threads          Override the selected stance worker count.
+-T, --timeout          Override the selected stance timeout per TCP port.
 -o, --output           Save TCP reports or choose a Subfinder output directory.
 --json-output          Save TCP scan results as JSON inside the output directory.
 ```
@@ -93,6 +95,18 @@ Scan custom ports with custom timeout and threads:
 
 ```bash
 python3 hylianscan.py scanme.nmap.org -p 80,443,8080 -T 1.5 -t 20
+```
+
+Scan with the fast stance:
+
+```bash
+python3 hylianscan.py scanme.nmap.org --stance fast
+```
+
+Use the equivalent Triforce lore alias:
+
+```bash
+python3 hylianscan.py scanme.nmap.org --stance din
 ```
 
 Scan custom port range:
