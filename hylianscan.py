@@ -13,6 +13,9 @@ from core.colors import (
     HACKER_GREEN,
     INFO_BLUE,
     RESET,
+    TRIFORCE_BLUE,
+    TRIFORCE_GREEN,
+    TRIFORCE_RED,
     WARNING_YELLOW,
 )
 from core.panel import build_final_panel, format_open_port_line
@@ -24,9 +27,18 @@ from core.terminal import (
 )
 from modules.json_exporter import write_tcp_json_report
 from modules.ports import TOP_400_TCP_PORTS
+from modules.scan_stance import ScanStance, resolve_stance
 from modules.subdomain import run_subfinder
 from modules.target import TargetInfo, TargetResolutionError, format_target_orientation, resolve_target
 from modules.tcp_scanner import PortScanResult, ScanResult, scan_tcp_ports
+
+
+DEFAULT_STANCE = "balanced"
+STANCE_ALIAS_COLORS = {
+    "Din": TRIFORCE_RED,
+    "Nayru": TRIFORCE_BLUE,
+    "Farore": TRIFORCE_GREEN,
+}
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -59,15 +71,21 @@ def parse_arguments() -> argparse.Namespace:
         "-t",
         "--threads",
         type=int,
-        default=10,
-        help="Number of concurrent threads for scanning. Default: 10.",
+        help="Override the selected stance worker count.",
     )
     parser.add_argument(
         "-T",
         "--timeout",
         type=float,
-        default=1.0,
-        help="Connection timeout per TCP port in seconds. Default: 1.0.",
+        help="Override the selected stance timeout per TCP port in seconds.",
+    )
+    parser.add_argument(
+        "--stance",
+        default=DEFAULT_STANCE,
+        help=(
+            "TCP scan stance. Supports fast/din, balanced/nayru, "
+            "and stealthier/farore. Default: balanced."
+        ),
     )
     parser.add_argument(
         "-o",
@@ -165,6 +183,24 @@ def validate_threads(threads: int) -> int:
     return threads
 
 
+def resolve_scan_stance(args: argparse.Namespace) -> ScanStance:
+    """Resolve the selected scan stance and explicit CLI overrides."""
+    explicit_threads = None
+    explicit_timeout = None
+
+    if args.threads is not None:
+        explicit_threads = validate_threads(args.threads)
+
+    if args.timeout is not None:
+        explicit_timeout = validate_timeout(args.timeout)
+
+    return resolve_stance(
+        stance_value=args.stance,
+        explicit_workers=explicit_threads,
+        explicit_timeout=explicit_timeout,
+    )
+
+
 def validate_mode(args: argparse.Namespace) -> None:
     """Prevent ambiguous mode combinations."""
     if args.subdomains and (args.ports or args.top_ports):
@@ -238,6 +274,19 @@ def show_target_orientation(target: TargetInfo) -> None:
     """Render the target orientation block."""
     print()
     print(f"{INFO_BLUE}{format_target_orientation(target)}{RESET}")
+    print()
+
+
+def show_scan_stance(stance: ScanStance) -> None:
+    """Render the active TCP scan stance below target orientation."""
+    alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
+
+    print(
+        f"{HACKER_GREEN}[+] Active Stance: "
+        f"{stance.name} ({alias_color}{stance.lore_alias}{HACKER_GREEN}){RESET}"
+    )
+    print(f"{HACKER_GREEN}[+] Workers: {stance.workers}{RESET}")
+    print(f"{HACKER_GREEN}[+] Timeout: {stance.timeout:.2f}s{RESET}")
     print()
 
 
@@ -342,8 +391,6 @@ def main() -> None:
     try:
         args = parse_arguments()
         validate_mode(args)
-        timeout = validate_timeout(args.timeout)
-        threads = validate_threads(args.threads)
         clear_screen()
         show_banner()
 
@@ -355,13 +402,15 @@ def main() -> None:
             output_path = resolve_output_path(args.output)
             json_output_path = resolve_json_output_path(args.json_output)
             ports_to_scan = parse_ports_list(args)
+            scan_stance = resolve_scan_stance(args)
             target = resolve_target(args.target)
             show_target_orientation(target)
+            show_scan_stance(scan_stance)
             scan_result = run_port_scan(
                 target=target,
                 ports_to_scan=ports_to_scan,
-                timeout=timeout,
-                max_workers=threads,
+                timeout=scan_stance.timeout,
+                max_workers=scan_stance.workers,
             )
             final_panel = build_final_panel(scan_result)
             print(final_panel)
