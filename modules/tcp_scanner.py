@@ -7,11 +7,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
-from modules.banner_grabber import (
-    grab_banner,
-    grab_tls_metadata,
-    should_collect_tls_metadata,
-)
+from modules.banner_grabber import grab_service_banner
 from modules.ports import build_web_url, get_service_name, normalize_ports
 
 
@@ -63,12 +59,7 @@ def scan_single_port(
             if connect_code != 0:
                 return None
 
-            if should_collect_tls_metadata(port):
-                banner = None
-                tls = grab_tls_metadata(client, target_host)
-            else:
-                banner = grab_banner(client)
-                tls = None
+            banner, tls = grab_service_banner(client, target_host, port)
     except OSError:
         return None
 
