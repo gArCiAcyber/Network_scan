@@ -48,7 +48,7 @@
 - [x] Added a clean `HACKER_GREEN` passive discovery completion summary.
 - [x] Fully removed legacy multithreaded/socket brute-force dead code from `modules/subdomain.py`.
 
-## v0.8 Ideas
+## v0.8 Release Scope
 
 - [X] Move `TOP_400_TCP_PORTS` from `hylianscan.py` into a dedicated `modules/ports.py` file.
 - [X] Extract TCP banner grabbing into `modules/banner_grabber.py`.
@@ -56,6 +56,10 @@
 - [X] Add JSON export into `output/`.
 - [X] Add TLS certificate metadata extraction to TCP JSON export.
 - [X] Add compact HTTP terminal summaries for protocol-aware banners.
+- [X] Replace `--subdomains` with `--subfinder` while preserving `-s`.
+- [X] Add Amass as a second passive subdomain discovery provider.
+- [X] Add multi-provider passive discovery with deduplicated TXT output.
+- [X] Add provider source attribution to passive subdomain JSON export.
 - [ ] Add TXT report export templates into `output/`.
 - [X] Add configurable worker profiles for fast, balanced, and stealthier scan modes.
 - [X] Add protocol-aware banner probes for HTTP, SMTP, FTP, and TLS.
@@ -63,8 +67,9 @@
 - [ ] Add unit tests for target parsing, port normalization, banner cleanup, and Subfinder parsing.
 - [ ] Add a quiet mode for automation-friendly output.
 - [ ] Add structured scan profiles.
-- [ ] Add JSON export for passive subdomain discovery.
+- [X] Add JSON export for passive subdomain discovery.
 - [ ] Add configurable Subfinder binary path support.
+- [ ] Add configurable Amass binary path support.
 
 ## v0.9 Ideas
 

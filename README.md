@@ -2,7 +2,7 @@
 
 `hylianscan` is a Python 3 reconnaissance and networking lab tool built for authorized targets, Kali Linux workflows, and practical study of offensive security automation.
 
-The current development version is `v0.7-dev`.
+The current release version is `v0.8`.
 
 ## Scope
 
@@ -20,15 +20,16 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 
 ### Passive Subdomain Discovery
 
-- **Subfinder Integration:** Leverages Subfinder via subprocesses with dynamic stderr telemetry streaming.
+- **Multi-Provider Discovery:** Supports Subfinder, Amass, or both providers in the same passive run.
 - **Clean Data Handling:** Automatically sanitizes ANSI escape codes, normalizes results to lowercase, deduplicates, and sorts subdomains alphabetically.
-- **Silent Operations:** Prints a clean final summary to the terminal instead of flooding the screen, keeping outputs clean.
+- **Provider-Aware Output:** Keeps TXT output simple while JSON export tracks provider counts, merged results, and subdomain source attribution.
+- **Silent Operations:** Prints a clean final summary to the terminal instead of flooding the screen, keeping TXT and optional JSON outputs clean.
 
 ## Requirements
 
 - Python 3 (Standard-library only).
 - Linux terminal environment (preferably Kali Linux).
-- Subfinder installed and available in your `PATH`.
+- Subfinder and/or Amass installed and available in your `PATH` for passive discovery.
 
 ## Project Layout
 
@@ -60,6 +61,7 @@ hylianscan/
 |   |-- v0.5_summary.md
 |   |-- v0.6_summary.md
 |   |-- v0.7_summary.md
+|   |-- v0.8_summary.md
 |-- .gitattributes
 |-- .gitignore
 |-- hylianscan.py
@@ -73,12 +75,13 @@ hylianscan/
 Target IP address or domain name.
 -p, --ports            Ports to scan. Supports comma lists, ranges, and "-".
 --top-ports            Scan the top N built-in TCP ports.
--s, --subdomains       Enable passive subdomain discovery using Subfinder.
+-s, --subfinder        Enable passive subdomain discovery using Subfinder.
+-a, --amass            Enable passive subdomain discovery using Amass.
 --stance               TCP scan stance: fast/din, balanced/nayru, or stealthier/farore.
 -t, --threads          Override the selected stance worker count.
 -T, --timeout          Override the selected stance timeout per TCP port.
--o, --output           Save TCP reports or choose a Subfinder output directory.
---json-output          Save TCP scan results as JSON inside the output directory.
+-o, --output           Save TCP reports or choose a passive output directory.
+--json-output          Save TCP or passive subdomain results as JSON inside the output directory.
 ```
 
 ## Usage
@@ -137,10 +140,22 @@ The JSON export includes future-ready TCP findings with banner, HTTP URL, timing
 
 ### Subdomain Discovery Examples
 
-Run passive subdomain discovery (saves to output/hylianscan_subdomains.txt):
+Run passive discovery with Subfinder only:
 
 ```bash
 python3 hylianscan.py example.com -s
+```
+
+Run passive discovery with Amass only:
+
+```bash
+python3 hylianscan.py example.com -a
+```
+
+Run passive discovery with both providers:
+
+```bash
+python3 hylianscan.py example.com -s -a
 ```
 
 Run discovery with a custom output directory:
@@ -149,11 +164,17 @@ Run discovery with a custom output directory:
 python3 hylianscan.py example.com -s -o reports
 ```
 
+Save passive discovery as TXT and JSON:
+
+```bash
+python3 hylianscan.py example.com -s -a --json-output subdomains.json
+```
+
 ## Execution Notes
 
-Mode Separation: TCP scanning (-p) and subdomain discovery (-s) are separate modes and cannot be combined in a single command.
+Mode Separation: TCP scanning (-p) and passive discovery (-s/-a) are separate modes and cannot be combined in a single command.
 
-Output Behavior: TCP mode prints live findings on screen. Subdomain mode runs silently in the background, showing execution telemetry, and saves the final result straight to disk.
+Output Behavior: TCP mode prints live findings on screen. Passive discovery mode shows selected providers, runs silently in the background, and saves deduplicated results straight to disk.
 
 
 Roadmap: Future work, including wildcard DNS filtering workflows, is tracked in docs/TODO.md.
