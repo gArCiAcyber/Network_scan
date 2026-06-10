@@ -15,7 +15,7 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 - Flexible Targeting: Resolves domains to IPv4 addresses or accepts direct IPs.
 - High Performance: Multi-threaded TCP scanning utilizing `ThreadPoolExecutor` and `socket.connect_ex()`.
 - Custom Port Selection: Supports comma-separated lists (`-p 80,443`), explicit ranges (`-p 1-1000`), top-port presets (`--top-ports`), and full 65535 range scanning (`-p -`).
-- Smart Reconnaissance: Features lightweight passive banner grabbing through a dedicated banner module, TLS certificate metadata extraction for HTTPS/implicit-TLS services, and clickable web service hints for standard HTTP/HTTPS ports.
+- Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, and FTP, passive banner fallback for unknown services, TLS certificate metadata extraction for HTTPS/implicit-TLS services, and clickable web service hints for standard HTTP/HTTPS ports.
 - Clean UI & Reporting: Renders a final security-focused terminal panel and supports saving clean TCP reports with `-o / --output`.
 
 ### Passive Subdomain Discovery
