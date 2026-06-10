@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main CLI orchestrator for hylianscan v0.7-dev."""
+"""Main CLI orchestrator for hylianscan v0.8."""
 
 import argparse
 import itertools
@@ -10,6 +10,7 @@ from pathlib import Path
 from core.banner import show_banner
 from core.colors import (
     ALERT_RED,
+    BOLD_BLUE,
     HACKER_GREEN,
     INFO_BLUE,
     RESET,
@@ -25,10 +26,10 @@ from core.terminal import (
     print_safe,
     write_dynamic_line,
 )
-from modules.json_exporter import write_tcp_json_report
+from modules.json_exporter import write_subdomain_json_report, write_tcp_json_report
 from modules.ports import TOP_400_TCP_PORTS
 from modules.scan_stance import ScanStance, resolve_stance
-from modules.subdomain import run_subfinder
+from modules.subdomain import run_amass, run_subfinder
 from modules.target import TargetInfo, TargetResolutionError, format_target_orientation, resolve_target
 from modules.tcp_scanner import PortScanResult, ScanResult, scan_tcp_ports
 
@@ -38,6 +39,10 @@ STANCE_ALIAS_COLORS = {
     "Din": TRIFORCE_RED,
     "Nayru": TRIFORCE_BLUE,
     "Farore": TRIFORCE_GREEN,
+}
+PASSIVE_PROVIDER_LABELS = {
+    "subfinder": ("Subfinder", TRIFORCE_BLUE),
+    "amass": ("Amass", TRIFORCE_RED),
 }
 
 
@@ -63,9 +68,15 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "-s",
-        "--subdomains",
+        "--subfinder",
         action="store_true",
         help="Enable passive subdomain discovery using Subfinder.",
+    )
+    parser.add_argument(
+        "-a",
+        "--amass",
+        action="store_true",
+        help="Enable passive subdomain discovery using Amass.",
     )
     parser.add_argument(
         "-t",
@@ -94,14 +105,14 @@ def parse_arguments() -> argparse.Namespace:
         const="hylianscan_results.txt",
         help=(
             "Save TCP reports inside output/ or choose a directory for "
-            "Subfinder results when using -s."
+            "passive subdomain results."
         ),
     )
     parser.add_argument(
         "--json-output",
         nargs="?",
         const="hylianscan_tcp_results.json",
-        help="Save TCP scan results as JSON inside the output directory.",
+        help="Save TCP or passive subdomain results as JSON inside the output directory.",
     )
     return parser.parse_args()
 
@@ -201,15 +212,27 @@ def resolve_scan_stance(args: argparse.Namespace) -> ScanStance:
     )
 
 
+def get_passive_providers(args: argparse.Namespace) -> list[str]:
+    """Return the selected passive discovery providers."""
+    providers: list[str] = []
+
+    if args.subfinder:
+        providers.append("subfinder")
+
+    if args.amass:
+        providers.append("amass")
+
+    return providers
+
+
 def validate_mode(args: argparse.Namespace) -> None:
     """Prevent ambiguous mode combinations."""
-    if args.subdomains and (args.ports or args.top_ports):
-        raise ValueError(
-            "Use --subdomains for passive discovery or port flags for TCP mode, not both."
-        )
+    passive_providers = get_passive_providers(args)
 
-    if args.subdomains and args.json_output:
-        raise ValueError("Use --json-output only with TCP scan mode.")
+    if passive_providers and (args.ports or args.top_ports):
+        raise ValueError(
+            "Use passive discovery provider flags or port flags for TCP mode, not both."
+        )
 
 
 def resolve_output_path(output_value: str | None) -> Path | None:
@@ -236,8 +259,25 @@ def resolve_json_output_path(output_value: str | None) -> Path | None:
     return project_root / "output" / safe_filename
 
 
+def resolve_subdomain_json_output_path(output_value: str | None) -> Path | None:
+    """Resolve a passive subdomain JSON output filename inside output/."""
+    if output_value is None:
+        return None
+
+    safe_filename = Path(output_value).name or "hylianscan_subdomains.json"
+
+    if safe_filename == "hylianscan_tcp_results.json":
+        safe_filename = "hylianscan_subdomains.json"
+
+    if Path(safe_filename).suffix.lower() != ".json":
+        safe_filename = f"{safe_filename}.json"
+
+    project_root = Path(__file__).resolve().parent
+    return project_root / "output" / safe_filename
+
+
 def resolve_subdomain_output_path(output_value: str | None) -> Path:
-    """Resolve the mandatory Subfinder output file path."""
+    """Resolve the mandatory passive subdomain output file path."""
     project_root = Path(__file__).resolve().parent
     default_output_dir = project_root / "output"
 
@@ -270,10 +310,33 @@ def save_subdomain_results(subdomains: list[str], output_path: Path) -> None:
     output_path.write_text("\n".join(subdomains) + "\n", encoding="utf-8")
 
 
+def merge_subdomain_results(provider_results: dict[str, list[str]]) -> list[str]:
+    """Merge provider results into one deduplicated and sorted subdomain list."""
+    return sorted(
+        {
+            subdomain.strip().lower().strip(".")
+            for subdomains in provider_results.values()
+            for subdomain in subdomains
+            if subdomain.strip()
+        }
+    )
+
+
 def show_target_orientation(target: TargetInfo) -> None:
     """Render the target orientation block."""
     print()
     print(f"{INFO_BLUE}{format_target_orientation(target)}{RESET}")
+    print()
+
+
+def show_passive_providers(providers: list[str]) -> None:
+    """Render selected passive discovery providers before enumeration starts."""
+    print(f"{HACKER_GREEN}[*] Passive Discovery Providers:{RESET}")
+
+    for provider in providers:
+        label, color = PASSIVE_PROVIDER_LABELS[provider]
+        print(f"{HACKER_GREEN}[+] {color}{label}{RESET}")
+
     print()
 
 
@@ -282,11 +345,11 @@ def show_scan_stance(stance: ScanStance) -> None:
     alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
 
     print(
-        f"{HACKER_GREEN}[+] Active Stance: "
-        f"{stance.name} ({alias_color}{stance.lore_alias}{HACKER_GREEN}){RESET}"
+        f"{BOLD_BLUE}[+] Active Stance: "
+        f"{stance.name} ({alias_color}{stance.lore_alias}{BOLD_BLUE}){RESET}"
     )
-    print(f"{HACKER_GREEN}[+] Workers: {stance.workers}{RESET}")
-    print(f"{HACKER_GREEN}[+] Timeout: {stance.timeout:.2f}s{RESET}")
+    print(f"{BOLD_BLUE}[+] Workers: {stance.workers}{RESET}")
+    print(f"{BOLD_BLUE}[+] Timeout: {stance.timeout:.2f}s{RESET}")
     print()
 
 
@@ -358,8 +421,13 @@ def build_passive_subdomain_summary(
     )
 
 
-def run_passive_subdomain_discovery(domain: str, output_path: Path) -> str:
-    """Run passive Subfinder discovery and return a clean summary."""
+def run_passive_subdomain_discovery(
+    domain: str,
+    providers: list[str],
+    output_path: Path,
+    json_output_path: Path | None = None,
+) -> str:
+    """Run selected passive discovery providers and return a clean summary."""
     stop_event = threading.Event()
     spinner_thread = threading.Thread(
         target=run_subdomain_spinner,
@@ -370,17 +438,31 @@ def run_passive_subdomain_discovery(domain: str, output_path: Path) -> str:
     spinner_thread.start()
 
     try:
-        subdomains = run_subfinder(domain)
+        provider_results: dict[str, list[str]] = {}
+
+        for provider in providers:
+            if provider == "subfinder":
+                provider_results[provider] = run_subfinder(domain)
+            elif provider == "amass":
+                provider_results[provider] = run_amass(domain)
     finally:
         stop_event.set()
         spinner_thread.join()
         clear_dynamic_line()
 
+    subdomains = merge_subdomain_results(provider_results)
     save_subdomain_results(subdomains, output_path)
+
+    if json_output_path is not None:
+        write_subdomain_json_report(
+            target_domain=domain,
+            provider_results=provider_results,
+            output_path=json_output_path,
+        )
 
     if not subdomains:
         print_safe(
-            f"{ALERT_RED}[-] No passive subdomains were returned by Subfinder.{RESET}"
+            f"{ALERT_RED}[-] No passive subdomains were returned by selected providers.{RESET}"
         )
 
     return build_passive_subdomain_summary(domain, len(subdomains), output_path)
@@ -394,9 +476,18 @@ def main() -> None:
         clear_screen()
         show_banner()
 
-        if args.subdomains:
+        passive_providers = get_passive_providers(args)
+
+        if passive_providers:
             output_path = resolve_subdomain_output_path(args.output)
-            final_panel = run_passive_subdomain_discovery(args.target, output_path)
+            json_output_path = resolve_subdomain_json_output_path(args.json_output)
+            show_passive_providers(passive_providers)
+            final_panel = run_passive_subdomain_discovery(
+                domain=args.target,
+                providers=passive_providers,
+                output_path=output_path,
+                json_output_path=json_output_path,
+            )
             print(final_panel)
         else:
             output_path = resolve_output_path(args.output)
