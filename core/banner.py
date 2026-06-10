@@ -2,7 +2,7 @@
 
 from core.colors import HACKER_GREEN, RESET, TRIFORCE_GREEN, TRIFORCE_RED, TRIFORCE_BLUE, BOLD_GOLD, BOLD_BLUE, BOLD_WHITE, BOLD_GREEN, BOLD_RED
 
-VERSION = "0.7"
+VERSION = "0.8"
 
 
 L1 = r" __  __   __    __  __     ______   ______  __  __  ____    ____     ______  __  __   "
