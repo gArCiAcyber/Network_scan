@@ -55,6 +55,7 @@
 - [X] Separate raw TCP scan data from ANSI-rendered output where appropriate.
 - [X] Add JSON export into `output/`.
 - [X] Add TLS certificate metadata extraction to TCP JSON export.
+- [X] Add compact HTTP terminal summaries for protocol-aware banners.
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add configurable worker profiles for fast, balanced, and stealthier scan modes.
 - [X] Add protocol-aware banner probes for HTTP, SMTP, FTP, and TLS.
@@ -64,6 +65,15 @@
 - [ ] Add structured scan profiles.
 - [ ] Add JSON export for passive subdomain discovery.
 - [ ] Add configurable Subfinder binary path support.
+
+## v0.9 Ideas
+
+- [ ] Add structured HTTP metadata extraction to JSON reports.
+- [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
+- [ ] Add TLS certificate expiry and hostname-mismatch risk indicators.
+- [ ] Add protocol probe registry to make service fingerprinting easier to extend.
+- [ ] Add local mock-service tests for HTTP, TLS, SMTP, and FTP banner parsing.
+- [ ] Add scan intensity profiles with rate limiting and jitter controls.
 
 ## Long-Term Research
 
