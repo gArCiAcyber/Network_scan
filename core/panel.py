@@ -1,5 +1,6 @@
 """Final report panel rendering for hylianscan."""
 
+import re
 from collections.abc import Sequence
 from typing import Any, Protocol
 
@@ -106,10 +107,69 @@ def format_tls_summary(tls: dict[str, Any] | None) -> str | None:
     return f"TLS {' | '.join(details)}"
 
 
+def truncate_display_value(value: str, max_length: int = 80) -> str:
+    """Keep terminal header values compact and readable."""
+    if len(value) <= max_length:
+        return value
+
+    return f"{value[: max_length - 3]}..."
+
+
+def extract_http_header(banner: str, header_name: str) -> str | None:
+    """Extract one HTTP header value from a compact banner string."""
+    pattern = (
+        rf"(?:^|\s){re.escape(header_name)}:\s*"
+        r"(.*?)(?=\s+[A-Za-z][A-Za-z0-9-]*:\s|$)"
+    )
+    match = re.search(pattern, banner, flags=re.IGNORECASE)
+
+    if match is None:
+        return None
+
+    value = " ".join(match.group(1).split())
+    return value or None
+
+
+def format_http_summary(banner: str | None) -> str | None:
+    """Build a compact terminal summary from an HTTP response banner."""
+    if not banner:
+        return None
+
+    status_match = re.match(
+        r"^HTTP/\S+\s+(\d{3})(?:\s+(.*?))?(?=\s+[A-Za-z][A-Za-z0-9-]*:\s|$)",
+        banner,
+    )
+
+    if status_match is None:
+        return None
+
+    status_code = status_match.group(1)
+    reason = " ".join((status_match.group(2) or "").split())
+    status = f"HTTP {status_code}"
+
+    if reason:
+        status = f"{status} {reason}"
+
+    details = [status]
+
+    for header_name, label in (
+        ("Server", "Server"),
+        ("Location", "Location"),
+        ("Content-Type", "Content-Type"),
+    ):
+        value = extract_http_header(banner, header_name)
+
+        if value:
+            details.append(f"{label}={truncate_display_value(value)}")
+
+    return " | ".join(details)
+
+
 def format_service_detail(finding: PortFindingView, include_web_url: bool) -> str:
     """Return the most useful terminal service detail for a finding."""
     service_detail = (
-        finding.banner
+        format_http_summary(finding.banner)
+        or finding.banner
         or format_tls_summary(finding.tls)
         or f"{finding.service} active (no banner)"
     )
