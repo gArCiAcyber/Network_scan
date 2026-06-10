@@ -1,7 +1,7 @@
-"""JSON export helpers for hylianscan TCP scan results."""
+"""JSON export helpers for hylianscan scan results."""
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -92,6 +92,94 @@ def write_tcp_json_report(scan_result: ScanResultExportView, output_path: Path) 
     """Write TCP scan results as pretty JSON."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document = build_tcp_scan_document(scan_result)
+    output_path.write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def normalize_subdomain_results(subdomains: Sequence[str]) -> list[str]:
+    """Normalize, deduplicate, and sort subdomain results for export."""
+    normalized = {
+        subdomain.strip().lower().strip(".")
+        for subdomain in subdomains
+        if subdomain.strip()
+    }
+    return sorted(normalized)
+
+
+def build_subdomain_provider_documents(
+    provider_results: Mapping[str, Sequence[str]],
+) -> list[dict[str, Any]]:
+    """Build provider-specific subdomain result documents."""
+    provider_documents: list[dict[str, Any]] = []
+
+    for provider_name in sorted(provider_results):
+        subdomains = normalize_subdomain_results(provider_results[provider_name])
+        provider_documents.append(
+            {
+                "name": provider_name,
+                "count": len(subdomains),
+                "subdomains": subdomains,
+            }
+        )
+
+    return provider_documents
+
+
+def build_subdomain_discovery_document(
+    target_domain: str,
+    provider_results: Mapping[str, Sequence[str]],
+) -> dict[str, Any]:
+    """Build a provider-aware JSON document for passive subdomain discovery."""
+    provider_documents = build_subdomain_provider_documents(provider_results)
+    subdomain_sources: dict[str, list[str]] = {}
+
+    for provider_document in provider_documents:
+        provider_name = provider_document["name"]
+
+        for subdomain in provider_document["subdomains"]:
+            subdomain_sources.setdefault(subdomain, []).append(provider_name)
+
+    final_subdomains = sorted(
+        {
+            subdomain
+            for provider_document in provider_documents
+            for subdomain in provider_document["subdomains"]
+        }
+    )
+
+    return {
+        "schema": {
+            "name": "hylianscan_passive_subdomain_discovery",
+            "version": 1,
+        },
+        "discovery": {
+            "type": "passive_subdomain",
+            "target": {
+                "domain": target_domain,
+            },
+            "summary": {
+                "providers": len(provider_documents),
+                "deduplicated_subdomains": len(final_subdomains),
+            },
+        },
+        "providers": provider_documents,
+        "results": {
+            "subdomains": final_subdomains,
+            "sources": subdomain_sources,
+        },
+    }
+
+
+def write_subdomain_json_report(
+    target_domain: str,
+    provider_results: Mapping[str, Sequence[str]],
+    output_path: Path,
+) -> None:
+    """Write passive subdomain discovery results as provider-aware JSON."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    document = build_subdomain_discovery_document(target_domain, provider_results)
     output_path.write_text(
         json.dumps(document, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

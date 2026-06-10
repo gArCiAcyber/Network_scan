@@ -18,7 +18,7 @@ def clean_terminal_text(value: str) -> str:
 
 
 def clean_subdomain(value: str) -> str | None:
-    """Normalize one Subfinder stdout line into a subdomain candidate."""
+    """Normalize one provider stdout line into a subdomain candidate."""
     candidate = clean_terminal_text(value).lower().strip(".")
 
     if not candidate or "." not in candidate:
@@ -42,11 +42,13 @@ def stream_lines(stream: TextIO | None, line_handler: Callable[[str], None]) -> 
             line_handler(line)
 
 
-def run_subfinder(
+def run_passive_provider(
     domain: str,
+    provider_name: str,
+    command: list[str],
     telemetry_callback: TelemetryCallback | None = None,
 ) -> list[str]:
-    """Run Subfinder passive discovery and return clean subdomain results."""
+    """Run one passive discovery provider and return clean subdomain results."""
     subdomains: list[str] = []
     seen: set[str] = set()
 
@@ -65,7 +67,7 @@ def run_subfinder(
 
     try:
         process = subprocess.Popen(
-            ["subfinder", "-d", domain],
+            command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -73,7 +75,7 @@ def run_subfinder(
         )
     except OSError as error:
         if telemetry_callback is not None:
-            telemetry_callback(f"[-] Unable to start Subfinder: {error}")
+            telemetry_callback(f"[-] Unable to start {provider_name}: {error}")
         return []
 
     stdout_thread = threading.Thread(
@@ -100,6 +102,32 @@ def run_subfinder(
         stderr_thread.join()
 
     if return_code != 0 and telemetry_callback is not None:
-        telemetry_callback(f"[-] Subfinder exited with status code {return_code}.")
+        telemetry_callback(f"[-] {provider_name} exited with status code {return_code}.")
 
     return sorted(subdomains)
+
+
+def run_subfinder(
+    domain: str,
+    telemetry_callback: TelemetryCallback | None = None,
+) -> list[str]:
+    """Run Subfinder passive discovery and return clean subdomain results."""
+    return run_passive_provider(
+        domain=domain,
+        provider_name="Subfinder",
+        command=["subfinder", "-d", domain, "-silent"],
+        telemetry_callback=telemetry_callback,
+    )
+
+
+def run_amass(
+    domain: str,
+    telemetry_callback: TelemetryCallback | None = None,
+) -> list[str]:
+    """Run Amass passive discovery and return clean subdomain results."""
+    return run_passive_provider(
+        domain=domain,
+        provider_name="Amass",
+        command=["amass", "enum", "-passive", "-d", domain],
+        telemetry_callback=telemetry_callback,
+    )
