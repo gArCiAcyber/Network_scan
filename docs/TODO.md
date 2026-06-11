@@ -79,6 +79,7 @@
 - [X] Add passive lifecycle telemetry beneath the enumeration spinner.
 - [X] Polish passive discovery terminal styling with character-name highlighting.
 - [X] Merge TCP scan stance details into the Target Orientation block.
+- [X] Refactor the startup banner to Slant TrueColor RGB rendering.
 - [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
 - [ ] Add TLS certificate expiry and hostname-mismatch risk indicators.
 - [ ] Add protocol probe registry to make service fingerprinting easier to extend.
