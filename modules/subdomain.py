@@ -10,6 +10,8 @@ from typing import TextIO
 TelemetryCallback = Callable[[str], None]
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+DEFAULT_PROVIDER_TIMEOUT_SECONDS = 180.0
+PROVIDER_SHUTDOWN_GRACE_SECONDS = 5.0
 
 
 def clean_terminal_text(value: str) -> str:
@@ -47,6 +49,7 @@ def run_passive_provider(
     provider_name: str,
     command: list[str],
     telemetry_callback: TelemetryCallback | None = None,
+    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
 ) -> list[str]:
     """Run one passive discovery provider and return clean subdomain results."""
     subdomains: list[str] = []
@@ -60,6 +63,9 @@ def run_passive_provider(
 
         seen.add(subdomain)
         subdomains.append(subdomain)
+
+        if telemetry_callback is not None:
+            telemetry_callback(f"{provider_name} discovered subdomain")
 
     def handle_stderr(line: str) -> None:
         if telemetry_callback is not None:
@@ -93,15 +99,28 @@ def run_passive_provider(
     stderr_thread.start()
 
     try:
-        return_code = process.wait()
+        return_code = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if telemetry_callback is not None:
+            telemetry_callback(f"{provider_name} timed out; preserving partial results")
+
+        process.terminate()
+
+        try:
+            process.wait(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+        return_code = None
     except KeyboardInterrupt:
         process.terminate()
         raise
     finally:
-        stdout_thread.join()
-        stderr_thread.join()
+        stdout_thread.join(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
+        stderr_thread.join(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
 
-    if return_code != 0 and telemetry_callback is not None:
+    if return_code is not None and return_code != 0 and telemetry_callback is not None:
         telemetry_callback(f"[-] {provider_name} exited with status code {return_code}.")
 
     return sorted(subdomains)
@@ -110,6 +129,7 @@ def run_passive_provider(
 def run_subfinder(
     domain: str,
     telemetry_callback: TelemetryCallback | None = None,
+    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
 ) -> list[str]:
     """Run Subfinder passive discovery and return clean subdomain results."""
     return run_passive_provider(
@@ -117,12 +137,14 @@ def run_subfinder(
         provider_name="Subfinder",
         command=["subfinder", "-d", domain, "-silent"],
         telemetry_callback=telemetry_callback,
+        timeout=timeout,
     )
 
 
 def run_amass(
     domain: str,
     telemetry_callback: TelemetryCallback | None = None,
+    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
 ) -> list[str]:
     """Run Amass passive discovery and return clean subdomain results."""
     return run_passive_provider(
@@ -130,4 +152,5 @@ def run_amass(
         provider_name="Amass",
         command=["amass", "enum", "-passive", "-d", domain],
         telemetry_callback=telemetry_callback,
+        timeout=timeout,
     )
