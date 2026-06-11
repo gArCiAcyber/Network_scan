@@ -22,6 +22,11 @@ THREAT_INTEL_KEYWORDS = (
 )
 AMASS_GRAPH_KEYWORDS = ("amass", "graph", "networkdb", "enum")
 WARNING_KEYWORDS = ("warning", "error", "unable", "failed", "rate")
+PROVIDER_STARTED_KEYWORDS = ("provider started",)
+FIRST_RESULT_KEYWORDS = ("first result observed",)
+PROVIDER_COMPLETED_KEYWORDS = ("provider completed",)
+MERGE_STARTED_KEYWORDS = ("merge/deduplication started",)
+RESULTS_SAVED_KEYWORDS = ("results saved",)
 
 
 @dataclass
@@ -47,7 +52,13 @@ class PassiveActivityTelemetry:
 
     def map_merge_activity(self) -> str | None:
         """Return one deduplicated merge activity message."""
-        message = "The Triforce is merging provider discoveries..."
+        return self.map_lifecycle_event("merge/deduplication started")
+
+    def map_lifecycle_event(self, event: str, provider: str = "hylianscan") -> str | None:
+        """Return one deduplicated activity message for a workflow lifecycle event."""
+        normalized_event = event.strip().lower()
+        normalized_provider = provider.strip().lower()
+        message = build_lifecycle_activity_message(normalized_provider, normalized_event)
 
         if message in self.seen_messages:
             return None
@@ -65,8 +76,32 @@ def build_activity_message(provider: str, output: str) -> str:
     """Map technical provider output into a short thematic activity message."""
     normalized_provider = provider.lower()
 
+    if contains_any(output, PROVIDER_STARTED_KEYWORDS):
+        return build_lifecycle_activity_message(normalized_provider, "provider started")
+
+    if contains_any(output, FIRST_RESULT_KEYWORDS):
+        return build_lifecycle_activity_message(
+            normalized_provider,
+            "first result observed",
+        )
+
+    if contains_any(output, PROVIDER_COMPLETED_KEYWORDS):
+        return build_lifecycle_activity_message(
+            normalized_provider,
+            "provider completed",
+        )
+
+    if contains_any(output, MERGE_STARTED_KEYWORDS):
+        return build_lifecycle_activity_message(
+            normalized_provider,
+            "merge/deduplication started",
+        )
+
+    if contains_any(output, RESULTS_SAVED_KEYWORDS):
+        return build_lifecycle_activity_message(normalized_provider, "results saved")
+
     if contains_any(output, TIMEOUT_KEYWORDS):
-        return "The Triforce preserved partial discoveries after a provider timeout."
+        return build_lifecycle_activity_message(normalized_provider, "provider timeout")
 
     if contains_any(output, DISCOVERY_KEYWORDS):
         return "Link is following passive DNS trails..."
@@ -94,5 +129,36 @@ def build_activity_message(provider: str, output: str) -> str:
 
     if normalized_provider == "amass":
         return "Din is awakening the Amass graph..."
+
+    return "Link is following passive DNS trails..."
+
+
+def build_lifecycle_activity_message(provider: str, event: str) -> str:
+    """Map internal workflow lifecycle events into short thematic activity messages."""
+    provider_label = provider.capitalize()
+
+    if event == "provider started":
+        if provider == "amass":
+            return "Din is awakening the Amass passive graph..."
+
+        if provider == "subfinder":
+            return "Zelda is opening Subfinder passive records..."
+
+        return "Zelda is opening passive discovery records..."
+
+    if event == "first result observed":
+        return f"Link spotted the first {provider_label} discovery..."
+
+    if event == "provider completed":
+        return f"Impa closed the {provider_label} records cleanly..."
+
+    if event == "merge/deduplication started":
+        return "The Triforce is merging provider discoveries..."
+
+    if event == "results saved":
+        return "The Sheikah Slate saved passive discoveries to disk..."
+
+    if event == "provider timeout":
+        return f"The Triforce preserved partial {provider_label} discoveries after timeout..."
 
     return "Link is following passive DNS trails..."
