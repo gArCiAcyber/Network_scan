@@ -2,9 +2,6 @@
 """Main CLI orchestrator for hylianscan v0.8."""
 
 import argparse
-import itertools
-import threading
-import time
 from pathlib import Path
 
 from core.banner import show_banner
@@ -20,6 +17,7 @@ from core.colors import (
     WARNING_YELLOW,
 )
 from core.panel import build_final_panel, format_open_port_line
+from core.passive_telemetry import PassiveActivityTelemetry
 from core.terminal import (
     clear_dynamic_line,
     clear_screen,
@@ -388,17 +386,12 @@ def run_port_scan(
     return result
 
 
-def run_subdomain_spinner(domain: str, stop_event: threading.Event) -> None:
-    """Render a single-line spinner while passive enumeration is active."""
-    frames = itertools.cycle("|/-\\")
+def show_passive_activity(message: str | None) -> None:
+    """Render one short passive discovery activity update."""
+    if message is None:
+        return
 
-    while not stop_event.is_set():
-        frame = next(frames)
-        write_dynamic_line(
-            f"{ALERT_RED}[*]{RESET} Enumerating subdomains for {domain}... "
-            f"{ALERT_RED}{frame}{RESET}"
-        )
-        time.sleep(0.12)
+    write_dynamic_line(f"{HACKER_GREEN}[*] {message}{RESET}")
 
 
 def build_passive_subdomain_summary(
@@ -428,29 +421,31 @@ def run_passive_subdomain_discovery(
     json_output_path: Path | None = None,
 ) -> str:
     """Run selected passive discovery providers and return a clean summary."""
-    stop_event = threading.Event()
-    spinner_thread = threading.Thread(
-        target=run_subdomain_spinner,
-        args=(domain, stop_event),
-        daemon=True,
-    )
-
-    spinner_thread.start()
+    telemetry = PassiveActivityTelemetry()
+    provider_results: dict[str, list[str]] = {}
 
     try:
-        provider_results: dict[str, list[str]] = {}
-
         for provider in providers:
+            telemetry_callback = lambda output, provider=provider: show_passive_activity(
+                telemetry.map_provider_output(provider, output)
+            )
+
             if provider == "subfinder":
-                provider_results[provider] = run_subfinder(domain)
+                provider_results[provider] = run_subfinder(
+                    domain,
+                    telemetry_callback=telemetry_callback,
+                )
             elif provider == "amass":
-                provider_results[provider] = run_amass(domain)
+                provider_results[provider] = run_amass(
+                    domain,
+                    telemetry_callback=telemetry_callback,
+                )
     finally:
-        stop_event.set()
-        spinner_thread.join()
         clear_dynamic_line()
 
+    show_passive_activity(telemetry.map_merge_activity())
     subdomains = merge_subdomain_results(provider_results)
+    clear_dynamic_line()
     save_subdomain_results(subdomains, output_path)
 
     if json_output_path is not None:
