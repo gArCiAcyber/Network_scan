@@ -9,7 +9,6 @@ from pathlib import Path
 from core.banner import show_banner
 from core.colors import (
     ALERT_RED,
-    BOLD_BLUE,
     HACKER_GREEN,
     INFO_BLUE,
     RESET,
@@ -31,7 +30,7 @@ from modules.json_exporter import write_subdomain_json_report, write_tcp_json_re
 from modules.ports import TOP_400_TCP_PORTS
 from modules.scan_stance import ScanStance, resolve_stance
 from modules.subdomain import run_amass, run_subfinder
-from modules.target import TargetInfo, TargetResolutionError, format_target_orientation, resolve_target
+from modules.target import TargetInfo, TargetResolutionError, resolve_target
 from modules.tcp_scanner import PortScanResult, ScanResult, scan_tcp_ports
 
 
@@ -389,10 +388,35 @@ def merge_subdomain_results(provider_results: dict[str, list[str]]) -> list[str]
     )
 
 
-def show_target_orientation(target: TargetInfo) -> None:
-    """Render the target orientation block."""
+def show_target_orientation(target: TargetInfo, stance: ScanStance) -> None:
+    """Render the target orientation and active scan stance block."""
+    alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
+    label_width = 14
+    lines = ["[*] Target Orientation:"]
+
+    if target.is_ip_address:
+        lines.append(f"    {'Direct IP':<{label_width}}: {target.resolved_ip}")
+    else:
+        lines.extend(
+            [
+                f"    {'Host':<{label_width}}: {target.target_host}",
+                f"    {'Resolved IP':<{label_width}}: {target.resolved_ip}",
+            ]
+        )
+
+    lines.extend(
+        [
+            (
+                f"    {'Stance':<{label_width}}: {stance.name} "
+                f"({alias_color}{stance.lore_alias}{RESET}{INFO_BLUE})"
+            ),
+            f"    {'Workers':<{label_width}}: {stance.workers}",
+            f"    {'Timeout':<{label_width}}: {stance.timeout:.2f}s",
+        ]
+    )
+
     print()
-    print(f"{INFO_BLUE}{format_target_orientation(target)}{RESET}")
+    print(f"{INFO_BLUE}{chr(10).join(lines)}{RESET}")
     print()
 
 
@@ -404,19 +428,6 @@ def show_passive_providers(providers: list[str]) -> None:
         label, color = PASSIVE_PROVIDER_LABELS[provider]
         print(f"{HACKER_GREEN}[+] {color}{label}{RESET}")
 
-    print()
-
-
-def show_scan_stance(stance: ScanStance) -> None:
-    """Render the active TCP scan stance below target orientation."""
-    alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
-
-    print(
-        f"{BOLD_BLUE}[+] Active Stance: "
-        f"{stance.name} ({alias_color}{stance.lore_alias}{BOLD_BLUE}){RESET}"
-    )
-    print(f"{BOLD_BLUE}[+] Workers: {stance.workers}{RESET}")
-    print(f"{BOLD_BLUE}[+] Timeout: {stance.timeout:.2f}s{RESET}")
     print()
 
 
@@ -553,8 +564,7 @@ def main() -> None:
             ports_to_scan = parse_ports_list(args)
             scan_stance = resolve_scan_stance(args)
             target = resolve_target(args.target)
-            show_target_orientation(target)
-            show_scan_stance(scan_stance)
+            show_target_orientation(target, scan_stance)
             scan_result = run_port_scan(
                 target=target,
                 ports_to_scan=ports_to_scan,
