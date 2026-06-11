@@ -23,7 +23,7 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 - **Multi-Provider Discovery:** Supports Subfinder, Amass, or both providers in the same passive run.
 - **Clean Data Handling:** Automatically sanitizes ANSI escape codes, normalizes results to lowercase, deduplicates, and sorts subdomains alphabetically.
 - **Provider-Aware Output:** Keeps TXT output simple while JSON export tracks provider counts, merged results, and subdomain source attribution.
-- **Activity Telemetry:** Maps observed provider output into concise Hylian-themed activity updates and applies provider timeouts while preserving partial results.
+- **Activity Telemetry:** Keeps a live enumeration spinner while mapping provider lifecycle events, observed provider output, and timeouts into concise Hylian-themed activity updates.
 - **Silent Operations:** Prints a clean final summary to the terminal instead of flooding the screen, keeping TXT and optional JSON outputs clean.
 
 ## Requirements
