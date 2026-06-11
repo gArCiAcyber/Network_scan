@@ -106,8 +106,9 @@ class PassiveDiscoveryDisplay:
         frame = PASSIVE_SPINNER_FRAMES[self._frame_index % len(PASSIVE_SPINNER_FRAMES)]
         self._frame_index += 1
         spinner_line = (
-            f"{HACKER_GREEN}[*]{RESET} "
-            f"Enumerating subdomains for {self.domain}... {frame}"
+            f"{ALERT_RED}[*]{RESET} "
+            f"Enumerating subdomains for {self.domain}... "
+            f"{ALERT_RED}{frame}{RESET}"
         )
         self._renderer.render([spinner_line, *self._activities])
 
@@ -514,8 +515,6 @@ def run_passive_subdomain_discovery(
                 provider_results=provider_results,
                 output_path=json_output_path,
             )
-
-        display.add_activity(telemetry.map_lifecycle_event("results saved"))
     finally:
         display.stop()
 
