@@ -74,6 +74,8 @@
 ## v0.9 Ideas
 
 - [X] Add structured HTTP metadata extraction to JSON reports.
+- [X] Add passive provider activity telemetry with timeout-safe partial results.
+- [X] Add Windows-safe terminal fallbacks for non-POSIX environments.
 - [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
 - [ ] Add TLS certificate expiry and hostname-mismatch risk indicators.
 - [ ] Add protocol probe registry to make service fingerprinting easier to extend.

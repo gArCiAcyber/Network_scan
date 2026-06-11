@@ -23,12 +23,13 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 - **Multi-Provider Discovery:** Supports Subfinder, Amass, or both providers in the same passive run.
 - **Clean Data Handling:** Automatically sanitizes ANSI escape codes, normalizes results to lowercase, deduplicates, and sorts subdomains alphabetically.
 - **Provider-Aware Output:** Keeps TXT output simple while JSON export tracks provider counts, merged results, and subdomain source attribution.
+- **Activity Telemetry:** Maps observed provider output into concise Hylian-themed activity updates and applies provider timeouts while preserving partial results.
 - **Silent Operations:** Prints a clean final summary to the terminal instead of flooding the screen, keeping TXT and optional JSON outputs clean.
 
 ## Requirements
 
 - Python 3 (Standard-library only).
-- Linux terminal environment (preferably Kali Linux).
+- Linux terminal environment (preferably Kali Linux). Windows supports basic CLI scans/tests through safe terminal fallbacks.
 - Subfinder and/or Amass installed and available in your `PATH` for passive discovery.
 
 ## Project Layout
@@ -43,6 +44,7 @@ hylianscan/
 |   |-- banner.py
 |   |-- colors.py
 |   |-- panel.py
+|   |-- passive_telemetry.py
 |   |-- terminal.py
 |-- docs/
 |   |-- TODO.md

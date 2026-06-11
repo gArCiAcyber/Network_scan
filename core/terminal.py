@@ -1,11 +1,25 @@
-"""Linux terminal management for hylianscan."""
+"""Terminal management helpers for hylianscan."""
 
 import os
-import select
 import sys
-import termios
 import threading
-import tty
+
+try:
+    import select
+except ImportError:
+    select = None
+
+try:
+    import termios
+    import tty
+except ImportError:
+    termios = None
+    tty = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 
 from core.banner import build_footer
 from core.colors import CLEAR_LINE
@@ -14,9 +28,20 @@ from core.colors import CLEAR_LINE
 _OUTPUT_LOCK = threading.Lock()
 
 
+def has_posix_terminal_control() -> bool:
+    """Return True when POSIX terminal controls are available."""
+    return (
+        sys.stdin.isatty()
+        and select is not None
+        and termios is not None
+        and tty is not None
+    )
+
+
 def clear_screen() -> None:
-    """Clear the Linux terminal screen."""
-    os.system("clear")
+    """Clear the active terminal screen."""
+    command = "cls" if os.name == "nt" else "clear"
+    os.system(command)
 
 
 def write_dynamic_line(message: str) -> None:
@@ -42,14 +67,31 @@ def print_safe(message: str = "") -> None:
 
 def flush_input_buffer() -> None:
     """Discard pending keyboard or mouse escape sequences."""
-    if sys.stdin.isatty():
+    if has_posix_terminal_control():
         termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+        return
+
+    if msvcrt is None:
+        return
+
+    try:
+        while msvcrt.kbhit():
+            msvcrt.getwch()
+    except OSError:
+        return
+
+
+def wait_for_enter_with_input(message: str) -> None:
+    """Use the safest available line input fallback."""
+    flush_input_buffer()
+    input(message)
+    flush_input_buffer()
 
 
 def wait_for_enter_safely(message: str) -> None:
     """Wait for Enter without echoing arrows or mouse scroll artifacts."""
-    if not sys.stdin.isatty():
-        input(message)
+    if not has_posix_terminal_control():
+        wait_for_enter_with_input(message)
         return
 
     fd = sys.stdin.fileno()
