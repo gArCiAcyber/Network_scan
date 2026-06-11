@@ -2,6 +2,15 @@
 
 from dataclasses import dataclass, field
 
+from core.colors import (
+    BOLD_BLUE,
+    BOLD_GOLD,
+    BOLD_MAGENTA,
+    BOLD_PURPLE,
+    BOLD_RED,
+    RESET,
+)
+
 
 TIMEOUT_KEYWORDS = ("timeout", "timed out", "deadline")
 DISCOVERY_KEYWORDS = ("discovered subdomain", "found subdomain", "subdomain")
@@ -26,7 +35,15 @@ PROVIDER_STARTED_KEYWORDS = ("provider started",)
 FIRST_RESULT_KEYWORDS = ("first result observed",)
 PROVIDER_COMPLETED_KEYWORDS = ("provider completed",)
 MERGE_STARTED_KEYWORDS = ("merge/deduplication started",)
-RESULTS_SAVED_KEYWORDS = ("results saved",)
+
+CHARACTER_COLORS = {
+    "Zelda": BOLD_MAGENTA,
+    "Din": BOLD_RED,
+    "Navi": BOLD_BLUE,
+    "Skull Kid": BOLD_PURPLE,
+    "Impa": BOLD_PURPLE,
+    "Triforce": BOLD_GOLD,
+}
 
 
 @dataclass
@@ -97,40 +114,50 @@ def build_activity_message(provider: str, output: str) -> str:
             "merge/deduplication started",
         )
 
-    if contains_any(output, RESULTS_SAVED_KEYWORDS):
-        return build_lifecycle_activity_message(normalized_provider, "results saved")
-
     if contains_any(output, TIMEOUT_KEYWORDS):
         return build_lifecycle_activity_message(normalized_provider, "provider timeout")
 
     if contains_any(output, DISCOVERY_KEYWORDS):
-        return "Link is following passive DNS trails..."
+        return color_character_name("Navi", "Navi is following passive DNS trails...")
 
     if contains_any(output, CERTIFICATE_KEYWORDS):
-        return "Navi is listening for certificate clues..."
+        return color_character_name("Navi", "Navi is listening for certificate clues...")
 
     if contains_any(output, ARCHIVE_KEYWORDS):
-        return "Zelda is opening the royal archives..."
+        return color_character_name("Zelda", "Zelda is opening the royal archives...")
 
     if contains_any(output, THREAT_INTEL_KEYWORDS):
-        return "Impa is reading threat-intel records..."
+        return color_character_name("Impa", "Impa is reading threat-intel records...")
 
     if contains_any(output, WEB_ECHO_KEYWORDS):
-        return "Skull Kid is searching forgotten web echoes..."
+        return color_character_name(
+            "Skull Kid",
+            "Skull Kid is searching forgotten web echoes...",
+        )
 
     if normalized_provider == "amass" and contains_any(output, AMASS_GRAPH_KEYWORDS):
-        return "Din is awakening the Amass graph..."
+        return color_character_name("Din", "Din is awakening the Amass graph...")
 
     if contains_any(output, PASSIVE_DNS_KEYWORDS):
-        return "Link is following passive DNS trails..."
+        return color_character_name("Navi", "Navi is following passive DNS trails...")
 
     if contains_any(output, WARNING_KEYWORDS):
-        return "Impa is reviewing provider warnings..."
+        return color_character_name("Impa", "Impa is reviewing provider warnings...")
 
     if normalized_provider == "amass":
-        return "Din is awakening the Amass graph..."
+        return color_character_name("Din", "Din is awakening the Amass graph...")
 
-    return "Link is following passive DNS trails..."
+    return color_character_name("Navi", "Navi is following passive DNS trails...")
+
+
+def color_character_name(character_name: str, message: str) -> str:
+    """Color only the named Hylian character inside an activity message."""
+    color = CHARACTER_COLORS.get(character_name)
+
+    if color is None:
+        return message
+
+    return message.replace(character_name, f"{color}{character_name}{RESET}", 1)
 
 
 def build_lifecycle_activity_message(provider: str, event: str) -> str:
@@ -139,26 +166,44 @@ def build_lifecycle_activity_message(provider: str, event: str) -> str:
 
     if event == "provider started":
         if provider == "amass":
-            return "Din is awakening the Amass passive graph..."
+            return color_character_name(
+                "Din",
+                "Din is awakening the Amass passive graph...",
+            )
 
         if provider == "subfinder":
-            return "Zelda is opening Subfinder passive records..."
+            return color_character_name(
+                "Zelda",
+                "Zelda is opening Subfinder passive records...",
+            )
 
-        return "Zelda is opening passive discovery records..."
+        return color_character_name(
+            "Zelda",
+            "Zelda is opening passive discovery records...",
+        )
 
     if event == "first result observed":
-        return f"Link spotted the first {provider_label} discovery..."
+        return color_character_name(
+            "Navi",
+            f"Navi spotted the first {provider_label} discovery...",
+        )
 
     if event == "provider completed":
-        return f"Impa closed the {provider_label} records cleanly..."
+        return color_character_name(
+            "Impa",
+            f"Impa closed the {provider_label} records cleanly...",
+        )
 
     if event == "merge/deduplication started":
-        return "The Triforce is merging provider discoveries..."
-
-    if event == "results saved":
-        return "The Sheikah Slate saved passive discoveries to disk..."
+        return color_character_name(
+            "Triforce",
+            "The Triforce is merging provider discoveries...",
+        )
 
     if event == "provider timeout":
-        return f"The Triforce preserved partial {provider_label} discoveries after timeout..."
+        return color_character_name(
+            "Triforce",
+            f"The Triforce preserved partial {provider_label} discoveries after timeout...",
+        )
 
-    return "Link is following passive DNS trails..."
+    return color_character_name("Navi", "Navi is following passive DNS trails...")
