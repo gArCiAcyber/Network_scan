@@ -26,6 +26,7 @@ from core.colors import CLEAR_LINE
 
 
 _OUTPUT_LOCK = threading.Lock()
+_CLEAR_FROM_CURSOR_DOWN = "\033[J"
 
 
 def has_posix_terminal_control() -> bool:
@@ -63,6 +64,41 @@ def print_safe(message: str = "") -> None:
     with _OUTPUT_LOCK:
         sys.stdout.write(f"\r{CLEAR_LINE}{message}\n")
         sys.stdout.flush()
+
+
+class DynamicBlockRenderer:
+    """Render a small dynamic terminal block without duplicated lines."""
+
+    def __init__(self) -> None:
+        self._line_count = 0
+
+    def render(self, lines: list[str]) -> None:
+        """Rewrite the current dynamic block with the provided lines."""
+        with _OUTPUT_LOCK:
+            if self._line_count:
+                sys.stdout.write(f"\033[{self._line_count}A")
+
+            sys.stdout.write(f"\r{_CLEAR_FROM_CURSOR_DOWN}")
+
+            for line in lines:
+                sys.stdout.write(f"{line}\n")
+
+            sys.stdout.flush()
+            self._line_count = len(lines)
+
+    def clear(self) -> None:
+        """Clear the rendered dynamic block."""
+        with _OUTPUT_LOCK:
+            if self._line_count:
+                sys.stdout.write(f"\033[{self._line_count}A")
+
+            sys.stdout.write(f"\r{_CLEAR_FROM_CURSOR_DOWN}")
+            sys.stdout.flush()
+            self._line_count = 0
+
+    def release(self) -> None:
+        """Stop tracking rendered lines without clearing visible output."""
+        self._line_count = 0
 
 
 def flush_input_buffer() -> None:

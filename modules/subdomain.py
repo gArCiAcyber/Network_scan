@@ -54,8 +54,14 @@ def run_passive_provider(
     """Run one passive discovery provider and return clean subdomain results."""
     subdomains: list[str] = []
     seen: set[str] = set()
+    first_result_observed = False
+
+    if telemetry_callback is not None:
+        telemetry_callback(f"{provider_name} provider started")
 
     def handle_stdout(line: str) -> None:
+        nonlocal first_result_observed
+
         subdomain = clean_subdomain(line)
 
         if subdomain is None or subdomain in seen:
@@ -64,8 +70,9 @@ def run_passive_provider(
         seen.add(subdomain)
         subdomains.append(subdomain)
 
-        if telemetry_callback is not None:
-            telemetry_callback(f"{provider_name} discovered subdomain")
+        if telemetry_callback is not None and not first_result_observed:
+            first_result_observed = True
+            telemetry_callback(f"{provider_name} first result observed")
 
     def handle_stderr(line: str) -> None:
         if telemetry_callback is not None:
@@ -102,7 +109,7 @@ def run_passive_provider(
         return_code = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         if telemetry_callback is not None:
-            telemetry_callback(f"{provider_name} timed out; preserving partial results")
+            telemetry_callback(f"{provider_name} provider timeout")
 
         process.terminate()
 
@@ -122,6 +129,9 @@ def run_passive_provider(
 
     if return_code is not None and return_code != 0 and telemetry_callback is not None:
         telemetry_callback(f"[-] {provider_name} exited with status code {return_code}.")
+
+    if return_code is not None and telemetry_callback is not None:
+        telemetry_callback(f"{provider_name} provider completed")
 
     return sorted(subdomains)
 
