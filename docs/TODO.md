@@ -81,7 +81,7 @@
 - [X] Merge TCP scan stance details into the Target Orientation block.
 - [X] Refactor the startup banner to Slant TrueColor RGB rendering.
 - [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
-- [ ] Add TLS certificate expiry and hostname-mismatch risk indicators.
+- [X] Add TLS certificate expiry and hostname-mismatch risk indicators.
 - [ ] Add protocol probe registry to make service fingerprinting easier to extend.
 - [ ] Add local mock-service tests for HTTP, TLS, SMTP, and FTP banner parsing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.
