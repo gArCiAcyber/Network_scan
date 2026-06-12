@@ -1,6 +1,7 @@
 """Final report panel rendering for hylianscan."""
 
 import re
+import sys
 from collections.abc import Sequence
 from typing import Any, Protocol
 
@@ -13,6 +14,38 @@ from core.colors import (
     RESET,
     WARNING_YELLOW,
 )
+from modules.tls_analysis import build_tls_analysis
+
+
+PANEL_SEPARATOR = f"{MUTED_GRAY}{'-' * 72}{RESET}"
+HTTP_STATUS_PATTERN = re.compile(
+    r"^HTTP/\S+\s+(\d{3})(?:\s+(.*?))?(?=\s+[A-Za-z][A-Za-z0-9-]*:\s|$)"
+)
+HTTP_HEADER_PATTERN_TEMPLATE = (
+    r"(?:^|\s){header_name}:\s*(.*?)(?=\s+[A-Za-z][A-Za-z0-9-]*:\s|$)"
+)
+
+
+def get_triforce_symbol() -> str:
+    """Return a terminal-safe Triforce symbol."""
+    encoding = sys.stdout.encoding or "utf-8"
+    symbol = "\u25b2"
+
+    try:
+        symbol.encode(encoding)
+    except UnicodeEncodeError:
+        return "^"
+
+    return symbol
+
+
+def format_panel_title() -> str:
+    """Return the colored Triforce report title."""
+    return (
+        f"{HACKER_GREEN}[ SCAN POWERED BY THE "
+        f"{BOLD_GOLD}TRIFORCE {get_triforce_symbol()}"
+        f"{RESET}{HACKER_GREEN} ]{RESET}"
+    )
 
 
 class PortFindingView(Protocol):
@@ -63,18 +96,87 @@ def get_first_text(value: Any) -> str | None:
     return None
 
 
-def format_tls_summary(tls: dict[str, Any] | None) -> str | None:
-    """Build a compact terminal summary for collected TLS metadata."""
-    if not tls:
+def format_display_service_name(service: str) -> str:
+    """Normalize service names for terminal display."""
+    normalized_service = service.lower()
+
+    if normalized_service in {"http-alt", "https-alt"}:
+        return normalized_service.replace("-alt", "")
+
+    return normalized_service
+
+
+def truncate_display_value(value: str, max_length: int = 96) -> str:
+    """Keep terminal values compact and readable."""
+    if len(value) <= max_length:
+        return value
+
+    return f"{value[: max_length - 3]}..."
+
+
+def extract_http_header(banner: str, header_name: str) -> str | None:
+    """Extract one HTTP header value from a compact banner string."""
+    pattern = HTTP_HEADER_PATTERN_TEMPLATE.format(
+        header_name=re.escape(header_name)
+    )
+    match = re.search(pattern, banner, flags=re.IGNORECASE)
+
+    if match is None:
         return None
 
-    status = tls.get("status")
+    value = " ".join(match.group(1).split())
+    return value or None
 
-    if status not in {"collected", "no_certificate"}:
+
+def parse_http_status(banner: str | None) -> tuple[str, str | None] | None:
+    """Return HTTP status code and reason phrase from a response banner."""
+    if banner is None:
         return None
 
+    status_match = HTTP_STATUS_PATTERN.match(banner)
+
+    if status_match is None:
+        return None
+
+    status_code = status_match.group(1)
+    reason = " ".join((status_match.group(2) or "").split()) or None
+    return status_code, reason
+
+
+def format_http_version_signal(banner: str | None, include_reason: bool) -> str | None:
+    """Build the HTTP status and redirect signal for terminal output."""
+    status = parse_http_status(banner)
+
+    if status is None:
+        return None
+
+    status_code, reason = status
+    version = status_code
+
+    if include_reason and reason:
+        version = f"{version} {reason}"
+
+    if banner is not None:
+        location = extract_http_header(banner, "Location")
+
+        if location:
+            version = f"{version} -> {truncate_display_value(location)}"
+
+    return version
+
+
+def format_tls_protocol(tls: dict[str, Any] | None) -> str | None:
+    """Return the negotiated TLS protocol when available."""
     protocol = get_nested_value(tls, "handshake", "protocol")
-    cipher_name = get_nested_value(tls, "handshake", "cipher", "name")
+
+    if isinstance(protocol, str) and protocol:
+        return protocol
+
+    return None
+
+
+def format_certificate_identity(tls: dict[str, Any] | None) -> str | None:
+    """Return a compact TLS certificate identity line."""
     subject_cn = get_first_text(
         get_nested_value(tls, "certificate", "subject", "commonName")
     )
@@ -86,140 +188,195 @@ def format_tls_summary(tls: dict[str, Any] | None) -> str | None:
 
     details: list[str] = []
 
-    if isinstance(protocol, str) and protocol:
-        details.append(protocol)
-
     if subject_cn:
         details.append(f"CN={subject_cn}")
 
     if issuer:
         details.append(f"Issuer={issuer}")
 
-    if not issuer and isinstance(cipher_name, str) and cipher_name:
-        details.append(f"Cipher={cipher_name}")
-
-    if status == "no_certificate":
-        details.append("no certificate")
-
     if not details:
         return None
-
-    return f"TLS {' | '.join(details)}"
-
-
-def truncate_display_value(value: str, max_length: int = 80) -> str:
-    """Keep terminal header values compact and readable."""
-    if len(value) <= max_length:
-        return value
-
-    return f"{value[: max_length - 3]}..."
-
-
-def extract_http_header(banner: str, header_name: str) -> str | None:
-    """Extract one HTTP header value from a compact banner string."""
-    pattern = (
-        rf"(?:^|\s){re.escape(header_name)}:\s*"
-        r"(.*?)(?=\s+[A-Za-z][A-Za-z0-9-]*:\s|$)"
-    )
-    match = re.search(pattern, banner, flags=re.IGNORECASE)
-
-    if match is None:
-        return None
-
-    value = " ".join(match.group(1).split())
-    return value or None
-
-
-def format_http_summary(banner: str | None) -> str | None:
-    """Build a compact terminal summary from an HTTP response banner."""
-    if not banner:
-        return None
-
-    status_match = re.match(
-        r"^HTTP/\S+\s+(\d{3})(?:\s+(.*?))?(?=\s+[A-Za-z][A-Za-z0-9-]*:\s|$)",
-        banner,
-    )
-
-    if status_match is None:
-        return None
-
-    status_code = status_match.group(1)
-    reason = " ".join((status_match.group(2) or "").split())
-    status = f"HTTP {status_code}"
-
-    if reason:
-        status = f"{status} {reason}"
-
-    details = [status]
-
-    for header_name, label in (
-        ("Server", "Server"),
-        ("Location", "Location"),
-        ("Content-Type", "Content-Type"),
-    ):
-        value = extract_http_header(banner, header_name)
-
-        if value:
-            details.append(f"{label}={truncate_display_value(value)}")
 
     return " | ".join(details)
 
 
-def format_service_detail(finding: PortFindingView, include_web_url: bool) -> str:
-    """Return the most useful terminal service detail for a finding."""
-    service_detail = (
-        format_http_summary(finding.banner)
-        or finding.banner
-        or format_tls_summary(finding.tls)
-        or f"{finding.service} active (no banner)"
-    )
+def format_short_banner(banner: str | None) -> str | None:
+    """Return a short non-HTTP banner for the VERSION column."""
+    if not banner:
+        return None
 
-    if include_web_url and finding.banner is None and finding.web_url is not None:
-        service_detail = f"{service_detail} | {finding.web_url}"
+    return truncate_display_value(" ".join(banner.split()), max_length=72)
 
-    return service_detail
+
+def format_live_signal(finding: PortFindingView) -> str:
+    """Return the best compact signal available during live scanning."""
+    http_version = format_http_version_signal(finding.banner, include_reason=False)
+
+    if http_version:
+        return http_version
+
+    tls_protocol = format_tls_protocol(finding.tls)
+
+    if tls_protocol:
+        return tls_protocol
+
+    short_banner = format_short_banner(finding.banner)
+
+    if short_banner:
+        return short_banner
+
+    return "active, no banner"
+
+
+def format_final_version(finding: PortFindingView) -> str:
+    """Return the main VERSION column signal for the final report."""
+    http_version = format_http_version_signal(finding.banner, include_reason=True)
+
+    if http_version:
+        return http_version
+
+    tls_protocol = format_tls_protocol(finding.tls)
+
+    if tls_protocol:
+        return tls_protocol
+
+    short_banner = format_short_banner(finding.banner)
+
+    if short_banner:
+        return short_banner
+
+    return "active, no banner"
+
+
+def build_http_detail_lines(finding: PortFindingView) -> list[str]:
+    """Build useful HTTP detail lines for the final report."""
+    if finding.banner is None or parse_http_status(finding.banner) is None:
+        return []
+
+    details: list[str] = []
+    server = extract_http_header(finding.banner, "Server")
+    content_type = extract_http_header(finding.banner, "Content-Type")
+
+    if server:
+        details.append(f"http-server-header: {truncate_display_value(server)}")
+
+    if content_type:
+        details.append(f"http-content-type: {truncate_display_value(content_type)}")
+
+    return details
+
+
+def build_tls_detail_lines(
+    finding: PortFindingView,
+    target_host: str,
+    include_protocol: bool,
+) -> list[str]:
+    """Build useful TLS detail lines for the final report."""
+    if not finding.tls:
+        return []
+
+    details: list[str] = []
+    protocol = format_tls_protocol(finding.tls)
+    certificate_identity = format_certificate_identity(finding.tls)
+    tls_analysis = build_tls_analysis(finding.tls, target_host)
+    tls_severity = tls_analysis.get("severity")
+
+    if include_protocol and protocol:
+        details.append(f"tls: {protocol}")
+
+    if certificate_identity:
+        details.append(f"tls-cert: {truncate_display_value(certificate_identity)}")
+
+    if isinstance(tls_severity, str) and tls_severity != "unknown":
+        details.append(f"tls-risk: {tls_severity}")
+
+    return details
+
+
+def format_detail_lines(details: Sequence[str]) -> list[str]:
+    """Render Nmap-style detail lines below a port row."""
+    formatted_lines: list[str] = []
+
+    for index, detail in enumerate(details):
+        prefix = "|_" if index == len(details) - 1 else "| "
+        formatted_lines.append(f"{MUTED_GRAY}{prefix}{detail}{RESET}")
+
+    return formatted_lines
 
 
 def format_open_port_line(finding: PortFindingView) -> str:
-    """Format an open port discovery line."""
-    service_detail = format_service_detail(finding, include_web_url=True)
+    """Format a concise live open-port discovery line."""
+    service_name = format_display_service_name(finding.service)
+    live_signal = format_live_signal(finding)
 
     return (
-        f"{HACKER_GREEN}[+] Port {finding.port:<5} [OPEN] "
-        f"-> Service: {service_detail}{RESET}"
+        f"{HACKER_GREEN}[+] {finding.port}/tcp OPEN "
+        f"{service_name} {live_signal}{RESET}"
     )
 
 
-def build_final_panel(summary: ScanSummaryView) -> str:
-    """Build the final static scan report panel."""
-    separator = f"{MUTED_GRAY}{'-' * 72}{RESET}"
+def build_final_panel(
+    summary: ScanSummaryView,
+    scan_scope: str = "Default Target List",
+    scan_stance: str | None = None,
+) -> str:
+    """Build the final static TCP scan report."""
     lines = [
         "",
-        separator,
-        # User's custom style: HACKER_GREEN for the bracket/text and Bold Gold for THE TRIFORCE
-        f"{HACKER_GREEN}[ SCAN POWERED BY THE {BOLD_GOLD}TRIFORCE ▲{RESET}{HACKER_GREEN} ]{RESET}",
-        separator,
-        f"{BRIGHT_WHITE}Target Host        :{RESET} {summary.target_host}",
-        f"{BRIGHT_WHITE}Resolved IP        :{RESET} {summary.resolved_ip}",
-        f"{BRIGHT_WHITE}Scan Scope         :{RESET} Default Target List",
-        f"{BRIGHT_WHITE}Total Scan Time    :{RESET} {summary.duration:.2f}s",
-        separator,
+        PANEL_SEPARATOR,
+        format_panel_title(),
+        (
+            f"{BRIGHT_WHITE}Hylianscan scan report for "
+            f"{summary.target_host} ({summary.resolved_ip}){RESET}"
+        ),
+        f"{HACKER_GREEN}Host is up.{RESET}",
+        f"{BRIGHT_WHITE}Scan Scope      :{RESET} {scan_scope}",
     ]
 
-    if summary.open_ports:
-        lines.append(f"{INFO_BLUE}Port    Status     Service    Version / Banner{RESET}")
-        for finding in summary.open_ports:
-            banner = format_service_detail(finding, include_web_url=False)
-            clean_service = finding.service.lower()
+    lines.extend(
+        [
+            f"{BRIGHT_WHITE}Total Scan Time :{RESET} {summary.duration:.2f}s",
+            PANEL_SEPARATOR,
+            "",
+        ]
+    )
 
-            lines.append(
-                f"{HACKER_GREEN}{finding.port:<7} "
-                f"[OPEN]     "
-                f"{clean_service:<10} "
-                f"{banner}{RESET}"
-            )
-    else:
-        lines.append(f"{WARNING_YELLOW}No open ports found in the default target list.{RESET}")
+    if not summary.open_ports:
+        lines.append(
+            f"{WARNING_YELLOW}No open ports found in the {scan_scope.lower()}.{RESET}"
+        )
+        lines.append(PANEL_SEPARATOR)
+        return "\n".join(lines)
 
-    lines.append(separator)
+    lines.append(f"{INFO_BLUE}{'PORT':<10} {'STATE':<6} {'SERVICE':<8} VERSION{RESET}")
+
+    for index, finding in enumerate(summary.open_ports):
+        port_label = f"{finding.port}/tcp"
+        service_name = format_display_service_name(finding.service)
+        version_signal = format_final_version(finding)
+
+        if index > 0:
+            lines.append("")
+
+        lines.append(
+            f"{HACKER_GREEN}{port_label:<10} "
+            f"{'open':<6} "
+            f"{service_name:<8} "
+            f"{version_signal}{RESET}"
+        )
+
+        detail_lines = [
+            *build_http_detail_lines(finding),
+            *build_tls_detail_lines(
+                finding,
+                summary.target_host,
+                include_protocol=format_http_version_signal(
+                    finding.banner,
+                    include_reason=True,
+                ) is not None,
+            ),
+        ]
+        lines.extend(format_detail_lines(detail_lines))
+
+    lines.append(PANEL_SEPARATOR)
     return "\n".join(lines)
