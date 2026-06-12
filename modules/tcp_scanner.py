@@ -16,6 +16,8 @@ DEFAULT_MAX_WORKERS = 16
 
 ProgressCallback = Callable[[int, int, int], None]
 OpenPortCallback = Callable[["PortScanResult"], None]
+ServiceProbeStartCallback = Callable[[int], None]
+ServiceProbeCompleteCallback = Callable[[float], None]
 
 
 @dataclass(frozen=True)
@@ -41,13 +43,13 @@ class ScanResult:
     duration: float
 
 
-def scan_single_port(
+def discover_open_port(
     target_host: str,
     resolved_ip: str,
     port: int,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> PortScanResult | None:
-    """Scan one TCP port and return a finding when it is open."""
+    """Run TCP connect discovery for one port."""
     started_at = time.perf_counter()
 
     try:
@@ -58,8 +60,6 @@ def scan_single_port(
 
             if connect_code != 0:
                 return None
-
-            banner, tls = grab_service_banner(client, target_host, port)
     except OSError:
         return None
 
@@ -69,11 +69,58 @@ def scan_single_port(
     return PortScanResult(
         port=port,
         service=service_name,
-        banner=banner,
+        banner=None,
         response_time=response_time,
         web_url=web_url,
+        tls=None,
+    )
+
+
+def probe_open_service(
+    target_host: str,
+    resolved_ip: str,
+    finding: PortScanResult,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> PortScanResult:
+    """Collect service evidence for one discovered open TCP port."""
+    banner = None
+    tls = None
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+            client.settimeout(timeout)
+            connect_code = client.connect_ex((resolved_ip, finding.port))
+
+            if connect_code != 0:
+                return finding
+
+            banner, tls = grab_service_banner(client, target_host, finding.port)
+    except OSError:
+        return finding
+
+    return PortScanResult(
+        port=finding.port,
+        service=finding.service,
+        banner=banner,
+        response_time=finding.response_time,
+        web_url=finding.web_url,
         tls=tls,
     )
+
+
+def scan_single_port(
+    target_host: str,
+    resolved_ip: str,
+    port: int,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> PortScanResult | None:
+    """Scan and probe one TCP port for compatibility with direct callers."""
+    finding = discover_open_port(target_host, resolved_ip, port, timeout)
+
+    if finding is None:
+        return None
+
+    return probe_open_service(target_host, resolved_ip, finding, timeout)
 
 
 def _build_worker_count(port_count: int, max_workers: int) -> int:
@@ -92,11 +139,14 @@ def scan_tcp_ports(
     max_workers: int = DEFAULT_MAX_WORKERS,
     progress_callback: ProgressCallback | None = None,
     open_port_callback: OpenPortCallback | None = None,
+    service_probe_start_callback: ServiceProbeStartCallback | None = None,
+    service_probe_complete_callback: ServiceProbeCompleteCallback | None = None,
 ) -> ScanResult:
     """Run a threaded TCP scan and return a consolidated result."""
     started_at = time.perf_counter()
     ports_to_scan = normalize_ports(ports)
     worker_count = _build_worker_count(len(ports_to_scan), max_workers)
+    discovered_ports: list[PortScanResult] = []
     open_ports: list[PortScanResult] = []
     completed_count = 0
     executor = ThreadPoolExecutor(max_workers=worker_count)
@@ -104,7 +154,7 @@ def scan_tcp_ports(
 
     try:
         future_map: dict[Future[PortScanResult | None], int] = {
-            executor.submit(scan_single_port, target_host, resolved_ip, port, timeout): port
+            executor.submit(discover_open_port, target_host, resolved_ip, port, timeout): port
             for port in ports_to_scan
         }
 
@@ -114,7 +164,7 @@ def scan_tcp_ports(
             result = future.result()
 
             if result is not None:
-                open_ports.append(result)
+                discovered_ports.append(result)
 
                 if open_port_callback is not None:
                     open_port_callback(result)
@@ -129,6 +179,47 @@ def scan_tcp_ports(
     finally:
         if not cancelled:
             executor.shutdown(wait=True)
+
+    ordered_discovered_ports = tuple(
+        sorted(discovered_ports, key=lambda finding: finding.port)
+    )
+    probe_started_at = time.perf_counter()
+
+    if service_probe_start_callback is not None:
+        service_probe_start_callback(len(ordered_discovered_ports))
+
+    if ordered_discovered_ports:
+        probe_worker_count = _build_worker_count(
+            len(ordered_discovered_ports),
+            max_workers,
+        )
+        probe_executor = ThreadPoolExecutor(max_workers=probe_worker_count)
+        probe_cancelled = False
+
+        try:
+            future_map: dict[Future[PortScanResult], int] = {
+                probe_executor.submit(
+                    probe_open_service,
+                    target_host,
+                    resolved_ip,
+                    finding,
+                    timeout,
+                ): finding.port
+                for finding in ordered_discovered_ports
+            }
+
+            for future in as_completed(future_map):
+                open_ports.append(future.result())
+        except KeyboardInterrupt:
+            probe_cancelled = True
+            probe_executor.shutdown(wait=False, cancel_futures=True)
+            raise
+        finally:
+            if not probe_cancelled:
+                probe_executor.shutdown(wait=True)
+
+    if service_probe_complete_callback is not None:
+        service_probe_complete_callback(time.perf_counter() - probe_started_at)
 
     ordered_open_ports = tuple(sorted(open_ports, key=lambda finding: finding.port))
 
