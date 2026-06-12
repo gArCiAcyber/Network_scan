@@ -82,6 +82,10 @@
 - [X] Refactor the startup banner to Slant TrueColor RGB rendering.
 - [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
 - [X] Add TLS certificate expiry and hostname-mismatch risk indicators.
+- [X] Add alternate HTTP/HTTPS web port service and probe mappings.
+- [X] Polish live TCP output and custom scan-scope wording.
+- [X] Refine TCP final output with Nmap-inspired `PORT / STATE / SERVICE / VERSION` formatting.
+- [X] Add phase-oriented TCP live output for connect-scan discovery and service probing.
 - [ ] Add protocol probe registry to make service fingerprinting easier to extend.
 - [ ] Add local mock-service tests for HTTP, TLS, SMTP, and FTP banner parsing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.
