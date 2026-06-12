@@ -9,13 +9,27 @@ from typing import Any
 
 
 BANNER_SIZE = 1024
-HTTP_PORTS = {80, 8000, 8008, 8080, 8081, 8088, 8090, 8888}
-HTTPS_PORTS = {443, 8443}
+HTTP_PORTS = {
+    80,
+    2052,
+    2082,
+    2086,
+    2095,
+    8000,
+    8008,
+    8080,
+    8081,
+    8088,
+    8090,
+    8880,
+    8888,
+}
+HTTPS_PORTS = {443, 2053, 2083, 2087, 2096, 8443}
 SMTP_PORTS = {25, 587}
 SMTPS_PORTS = {465}
 FTP_PORTS = {21, 2121}
 FTPS_PORTS = {990}
-TLS_METADATA_PORTS = {443, 465, 636, 8443, 989, 990, 993, 995}
+TLS_METADATA_PORTS = {443, 465, 636, 2053, 2083, 2087, 2096, 8443, 989, 990, 993, 995}
 
 
 def clean_banner(data: bytes) -> str:
