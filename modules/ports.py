@@ -12,16 +12,35 @@ COMMON_PORTS: dict[int, str] = {
     80: "HTTP",
     443: "HTTPS",
     445: "SMB",
+    2052: "HTTP-Alt",
+    2053: "HTTPS-Alt",
+    2082: "HTTP-Alt",
+    2083: "HTTPS-Alt",
+    2086: "HTTP-Alt",
+    2087: "HTTPS-Alt",
+    2095: "HTTP-Alt",
+    2096: "HTTPS-Alt",
     3306: "MySQL",
     8080: "HTTP-Alt",
+    8443: "HTTPS-Alt",
+    8880: "HTTP-Alt",
 }
 
 WEB_PORT_SCHEMES: dict[int, str] = {
     80: "http",
     443: "https",
+    2052: "http",
+    2053: "https",
+    2082: "http",
+    2083: "https",
+    2086: "http",
+    2087: "https",
+    2095: "http",
+    2096: "https",
     8000: "http",
     8080: "http",
-    8443: "http",
+    8443: "https",
+    8880: "http",
 }
 
 TOP_400_TCP_PORTS = [
