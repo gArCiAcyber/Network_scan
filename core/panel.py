@@ -208,26 +208,6 @@ def format_short_banner(banner: str | None) -> str | None:
     return truncate_display_value(" ".join(banner.split()), max_length=72)
 
 
-def format_live_signal(finding: PortFindingView) -> str:
-    """Return the best compact signal available during live scanning."""
-    http_version = format_http_version_signal(finding.banner, include_reason=False)
-
-    if http_version:
-        return http_version
-
-    tls_protocol = format_tls_protocol(finding.tls)
-
-    if tls_protocol:
-        return tls_protocol
-
-    short_banner = format_short_banner(finding.banner)
-
-    if short_banner:
-        return short_banner
-
-    return "active, no banner"
-
-
 def format_final_version(finding: PortFindingView) -> str:
     """Return the main VERSION column signal for the final report."""
     http_version = format_http_version_signal(finding.banner, include_reason=True)
@@ -302,17 +282,6 @@ def format_detail_lines(details: Sequence[str]) -> list[str]:
         formatted_lines.append(f"{MUTED_GRAY}{prefix}{detail}{RESET}")
 
     return formatted_lines
-
-
-def format_open_port_line(finding: PortFindingView) -> str:
-    """Format a concise live open-port discovery line."""
-    service_name = format_display_service_name(finding.service)
-    live_signal = format_live_signal(finding)
-
-    return (
-        f"{HACKER_GREEN}[+] {finding.port}/tcp OPEN "
-        f"{service_name} {live_signal}{RESET}"
-    )
 
 
 def build_final_panel(
