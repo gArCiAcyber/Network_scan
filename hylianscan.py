@@ -16,6 +16,14 @@ from core.colors import (
     TRIFORCE_GREEN,
     TRIFORCE_RED,
 )
+from core.output import (
+    resolve_json_output_path,
+    resolve_output_path,
+    resolve_subdomain_json_output_path,
+    resolve_subdomain_output_path,
+    save_report,
+    save_subdomain_results,
+)
 from core.panel import build_final_panel
 from core.passive_telemetry import PassiveActivityTelemetry
 from core.tcp_live_display import TCPScanDisplay
@@ -315,81 +323,6 @@ def validate_mode(args: argparse.Namespace) -> None:
         raise ValueError(
             "Use passive discovery provider flags or port flags for TCP mode, not both."
         )
-
-
-def resolve_output_path(output_value: str | None) -> Path | None:
-    """Resolve an output filename inside the local output directory."""
-    if output_value is None:
-        return None
-
-    safe_filename = Path(output_value).name or "hylianscan_results.txt"
-    project_root = Path(__file__).resolve().parent
-    return project_root / "output" / safe_filename
-
-
-def resolve_json_output_path(output_value: str | None) -> Path | None:
-    """Resolve a JSON output filename inside the local output directory."""
-    if output_value is None:
-        return None
-
-    safe_filename = Path(output_value).name or "hylianscan_tcp_results.json"
-
-    if Path(safe_filename).suffix.lower() != ".json":
-        safe_filename = f"{safe_filename}.json"
-
-    project_root = Path(__file__).resolve().parent
-    return project_root / "output" / safe_filename
-
-
-def resolve_subdomain_json_output_path(output_value: str | None) -> Path | None:
-    """Resolve a passive subdomain JSON output filename inside output/."""
-    if output_value is None:
-        return None
-
-    safe_filename = Path(output_value).name or "hylianscan_subdomains.json"
-
-    if safe_filename == "hylianscan_tcp_results.json":
-        safe_filename = "hylianscan_subdomains.json"
-
-    if Path(safe_filename).suffix.lower() != ".json":
-        safe_filename = f"{safe_filename}.json"
-
-    project_root = Path(__file__).resolve().parent
-    return project_root / "output" / safe_filename
-
-
-def resolve_subdomain_output_path(output_value: str | None) -> Path:
-    """Resolve the mandatory passive subdomain output file path."""
-    project_root = Path(__file__).resolve().parent
-    default_output_dir = project_root / "output"
-
-    if output_value is None:
-        return default_output_dir / "hylianscan_subdomains.txt"
-
-    if output_value == "hylianscan_results.txt":
-        return default_output_dir / "subdomains.txt"
-
-    requested_dir = Path(output_value).expanduser()
-
-    if not requested_dir.is_absolute():
-        requested_dir = project_root / requested_dir
-
-    return requested_dir / "subdomains.txt"
-
-
-def save_report(report_text: str, output_path: Path | None) -> None:
-    """Persist the final report when requested by the operator."""
-    if output_path is None:
-        return
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(report_text + "\n", encoding="utf-8")
-
-
-def save_subdomain_results(subdomains: list[str], output_path: Path) -> None:
-    """Persist passive subdomain results without flooding the terminal."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(subdomains) + "\n", encoding="utf-8")
 
 
 def merge_subdomain_results(provider_results: dict[str, list[str]]) -> list[str]:
