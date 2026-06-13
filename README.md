@@ -16,7 +16,7 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 - High Performance: Multi-threaded TCP scanning utilizing `ThreadPoolExecutor` and `socket.connect_ex()`.
 - Custom Port Selection: Supports comma-separated lists (`-p 80,443`), explicit ranges (`-p 1-1000`), top-port presets (`--top-ports`), and full 65535 range scanning (`-p -`).
 - Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, and FTP, passive banner fallback for unknown services, TLS certificate metadata extraction for HTTPS/implicit-TLS services, and clickable web service hints for standard and common alternate web ports.
-- Clean UI & Reporting: Renders a final security-focused terminal panel and supports saving clean TCP reports with `-o / --output`.
+- Clean UI & Reporting: Uses a phase-oriented TCP live display, an Nmap-inspired final panel, and clean TXT/JSON report exports.
 
 ### Passive Subdomain Discovery
 
@@ -42,20 +42,25 @@ hylianscan/
 |-- core/
 |   |-- __init__.py
 |   |-- banner.py
+|   |-- cli.py
 |   |-- colors.py
+|   |-- output.py
 |   |-- panel.py
 |   |-- passive_telemetry.py
+|   |-- tcp_live_display.py
 |   |-- terminal.py
 |-- docs/
 |   |-- TODO.md
 |-- modules/
 |   |-- __init__.py
 |   |-- banner_grabber.py
+|   |-- json_exporter.py
 |   |-- ports.py
 |   |-- scan_stance.py
 |   |-- subdomain.py
 |   |-- target.py
 |   |-- tcp_scanner.py
+|   |-- tls_analysis.py
 |-- output/
 |   |-- .gitkeep
 |-- versions/
@@ -176,7 +181,7 @@ python3 hylianscan.py example.com -s -a --json-output subdomains.json
 
 Mode Separation: TCP scanning (-p) and passive discovery (-s/-a) are separate modes and cannot be combined in a single command.
 
-Output Behavior: TCP mode prints live findings on screen. Passive discovery mode shows selected providers, runs silently in the background, and saves deduplicated results straight to disk.
+Output Behavior: TCP mode shows target orientation, scan progress, discovered open ports, service probing status, and a final report. Passive discovery mode shows selected providers and concise activity telemetry, then saves deduplicated results straight to disk.
 
 
 Roadmap: Future work, including wildcard DNS filtering workflows, is tracked in docs/TODO.md.
