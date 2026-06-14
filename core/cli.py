@@ -77,6 +77,11 @@ def parse_arguments() -> argparse.Namespace:
         const="hylianscan_tcp_results.json",
         help="Save TCP or passive subdomain results as JSON inside the output directory.",
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Reduce terminal output for scripting and automation.",
+    )
     return parser.parse_args()
 
 
@@ -207,3 +212,8 @@ def validate_mode(args: argparse.Namespace) -> None:
         raise ValueError(
             "Use passive discovery provider flags or port flags for TCP mode, not both."
         )
+
+
+def is_quiet_mode(args: argparse.Namespace) -> bool:
+    """Return True when automation-friendly quiet output is enabled."""
+    return bool(getattr(args, "quiet", False))

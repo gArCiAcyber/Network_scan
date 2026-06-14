@@ -349,3 +349,30 @@ def build_final_panel(
 
     lines.append(PANEL_SEPARATOR)
     return "\n".join(lines)
+
+
+def build_quiet_final_panel(
+    summary: ScanSummaryView,
+    scan_scope: str = "Default Target List",
+) -> str:
+    """Build a plain automation-friendly TCP scan report."""
+    lines = [
+        f"Target: {summary.target_host}",
+        f"Resolved IP: {summary.resolved_ip}",
+        f"Scan Scope: {scan_scope}",
+        f"Total Scan Time: {summary.duration:.2f}s",
+    ]
+
+    if not summary.open_ports:
+        lines.append("No open ports found.")
+        return "\n".join(lines)
+
+    lines.append("Open Ports:")
+
+    for finding in summary.open_ports:
+        port_label = f"{finding.port}/tcp"
+        service_name = format_display_service_name(finding.service)
+        version_signal = format_final_version(finding)
+        lines.append(f"- {port_label} open {service_name} {version_signal}")
+
+    return "\n".join(lines)

@@ -2,9 +2,12 @@
 
 import argparse
 import unittest
+from unittest.mock import patch
 
 from core.cli import (
     get_passive_providers,
+    is_quiet_mode,
+    parse_arguments,
     parse_custom_ports,
     parse_ports_list,
     resolve_scan_scope_label,
@@ -21,6 +24,7 @@ def build_args(
     top_ports: int | None = None,
     subfinder: bool = False,
     amass: bool = False,
+    quiet: bool = False,
 ) -> argparse.Namespace:
     """Build a minimal argparse namespace for CLI helper tests."""
     return argparse.Namespace(
@@ -28,6 +32,7 @@ def build_args(
         top_ports=top_ports,
         subfinder=subfinder,
         amass=amass,
+        quiet=quiet,
     )
 
 
@@ -118,6 +123,18 @@ class CLIHelperTests(unittest.TestCase):
             with self.subTest(args=args):
                 with self.assertRaises(ValueError):
                     validate_mode(args)
+
+    def test_parse_arguments_accepts_quiet_flag(self) -> None:
+        with patch("sys.argv", ["hylianscan", "example.com", "--quiet"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertTrue(args.quiet)
+
+    def test_is_quiet_mode_normalizes_missing_and_present_values(self) -> None:
+        self.assertFalse(is_quiet_mode(argparse.Namespace()))
+        self.assertFalse(is_quiet_mode(build_args(quiet=False)))
+        self.assertTrue(is_quiet_mode(build_args(quiet=True)))
 
 
 if __name__ == "__main__":
