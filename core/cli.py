@@ -129,7 +129,7 @@ def parse_ports_list(args: argparse.Namespace) -> list[int]:
     if args.ports:
         return parse_custom_ports(args.ports)
 
-    if args.top_ports:
+    if args.top_ports is not None:
         if args.top_ports < 1:
             raise ValueError("--top-ports must be greater than zero.")
 
