@@ -1,5 +1,7 @@
 # hylianscan
 
+[![tests](https://github.com/gArCiAcyber/Network_scan/actions/workflows/tests.yml/badge.svg)](https://github.com/gArCiAcyber/Network_scan/actions/workflows/tests.yml)
+
 `hylianscan` is a Python 3 reconnaissance and networking lab tool built for authorized targets, Kali Linux workflows, and practical study of offensive security automation.
 
 The current release version is `v0.8`.
@@ -36,6 +38,9 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 
 ```text
 hylianscan/
+|-- .github/
+|   |-- workflows/
+|   |   |-- tests.yml
 |-- assets/
 |   |-- ascii/
 |   |   |-- .gitkeep
@@ -63,6 +68,11 @@ hylianscan/
 |   |-- tls_analysis.py
 |-- output/
 |   |-- .gitkeep
+|-- tests/
+|   |-- __init__.py
+|   |-- test_json_exporter.py
+|   |-- test_ports.py
+|   |-- test_tls_analysis.py
 |-- versions/
 |   |-- v0.4_summary.md
 |   |-- v0.5_summary.md
