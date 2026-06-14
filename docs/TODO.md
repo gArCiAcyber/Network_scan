@@ -64,14 +64,14 @@
 - [X] Add configurable worker profiles for fast, balanced, and stealthier scan modes.
 - [X] Add protocol-aware banner probes for HTTP, SMTP, FTP, and TLS.
 - [ ] Add IPv6 support with `socket.getaddrinfo()`.
-- [ ] Add unit tests for target parsing, port normalization, banner cleanup, and Subfinder parsing.
-- [ ] Add a quiet mode for automation-friendly output.
+- [X] Add unit tests for CLI parsing, port normalization, banner cleanup, JSON export, TLS analysis, output helpers, quiet mode, and localhost mock services.
+- [X] Add a quiet mode for automation-friendly output.
 - [ ] Add structured scan profiles.
 - [X] Add JSON export for passive subdomain discovery.
 - [ ] Add configurable Subfinder binary path support.
 - [ ] Add configurable Amass binary path support.
 
-## v0.9 Ideas
+## v0.9 Completed
 
 - [X] Add structured HTTP metadata extraction to JSON reports.
 - [X] Add passive provider activity telemetry with timeout-safe partial results.
@@ -86,9 +86,17 @@
 - [X] Polish live TCP output and custom scan-scope wording.
 - [X] Refine TCP final output with Nmap-inspired `PORT / STATE / SERVICE / VERSION` formatting.
 - [X] Add phase-oriented TCP live output for connect-scan discovery and service probing.
-- [ ] Add protocol probe registry to make service fingerprinting easier to extend.
-- [ ] Add local mock-service tests for HTTP, TLS, SMTP, and FTP banner parsing.
+- [X] Add protocol probe registry to make service fingerprinting easier to extend.
+- [X] Add local mock-service tests for safe localhost TCP and HTTP probing.
+- [X] Add output helper tests for TXT, JSON, and passive discovery file handling.
+- [X] Add quiet-mode tests to verify automation-friendly plain output.
+
+## v0.10 Ideas
+
+- [ ] Add local TLS mock-service tests for HTTPS certificate and TLS metadata parsing.
+- [ ] Add local SMTP and FTP mock-service tests for protocol-aware banner parsing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.
+- [ ] Add CI coverage reporting.
 
 ## Long-Term Research
 

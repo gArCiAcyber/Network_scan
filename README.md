@@ -4,7 +4,7 @@
 
 `hylianscan` is a Python 3 reconnaissance and networking lab tool built for authorized targets, Kali Linux workflows, and practical study of offensive security automation.
 
-The current release version is `v0.8`.
+The current release version is `v0.9`.
 
 ## Scope
 
@@ -18,7 +18,8 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 - High Performance: Multi-threaded TCP scanning utilizing `ThreadPoolExecutor` and `socket.connect_ex()`.
 - Custom Port Selection: Supports comma-separated lists (`-p 80,443`), explicit ranges (`-p 1-1000`), top-port presets (`--top-ports`), and full 65535 range scanning (`-p -`).
 - Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, and FTP, passive banner fallback for unknown services, TLS certificate metadata extraction for HTTPS/implicit-TLS services, and clickable web service hints for standard and common alternate web ports.
-- Clean UI & Reporting: Uses a phase-oriented TCP live display, an Nmap-inspired final panel, and clean TXT/JSON report exports.
+- Clean UI & Reporting: Uses a phase-oriented TCP live display, an Nmap-inspired final panel, quiet automation mode, and clean TXT/JSON report exports.
+- Reliability Foundation: Includes standard-library unit tests for CLI parsing, port helpers, banner probing, TLS analysis, JSON export, output helpers, quiet mode, and localhost mock services.
 
 ### Passive Subdomain Discovery
 
@@ -70,8 +71,13 @@ hylianscan/
 |   |-- .gitkeep
 |-- tests/
 |   |-- __init__.py
+|   |-- test_banner_grabber.py
+|   |-- test_cli.py
 |   |-- test_json_exporter.py
+|   |-- test_mock_services.py
+|   |-- test_output.py
 |   |-- test_ports.py
+|   |-- test_quiet_mode.py
 |   |-- test_tls_analysis.py
 |-- versions/
 |   |-- v0.4_summary.md
@@ -79,6 +85,7 @@ hylianscan/
 |   |-- v0.6_summary.md
 |   |-- v0.7_summary.md
 |   |-- v0.8_summary.md
+|   |-- v0.9_summary.md
 |-- .gitattributes
 |-- .gitignore
 |-- hylianscan.py
@@ -99,6 +106,7 @@ Target IP address or domain name.
 -T, --timeout          Override the selected stance timeout per TCP port.
 -o, --output           Save TCP reports or choose a passive output directory.
 --json-output          Save TCP or passive subdomain results as JSON inside the output directory.
+--quiet                Reduce terminal output for scripting and automation.
 ```
 
 ## Usage
@@ -154,6 +162,12 @@ python3 hylianscan.py example.com -p 80,443 --json-output tcp_results.json
 ```
 
 The JSON export includes future-ready TCP findings with raw banner evidence, structured HTTP status/header metadata, HTTP URL, timing, TLS certificate metadata, and TLS risk indicators when a TLS service is detected.
+
+Run an automation-friendly quiet TCP scan:
+
+```bash
+python3 hylianscan.py example.com -p 80,443 --quiet
+```
 
 ### Subdomain Discovery Examples
 
