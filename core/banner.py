@@ -2,7 +2,7 @@
 
 from core.colors import RESET
 
-VERSION = "0.8"
+VERSION = "0.9"
 FOOTER_TEXT = f"[ HYLIANSCAN v{VERSION} - BY CYLINK ]"
 
 SLANT_BANNER_LINES = [
