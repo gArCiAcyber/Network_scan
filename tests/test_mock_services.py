@@ -6,6 +6,7 @@ import unittest
 from collections.abc import Callable
 from unittest.mock import patch
 
+from modules import banner_grabber
 from modules.tcp_scanner import scan_single_port, scan_tcp_ports
 
 
@@ -120,8 +121,14 @@ class MockServiceScanTests(unittest.TestCase):
 
         with LocalMockServer(handler, max_connections=2) as server:
             self.assertIsNotNone(server.port)
+            http_probe = banner_grabber.ProtocolProbe(
+                protocol_name="http",
+                ports=frozenset({server.port}),
+                handler_name="grab_http_banner",
+                requires_target_host=True,
+            )
 
-            with patch("modules.banner_grabber.HTTP_PORTS", {server.port}):
+            with patch("modules.banner_grabber.PROTOCOL_PROBE_REGISTRY", (http_probe,)):
                 result = scan_single_port(
                     target_host="localhost",
                     resolved_ip=LOCALHOST,

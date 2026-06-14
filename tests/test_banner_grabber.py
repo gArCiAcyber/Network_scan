@@ -49,6 +49,43 @@ class BannerGrabberHelperTests(unittest.TestCase):
         self.assertFalse(banner_grabber.should_collect_tls_metadata(80))
         self.assertFalse(banner_grabber.should_collect_tls_metadata(22))
 
+    def test_probe_registry_maps_ports_to_protocol_definitions(self) -> None:
+        http_probe = banner_grabber.find_probe_definition(80)
+        https_probe = banner_grabber.find_probe_definition(443)
+        generic_tls_probe = banner_grabber.find_probe_definition(993)
+        unknown_probe = banner_grabber.find_probe_definition(9999)
+
+        self.assertIsNotNone(http_probe)
+        self.assertEqual(http_probe.protocol_name, "http")
+        self.assertEqual(http_probe.handler_name, "grab_http_banner")
+        self.assertTrue(http_probe.requires_target_host)
+
+        self.assertIsNotNone(https_probe)
+        self.assertEqual(https_probe.protocol_name, "https")
+        self.assertEqual(https_probe.handler_name, "grab_tls_protocol_banner")
+        self.assertEqual(https_probe.tls_behavior, banner_grabber.TLS_BEHAVIOR_PROTOCOL)
+        self.assertTrue(https_probe.use_http_head_request)
+
+        self.assertIsNotNone(generic_tls_probe)
+        self.assertEqual(generic_tls_probe.protocol_name, "generic_tls_metadata")
+        self.assertEqual(generic_tls_probe.handler_name, "grab_tls_metadata")
+
+        self.assertIsNone(unknown_probe)
+
+    def test_probe_registry_prioritizes_specific_tls_protocols(self) -> None:
+        self.assertEqual(
+            banner_grabber.find_probe_definition(443).protocol_name,
+            "https",
+        )
+        self.assertEqual(
+            banner_grabber.find_probe_definition(465).protocol_name,
+            "smtps",
+        )
+        self.assertEqual(
+            banner_grabber.find_probe_definition(990).protocol_name,
+            "ftps",
+        )
+
     def test_format_certificate_name_converts_tuple_data(self) -> None:
         name_items = (
             (("commonName", "example.com"),),

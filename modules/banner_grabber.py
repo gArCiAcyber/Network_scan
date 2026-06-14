@@ -5,6 +5,8 @@ import os
 import socket
 import ssl
 import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -30,6 +32,70 @@ SMTPS_PORTS = {465}
 FTP_PORTS = {21, 2121}
 FTPS_PORTS = {990}
 TLS_METADATA_PORTS = {443, 465, 636, 2053, 2083, 2087, 2096, 8443, 989, 990, 993, 995}
+TLS_BEHAVIOR_NONE = "none"
+TLS_BEHAVIOR_PROTOCOL = "protocol"
+TLS_BEHAVIOR_TEXT = "text"
+TLS_BEHAVIOR_METADATA = "metadata"
+
+
+@dataclass(frozen=True)
+class ProtocolProbe:
+    """Describes how to collect service evidence for one protocol family."""
+
+    protocol_name: str
+    ports: frozenset[int]
+    handler_name: str
+    tls_behavior: str = TLS_BEHAVIOR_NONE
+    probe_payload: bytes | None = None
+    use_http_head_request: bool = False
+    requires_target_host: bool = False
+
+
+PROTOCOL_PROBE_REGISTRY = (
+    ProtocolProbe(
+        protocol_name="https",
+        ports=frozenset(HTTPS_PORTS),
+        handler_name="grab_tls_protocol_banner",
+        tls_behavior=TLS_BEHAVIOR_PROTOCOL,
+        use_http_head_request=True,
+    ),
+    ProtocolProbe(
+        protocol_name="http",
+        ports=frozenset(HTTP_PORTS),
+        handler_name="grab_http_banner",
+        requires_target_host=True,
+    ),
+    ProtocolProbe(
+        protocol_name="smtp",
+        ports=frozenset(SMTP_PORTS),
+        handler_name="grab_smtp_banner",
+    ),
+    ProtocolProbe(
+        protocol_name="smtps",
+        ports=frozenset(SMTPS_PORTS),
+        handler_name="grab_tls_text_service_banner",
+        tls_behavior=TLS_BEHAVIOR_TEXT,
+        probe_payload=b"EHLO hylianscan.local\r\n",
+    ),
+    ProtocolProbe(
+        protocol_name="ftp",
+        ports=frozenset(FTP_PORTS),
+        handler_name="grab_ftp_banner",
+    ),
+    ProtocolProbe(
+        protocol_name="ftps",
+        ports=frozenset(FTPS_PORTS),
+        handler_name="grab_tls_text_service_banner",
+        tls_behavior=TLS_BEHAVIOR_TEXT,
+        probe_payload=b"SYST\r\n",
+    ),
+    ProtocolProbe(
+        protocol_name="generic_tls_metadata",
+        ports=frozenset(TLS_METADATA_PORTS),
+        handler_name="grab_tls_metadata",
+        tls_behavior=TLS_BEHAVIOR_METADATA,
+    ),
+)
 
 
 def clean_banner(data: bytes) -> str:
@@ -109,6 +175,36 @@ def grab_ftp_banner(client: socket.socket) -> str | None:
 def should_collect_tls_metadata(port: int) -> bool:
     """Return True when a TCP port is expected to expose TLS metadata."""
     return port in TLS_METADATA_PORTS
+
+
+def find_probe_definition(port: int) -> ProtocolProbe | None:
+    """Return the first registered protocol probe for a TCP port."""
+    for probe in PROTOCOL_PROBE_REGISTRY:
+        if port in probe.ports:
+            return probe
+
+    return None
+
+
+def get_probe_handler(handler_name: str) -> Callable[..., Any]:
+    """Resolve a probe handler dynamically for testable dispatch."""
+    handler = globals()[handler_name]
+
+    if not callable(handler):
+        raise TypeError(f"Probe handler is not callable: {handler_name}")
+
+    return handler
+
+
+def resolve_probe_payload(
+    probe: ProtocolProbe,
+    target_host: str,
+) -> bytes | None:
+    """Return the probe payload for a protocol definition."""
+    if probe.use_http_head_request:
+        return build_http_head_request(target_host)
+
+    return probe.probe_payload
 
 
 def build_tls_context() -> ssl.SSLContext:
@@ -330,33 +426,30 @@ def grab_service_banner(
     port: int,
 ) -> tuple[str | None, dict[str, Any] | None]:
     """Collect the best available banner and optional TLS metadata for a service."""
-    if port in HTTPS_PORTS:
-        return grab_tls_protocol_banner(
-            client,
-            target_host,
-            build_http_head_request(target_host),
-        )
+    probe = find_probe_definition(port)
 
-    if port in HTTP_PORTS:
-        return grab_http_banner(client, target_host), None
+    if probe is None:
+        return grab_banner(client), None
 
-    if port in SMTP_PORTS:
-        return grab_smtp_banner(client), None
+    handler = get_probe_handler(probe.handler_name)
+    payload = resolve_probe_payload(probe, target_host)
 
-    if port in SMTPS_PORTS:
-        return grab_tls_text_service_banner(
-            client,
-            target_host,
-            b"EHLO hylianscan.local\r\n",
-        )
+    if probe.tls_behavior == TLS_BEHAVIOR_PROTOCOL:
+        return handler(client, target_host, payload)
 
-    if port in FTP_PORTS:
-        return grab_ftp_banner(client), None
+    if probe.tls_behavior == TLS_BEHAVIOR_TEXT:
+        if payload is None:
+            return None, grab_tls_metadata(client, target_host)
 
-    if port in FTPS_PORTS:
-        return grab_tls_text_service_banner(client, target_host, b"SYST\r\n")
+        return handler(client, target_host, payload)
 
-    if should_collect_tls_metadata(port):
-        return None, grab_tls_metadata(client, target_host)
+    if probe.tls_behavior == TLS_BEHAVIOR_METADATA:
+        return None, handler(client, target_host)
 
-    return grab_banner(client), None
+    if payload is not None:
+        return send_probe_and_grab_banner(client, payload), None
+
+    if probe.requires_target_host:
+        return handler(client, target_host), None
+
+    return handler(client), None
