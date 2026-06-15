@@ -93,6 +93,7 @@ hylianscan/
 |   |-- test_ports.py
 |   |-- test_quiet_mode.py
 |   |-- test_tls_analysis.py
+|   |-- test_tls_mock_services.py
 |-- versions/
 |   |-- v0.4_summary.md
 |   |-- v0.5_summary.md

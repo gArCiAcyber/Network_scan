@@ -93,8 +93,8 @@
 - [ ] Add configurable Subfinder binary path support.
 - [ ] Add configurable Amass binary path support.
 - [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
-- [ ] Add local TLS mock-service tests for HTTPS certificate and TLS metadata parsing.
-- [ ] Add local SMTP and FTP mock-service tests for protocol-aware banner parsing.
+- [X] Add local TLS mock-service tests for HTTPS certificate and TLS metadata parsing.
+- [X] Add local SMTP and FTP mock-service tests for protocol-aware banner parsing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.
 - [ ] Add CI coverage reporting.
 
