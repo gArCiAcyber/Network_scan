@@ -48,7 +48,7 @@
 - [x] Added a clean `HACKER_GREEN` passive discovery completion summary.
 - [x] Fully removed legacy multithreaded/socket brute-force dead code from `modules/subdomain.py`.
 
-## v0.8 Release Scope
+## v0.8 Completed
 
 - [X] Move `TOP_400_TCP_PORTS` from `hylianscan.py` into a dedicated `modules/ports.py` file.
 - [X] Extract TCP banner grabbing into `modules/banner_grabber.py`.
@@ -60,16 +60,11 @@
 - [X] Add Amass as a second passive subdomain discovery provider.
 - [X] Add multi-provider passive discovery with deduplicated TXT output.
 - [X] Add provider source attribution to passive subdomain JSON export.
-- [ ] Add TXT report export templates into `output/`.
 - [X] Add configurable worker profiles for fast, balanced, and stealthier scan modes.
 - [X] Add protocol-aware banner probes for HTTP, SMTP, FTP, and TLS.
-- [ ] Add IPv6 support with `socket.getaddrinfo()`.
 - [X] Add unit tests for CLI parsing, port normalization, banner cleanup, JSON export, TLS analysis, output helpers, quiet mode, and localhost mock services.
 - [X] Add a quiet mode for automation-friendly output.
-- [ ] Add structured scan profiles.
 - [X] Add JSON export for passive subdomain discovery.
-- [ ] Add configurable Subfinder binary path support.
-- [ ] Add configurable Amass binary path support.
 
 ## v0.9 Completed
 
@@ -80,7 +75,6 @@
 - [X] Polish passive discovery terminal styling with character-name highlighting.
 - [X] Merge TCP scan stance details into the Target Orientation block.
 - [X] Refactor the startup banner to Slant TrueColor RGB rendering.
-- [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
 - [X] Add TLS certificate expiry and hostname-mismatch risk indicators.
 - [X] Add alternate HTTP/HTTPS web port service and probe mappings.
 - [X] Polish live TCP output and custom scan-scope wording.
@@ -91,8 +85,14 @@
 - [X] Add output helper tests for TXT, JSON, and passive discovery file handling.
 - [X] Add quiet-mode tests to verify automation-friendly plain output.
 
-## v0.10 Ideas
+## v0.10 / v1.0 Future Work
 
+- [ ] Add TXT report export templates into `output/`.
+- [ ] Add IPv6 support with `socket.getaddrinfo()`.
+- [ ] Add structured scan profiles.
+- [ ] Add configurable Subfinder binary path support.
+- [ ] Add configurable Amass binary path support.
+- [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
 - [ ] Add local TLS mock-service tests for HTTPS certificate and TLS metadata parsing.
 - [ ] Add local SMTP and FTP mock-service tests for protocol-aware banner parsing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.

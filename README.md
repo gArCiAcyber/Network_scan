@@ -35,6 +35,20 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 - Linux terminal environment (preferably Kali Linux). Windows supports basic CLI scans/tests through safe terminal fallbacks.
 - Subfinder and/or Amass installed and available in your `PATH` for passive discovery.
 
+## Testing / CI
+
+HylianScan uses Python standard-library `unittest` for its test suite.
+
+GitHub Actions runs the test workflow on push and pull request events. Localhost mock services validate scanner behavior safely without contacting external targets.
+
+Standard local validation:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py" -v
+python -m compileall -q hylianscan.py core modules
+python hylianscan.py --help
+```
+
 ## Project Layout
 
 ```text
