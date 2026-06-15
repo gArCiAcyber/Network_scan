@@ -81,6 +81,7 @@
 - [X] Refine TCP final output with Nmap-inspired `PORT / STATE / SERVICE / VERSION` formatting.
 - [X] Add phase-oriented TCP live output for connect-scan discovery and service probing.
 - [X] Add protocol probe registry to make service fingerprinting easier to extend.
+- [X] Add SMTP STARTTLS upgrade probing for TLS metadata collection.
 - [X] Add local mock-service tests for safe localhost TCP and HTTP probing.
 - [X] Add output helper tests for TXT, JSON, and passive discovery file handling.
 - [X] Add quiet-mode tests to verify automation-friendly plain output.
@@ -92,7 +93,7 @@
 - [ ] Add structured scan profiles.
 - [ ] Add configurable Subfinder binary path support.
 - [ ] Add configurable Amass binary path support.
-- [ ] Add STARTTLS upgrade probes for SMTP, IMAP, POP3, LDAP, and FTP.
+- [ ] Add STARTTLS upgrade probes for IMAP, POP3, LDAP, and FTP.
 - [X] Add local TLS mock-service tests for HTTPS certificate and TLS metadata parsing.
 - [X] Add local SMTP and FTP mock-service tests for protocol-aware banner parsing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.
