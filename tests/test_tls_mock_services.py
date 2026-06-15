@@ -149,6 +149,117 @@ class LocalTLSMockServer:
             pass
 
 
+class LocalSMTPStartTLSMockServer:
+    """Tiny localhost SMTP server that upgrades one connection with STARTTLS."""
+
+    def __init__(self, max_connections: int = 2) -> None:
+        self.max_connections = max_connections
+        self.port: int | None = None
+        self.received_commands: list[bytes] = []
+        self._ready = threading.Event()
+        self._temporary_directory = tempfile.TemporaryDirectory()
+        self._context = self._build_context(Path(self._temporary_directory.name))
+        self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server.bind((LOCALHOST, 0))
+        self._server.listen(max_connections)
+        self._server.settimeout(TEST_TIMEOUT)
+        self.port = self._server.getsockname()[1]
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+
+    def __enter__(self) -> "LocalSMTPStartTLSMockServer":
+        self._thread.start()
+        self._ready.wait(TEST_TIMEOUT)
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Close server resources."""
+        try:
+            self._server.close()
+        except OSError:
+            pass
+
+        self._thread.join(TEST_TIMEOUT)
+        self._temporary_directory.cleanup()
+
+    def _build_context(self, directory: Path) -> ssl.SSLContext:
+        """Create a server TLS context from embedded test certificate material."""
+        cert_path = directory / "localhost.crt"
+        key_path = directory / "localhost.key"
+        cert_path.write_text(TEST_CERTIFICATE_PEM, encoding="ascii")
+        key_path.write_text(TEST_PRIVATE_KEY_PEM, encoding="ascii")
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        return context
+
+    def _serve(self) -> None:
+        """Accept discovery and SMTP STARTTLS probe connections."""
+        self._ready.set()
+
+        try:
+            for _ in range(self.max_connections):
+                try:
+                    client, _address = self._server.accept()
+                except OSError:
+                    break
+
+                with client:
+                    client.settimeout(TEST_TIMEOUT)
+                    self._handle_client(client)
+        finally:
+            try:
+                self._server.close()
+            except OSError:
+                pass
+
+    def _handle_client(self, client: socket.socket) -> None:
+        """Handle one SMTP connection and upgrade when STARTTLS is requested."""
+        try:
+            client.sendall(b"220 hylianscan.mock ESMTP ready\r\n")
+            ehlo_command = client.recv(1024)
+        except (OSError, socket.timeout):
+            return
+
+        self.received_commands.append(ehlo_command)
+
+        if not ehlo_command.upper().startswith(b"EHLO"):
+            return
+
+        try:
+            client.sendall(
+                b"250-hylianscan.mock\r\n"
+                b"250-STARTTLS\r\n"
+                b"250 HELP\r\n"
+            )
+            starttls_command = client.recv(1024)
+        except (OSError, socket.timeout):
+            return
+
+        self.received_commands.append(starttls_command)
+
+        if not starttls_command.upper().startswith(b"STARTTLS"):
+            return
+
+        try:
+            client.sendall(b"220 Ready to start TLS\r\n")
+            with self._context.wrap_socket(client, server_side=True) as tls_client:
+                tls_client.settimeout(TEST_TIMEOUT)
+                self._drain_tls_client(tls_client)
+        except (OSError, ssl.SSLError):
+            return
+
+    def _drain_tls_client(self, tls_client: ssl.SSLSocket) -> None:
+        """Read optional TLS client data after the handshake."""
+        try:
+            tls_client.recv(1024)
+        except (OSError, socket.timeout, ssl.SSLError):
+            pass
+
+
 def patched_tls_registry(port: int) -> Iterator[object]:
     """Patch protocol probing so the ephemeral port is treated as TLS."""
     tls_probe = banner_grabber.ProtocolProbe(
@@ -159,6 +270,18 @@ def patched_tls_registry(port: int) -> Iterator[object]:
     )
 
     return patch("modules.banner_grabber.PROTOCOL_PROBE_REGISTRY", (tls_probe,))
+
+
+def patched_smtp_starttls_registry(port: int) -> Iterator[object]:
+    """Patch protocol probing so the ephemeral port is treated as SMTP STARTTLS."""
+    smtp_probe = banner_grabber.ProtocolProbe(
+        protocol_name="smtp",
+        ports=frozenset({port}),
+        handler_name="grab_smtp_starttls_banner",
+        tls_behavior=banner_grabber.TLS_BEHAVIOR_STARTTLS,
+    )
+
+    return patch("modules.banner_grabber.PROTOCOL_PROBE_REGISTRY", (smtp_probe,))
 
 
 class TLSMockServiceScanTests(unittest.TestCase):
@@ -213,6 +336,37 @@ class TLSMockServiceScanTests(unittest.TestCase):
         self.assertTrue(cipher["name"])
         self.assertTrue(cipher["protocol"])
         self.assertGreater(cipher["secret_bits"], 0)
+
+    def test_local_smtp_starttls_service_collects_tls_metadata(self) -> None:
+        with LocalSMTPStartTLSMockServer() as server:
+            self.assertIsNotNone(server.port)
+
+            with patched_smtp_starttls_registry(server.port):
+                result = scan_tcp_ports(
+                    target_host="localhost",
+                    resolved_ip=LOCALHOST,
+                    ports=[server.port],
+                    timeout=TEST_TIMEOUT,
+                    max_workers=1,
+                )
+
+        self.assertEqual(len(result.open_ports), 1)
+        finding = result.open_ports[0]
+
+        self.assertEqual(finding.port, server.port)
+        self.assertIsNotNone(finding.banner)
+        self.assertIn("220 hylianscan.mock ESMTP ready", finding.banner)
+        self.assertIn("250-STARTTLS", finding.banner)
+        self.assertIn("220 Ready to start TLS", finding.banner)
+        self.assertTrue(any(b"EHLO hylianscan.local" in data for data in server.received_commands))
+        self.assertTrue(any(b"STARTTLS" in data for data in server.received_commands))
+        self.assertIsNotNone(finding.tls)
+        self.assertEqual(finding.tls["status"], "collected")
+        self.assertEqual(
+            finding.tls["certificate"]["subject"]["commonName"],
+            ["localhost"],
+        )
+        self.assertTrue(finding.tls["handshake"]["protocol"])
 
 
 if __name__ == "__main__":

@@ -36,6 +36,9 @@ TLS_BEHAVIOR_NONE = "none"
 TLS_BEHAVIOR_PROTOCOL = "protocol"
 TLS_BEHAVIOR_TEXT = "text"
 TLS_BEHAVIOR_METADATA = "metadata"
+TLS_BEHAVIOR_STARTTLS = "starttls"
+SMTP_EHLO_PAYLOAD = b"EHLO hylianscan.local\r\n"
+SMTP_STARTTLS_PAYLOAD = b"STARTTLS\r\n"
 
 
 @dataclass(frozen=True)
@@ -68,7 +71,8 @@ PROTOCOL_PROBE_REGISTRY = (
     ProtocolProbe(
         protocol_name="smtp",
         ports=frozenset(SMTP_PORTS),
-        handler_name="grab_smtp_banner",
+        handler_name="grab_smtp_starttls_banner",
+        tls_behavior=TLS_BEHAVIOR_STARTTLS,
     ),
     ProtocolProbe(
         protocol_name="smtps",
@@ -161,8 +165,51 @@ def grab_http_banner(client: socket.socket, target_host: str) -> str | None:
 def grab_smtp_banner(client: socket.socket) -> str | None:
     """Collect SMTP greeting and advertised capabilities."""
     greeting = grab_banner(client)
-    ehlo_response = send_probe_and_grab_banner(client, b"EHLO hylianscan.local\r\n")
+    ehlo_response = send_probe_and_grab_banner(client, SMTP_EHLO_PAYLOAD)
     return merge_banner_parts(greeting, ehlo_response)
+
+
+def smtp_advertises_starttls(ehlo_response: str | None) -> bool:
+    """Return True when SMTP capabilities advertise STARTTLS."""
+    if not ehlo_response:
+        return False
+
+    return "STARTTLS" in ehlo_response.upper()
+
+
+def smtp_starttls_is_ready(response: str | None) -> bool:
+    """Return True when SMTP accepts STARTTLS negotiation."""
+    return bool(response and response.startswith("220"))
+
+
+def grab_smtp_starttls_banner(
+    client: socket.socket,
+    server_hostname: str,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Collect SMTP evidence and upgrade to TLS when STARTTLS is available."""
+    greeting = grab_banner(client)
+    ehlo_response = send_probe_and_grab_banner(client, SMTP_EHLO_PAYLOAD)
+    plain_banner = merge_banner_parts(greeting, ehlo_response)
+
+    if not smtp_advertises_starttls(ehlo_response):
+        return plain_banner, None
+
+    starttls_response = send_probe_and_grab_banner(client, SMTP_STARTTLS_PAYLOAD)
+    starttls_banner = merge_banner_parts(plain_banner, starttls_response)
+
+    if not smtp_starttls_is_ready(starttls_response):
+        return starttls_banner, None
+
+    context = build_tls_context()
+
+    try:
+        with context.wrap_socket(
+            client,
+            server_hostname=server_hostname,
+        ) as tls_client:
+            return starttls_banner, collect_tls_metadata(tls_client)
+    except (OSError, ValueError, ssl.SSLError):
+        return starttls_banner, None
 
 
 def grab_ftp_banner(client: socket.socket) -> str | None:
@@ -445,6 +492,9 @@ def grab_service_banner(
 
     if probe.tls_behavior == TLS_BEHAVIOR_METADATA:
         return None, handler(client, target_host)
+
+    if probe.tls_behavior == TLS_BEHAVIOR_STARTTLS:
+        return handler(client, target_host)
 
     if payload is not None:
         return send_probe_and_grab_banner(client, payload), None

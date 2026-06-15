@@ -49,6 +49,16 @@ class BannerGrabberHelperTests(unittest.TestCase):
         self.assertFalse(banner_grabber.should_collect_tls_metadata(80))
         self.assertFalse(banner_grabber.should_collect_tls_metadata(22))
 
+    def test_smtp_starttls_helpers_detect_capability_and_ready_response(self) -> None:
+        self.assertTrue(
+            banner_grabber.smtp_advertises_starttls(
+                "250-mail.example 250-STARTTLS 250 HELP"
+            )
+        )
+        self.assertFalse(banner_grabber.smtp_advertises_starttls("250 HELP"))
+        self.assertTrue(banner_grabber.smtp_starttls_is_ready("220 Ready to start TLS"))
+        self.assertFalse(banner_grabber.smtp_starttls_is_ready("454 TLS not available"))
+
     def test_probe_registry_maps_ports_to_protocol_definitions(self) -> None:
         http_probe = banner_grabber.find_probe_definition(80)
         https_probe = banner_grabber.find_probe_definition(443)
@@ -59,6 +69,12 @@ class BannerGrabberHelperTests(unittest.TestCase):
         self.assertEqual(http_probe.protocol_name, "http")
         self.assertEqual(http_probe.handler_name, "grab_http_banner")
         self.assertTrue(http_probe.requires_target_host)
+
+        smtp_probe = banner_grabber.find_probe_definition(25)
+        self.assertIsNotNone(smtp_probe)
+        self.assertEqual(smtp_probe.protocol_name, "smtp")
+        self.assertEqual(smtp_probe.handler_name, "grab_smtp_starttls_banner")
+        self.assertEqual(smtp_probe.tls_behavior, banner_grabber.TLS_BEHAVIOR_STARTTLS)
 
         self.assertIsNotNone(https_probe)
         self.assertEqual(https_probe.protocol_name, "https")
@@ -189,13 +205,17 @@ class BannerGrabberHelperTests(unittest.TestCase):
     def test_grab_service_banner_dispatches_smtp_ports(self) -> None:
         client = Mock()
 
-        with patch.object(banner_grabber, "grab_smtp_banner", return_value="smtp") as mocked:
+        with patch.object(
+            banner_grabber,
+            "grab_smtp_starttls_banner",
+            return_value=("smtp", {"status": "collected"}),
+        ) as mocked:
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 25),
-                ("smtp", None),
+                ("smtp", {"status": "collected"}),
             )
 
-        mocked.assert_called_once_with(client)
+        mocked.assert_called_once_with(client, "example.com")
 
     def test_grab_service_banner_dispatches_smtps_ports(self) -> None:
         client = Mock()
