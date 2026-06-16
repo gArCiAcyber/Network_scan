@@ -20,7 +20,7 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 - Custom Port Selection: Supports comma-separated lists (`-p 80,443`), explicit ranges (`-p 1-1000`), top-port presets (`--top-ports`), and full 65535 range scanning (`-p -`).
 - Port Profiles: Supports predefined authorized recon workflows with `--port-profile` for `quick/kokiri`, `web/sheikah`, `mail/rito`, `admin/castle`, and `bugbounty/triforce`.
 - Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, and FTP, SMTP STARTTLS upgrade metadata collection, passive banner fallback for unknown services, TLS certificate metadata extraction for HTTPS/implicit-TLS services, and clickable web service hints for standard and common alternate web ports.
-- Clean UI & Reporting: Uses target orientation with effective stance/pacing details, a phase-oriented TCP live display, an Nmap-inspired final panel, quiet automation mode, and clean TXT/JSON report exports.
+- Clean UI & Reporting: Uses target orientation with effective stance/pacing details, a phase-oriented TCP live display, an Nmap-inspired final panel, quiet automation mode, organized target-specific output workspaces, and clean TXT/JSON report exports.
 - Reliability Foundation: Includes standard-library unit tests for CLI parsing, port helpers, banner probing, TLS analysis, JSON export, output helpers, quiet mode, and localhost mock services.
 
 ### Passive Subdomain Discovery
@@ -202,6 +202,12 @@ Save a TCP scan report:
 python3 hylianscan.py example.com -p 80,443 -o web_report.txt
 ```
 
+Save a TCP scan report into a target-specific timestamped workspace:
+
+```bash
+python3 hylianscan.py example.com -p 80,443 -o
+```
+
 Save TCP scan results as JSON:
 
 ```bash
@@ -258,7 +264,7 @@ python3 hylianscan.py example.com -s -a --json-output subdomains.json
 
 Mode Separation: TCP scanning (-p) and passive discovery (-s/-a) are separate modes and cannot be combined in a single command.
 
-Output Behavior: TCP mode shows target orientation, effective scan configuration, scan progress, discovered open ports, service probing status, and a final report. Passive discovery mode shows selected providers and concise activity telemetry, then saves deduplicated results straight to disk.
+Output Behavior: TCP mode shows target orientation, effective scan configuration, scan progress, discovered open ports, service probing status, and a final report. Passive discovery mode shows selected providers and concise activity telemetry, then saves deduplicated results straight to disk. Default TXT/JSON output requests create `output/<target>/<timestamp>/` workspaces with names such as `tcp_report.txt`, `tcp_results.json`, `subdomains.txt`, and `subdomains.json`; explicit user-provided paths keep the existing behavior.
 
 
 Roadmap: Future work, including wildcard DNS filtering workflows, is tracked in docs/TODO.md.

@@ -95,6 +95,7 @@
 
 ## v0.10 / v1.0 Future Work
 
+- [ ] Add target-specific timestamped output workspaces for default TXT and JSON exports.
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add IPv6 support with `socket.getaddrinfo()`.
 - [ ] Add structured scan profiles.
