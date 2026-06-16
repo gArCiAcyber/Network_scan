@@ -360,6 +360,19 @@ class TLSMockServiceScanTests(unittest.TestCase):
         self.assertIn("220 Ready to start TLS", finding.banner)
         self.assertTrue(any(b"EHLO hylianscan.local" in data for data in server.received_commands))
         self.assertTrue(any(b"STARTTLS" in data for data in server.received_commands))
+        self.assertIsNotNone(finding.probe)
+        self.assertEqual(finding.probe["name"], "smtp")
+        self.assertEqual(finding.probe["transport_security"], "starttls")
+        self.assertEqual(finding.probe["method"], "smtp_ehlo")
+        self.assertEqual(
+            finding.probe["starttls"],
+            {
+                "supported": True,
+                "attempted": True,
+                "upgraded": True,
+                "error": None,
+            },
+        )
         self.assertIsNotNone(finding.tls)
         self.assertEqual(finding.tls["status"], "collected")
         self.assertEqual(

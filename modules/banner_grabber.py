@@ -37,6 +37,15 @@ TLS_BEHAVIOR_PROTOCOL = "protocol"
 TLS_BEHAVIOR_TEXT = "text"
 TLS_BEHAVIOR_METADATA = "metadata"
 TLS_BEHAVIOR_STARTTLS = "starttls"
+TRANSPORT_SECURITY_NONE = "none"
+TRANSPORT_SECURITY_IMPLICIT_TLS = "implicit_tls"
+TRANSPORT_SECURITY_STARTTLS = "starttls"
+TRANSPORT_SECURITY_UNKNOWN = "unknown"
+PROBE_METHOD_HTTP_HEAD = "http_head"
+PROBE_METHOD_SMTP_EHLO = "smtp_ehlo"
+PROBE_METHOD_FTP_SYST = "ftp_syst"
+PROBE_METHOD_TLS_HANDSHAKE = "tls_handshake"
+PROBE_METHOD_PASSIVE_BANNER = "passive_banner"
 SMTP_EHLO_PAYLOAD = b"EHLO hylianscan.local\r\n"
 SMTP_STARTTLS_PAYLOAD = b"STARTTLS\r\n"
 
@@ -52,6 +61,8 @@ class ProtocolProbe:
     probe_payload: bytes | None = None
     use_http_head_request: bool = False
     requires_target_host: bool = False
+    transport_security: str = TRANSPORT_SECURITY_NONE
+    probe_method: str = PROBE_METHOD_PASSIVE_BANNER
 
 
 PROTOCOL_PROBE_REGISTRY = (
@@ -61,18 +72,22 @@ PROTOCOL_PROBE_REGISTRY = (
         handler_name="grab_tls_protocol_banner",
         tls_behavior=TLS_BEHAVIOR_PROTOCOL,
         use_http_head_request=True,
+        transport_security=TRANSPORT_SECURITY_IMPLICIT_TLS,
+        probe_method=PROBE_METHOD_HTTP_HEAD,
     ),
     ProtocolProbe(
         protocol_name="http",
         ports=frozenset(HTTP_PORTS),
         handler_name="grab_http_banner",
         requires_target_host=True,
+        probe_method=PROBE_METHOD_HTTP_HEAD,
     ),
     ProtocolProbe(
         protocol_name="smtp",
         ports=frozenset(SMTP_PORTS),
         handler_name="grab_smtp_starttls_banner",
         tls_behavior=TLS_BEHAVIOR_STARTTLS,
+        probe_method=PROBE_METHOD_SMTP_EHLO,
     ),
     ProtocolProbe(
         protocol_name="smtps",
@@ -80,11 +95,14 @@ PROTOCOL_PROBE_REGISTRY = (
         handler_name="grab_tls_text_service_banner",
         tls_behavior=TLS_BEHAVIOR_TEXT,
         probe_payload=b"EHLO hylianscan.local\r\n",
+        transport_security=TRANSPORT_SECURITY_IMPLICIT_TLS,
+        probe_method=PROBE_METHOD_SMTP_EHLO,
     ),
     ProtocolProbe(
         protocol_name="ftp",
         ports=frozenset(FTP_PORTS),
         handler_name="grab_ftp_banner",
+        probe_method=PROBE_METHOD_FTP_SYST,
     ),
     ProtocolProbe(
         protocol_name="ftps",
@@ -92,14 +110,60 @@ PROTOCOL_PROBE_REGISTRY = (
         handler_name="grab_tls_text_service_banner",
         tls_behavior=TLS_BEHAVIOR_TEXT,
         probe_payload=b"SYST\r\n",
+        transport_security=TRANSPORT_SECURITY_IMPLICIT_TLS,
+        probe_method=PROBE_METHOD_FTP_SYST,
     ),
     ProtocolProbe(
         protocol_name="generic_tls_metadata",
         ports=frozenset(TLS_METADATA_PORTS),
         handler_name="grab_tls_metadata",
         tls_behavior=TLS_BEHAVIOR_METADATA,
+        transport_security=TRANSPORT_SECURITY_IMPLICIT_TLS,
+        probe_method=PROBE_METHOD_TLS_HANDSHAKE,
     ),
 )
+
+
+def build_probe_metadata(
+    name: str,
+    transport_security: str,
+    method: str,
+    starttls: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build structured JSON-ready probe metadata."""
+    metadata: dict[str, Any] = {
+        "name": name,
+        "transport_security": transport_security,
+        "method": method,
+    }
+
+    if starttls is not None:
+        metadata["starttls"] = starttls
+
+    return metadata
+
+
+def build_probe_metadata_from_definition(
+    probe: ProtocolProbe,
+    transport_security: str | None = None,
+    starttls: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build probe metadata from a registered probe definition."""
+    return build_probe_metadata(
+        name=probe.protocol_name,
+        transport_security=transport_security or probe.transport_security,
+        method=probe.probe_method,
+        starttls=starttls,
+    )
+
+
+def build_unknown_probe_metadata() -> dict[str, Any]:
+    """Build probe metadata for unknown passive banner fallback."""
+    return build_probe_metadata(
+        name="unknown",
+        transport_security=TRANSPORT_SECURITY_UNKNOWN,
+        method=PROBE_METHOD_PASSIVE_BANNER,
+    )
 
 
 def clean_banner(data: bytes) -> str:
@@ -185,20 +249,48 @@ def smtp_starttls_is_ready(response: str | None) -> bool:
 def grab_smtp_starttls_banner(
     client: socket.socket,
     server_hostname: str,
-) -> tuple[str | None, dict[str, Any] | None]:
+) -> tuple[str | None, dict[str, Any] | None, dict[str, Any]]:
     """Collect SMTP evidence and upgrade to TLS when STARTTLS is available."""
     greeting = grab_banner(client)
     ehlo_response = send_probe_and_grab_banner(client, SMTP_EHLO_PAYLOAD)
     plain_banner = merge_banner_parts(greeting, ehlo_response)
+    starttls_metadata: dict[str, Any] = {
+        "supported": smtp_advertises_starttls(ehlo_response),
+        "attempted": False,
+        "upgraded": False,
+        "error": None,
+    }
 
-    if not smtp_advertises_starttls(ehlo_response):
-        return plain_banner, None
+    if not starttls_metadata["supported"]:
+        return (
+            plain_banner,
+            None,
+            build_probe_metadata(
+                name="smtp",
+                transport_security=TRANSPORT_SECURITY_NONE,
+                method=PROBE_METHOD_SMTP_EHLO,
+                starttls=starttls_metadata,
+            ),
+        )
 
+    starttls_metadata["attempted"] = True
     starttls_response = send_probe_and_grab_banner(client, SMTP_STARTTLS_PAYLOAD)
     starttls_banner = merge_banner_parts(plain_banner, starttls_response)
 
     if not smtp_starttls_is_ready(starttls_response):
-        return starttls_banner, None
+        starttls_metadata["error"] = (
+            "STARTTLS was advertised but the server did not return a 220 ready response."
+        )
+        return (
+            starttls_banner,
+            None,
+            build_probe_metadata(
+                name="smtp",
+                transport_security=TRANSPORT_SECURITY_NONE,
+                method=PROBE_METHOD_SMTP_EHLO,
+                starttls=starttls_metadata,
+            ),
+        )
 
     context = build_tls_context()
 
@@ -207,9 +299,29 @@ def grab_smtp_starttls_banner(
             client,
             server_hostname=server_hostname,
         ) as tls_client:
-            return starttls_banner, collect_tls_metadata(tls_client)
-    except (OSError, ValueError, ssl.SSLError):
-        return starttls_banner, None
+            starttls_metadata["upgraded"] = True
+            return (
+                starttls_banner,
+                collect_tls_metadata(tls_client),
+                build_probe_metadata(
+                    name="smtp",
+                    transport_security=TRANSPORT_SECURITY_STARTTLS,
+                    method=PROBE_METHOD_SMTP_EHLO,
+                    starttls=starttls_metadata,
+                ),
+            )
+    except (OSError, ValueError, ssl.SSLError) as error:
+        starttls_metadata["error"] = str(error)
+        return (
+            starttls_banner,
+            None,
+            build_probe_metadata(
+                name="smtp",
+                transport_security=TRANSPORT_SECURITY_NONE,
+                method=PROBE_METHOD_SMTP_EHLO,
+                starttls=starttls_metadata,
+            ),
+        )
 
 
 def grab_ftp_banner(client: socket.socket) -> str | None:
@@ -471,35 +583,53 @@ def grab_service_banner(
     client: socket.socket,
     target_host: str,
     port: int,
-) -> tuple[str | None, dict[str, Any] | None]:
+) -> tuple[str | None, dict[str, Any] | None, dict[str, Any]]:
     """Collect the best available banner and optional TLS metadata for a service."""
     probe = find_probe_definition(port)
 
     if probe is None:
-        return grab_banner(client), None
+        return grab_banner(client), None, build_unknown_probe_metadata()
 
     handler = get_probe_handler(probe.handler_name)
     payload = resolve_probe_payload(probe, target_host)
 
     if probe.tls_behavior == TLS_BEHAVIOR_PROTOCOL:
-        return handler(client, target_host, payload)
+        banner, tls_metadata = handler(client, target_host, payload)
+        return banner, tls_metadata, build_probe_metadata_from_definition(probe)
 
     if probe.tls_behavior == TLS_BEHAVIOR_TEXT:
         if payload is None:
-            return None, grab_tls_metadata(client, target_host)
+            return (
+                None,
+                grab_tls_metadata(client, target_host),
+                build_probe_metadata_from_definition(probe),
+            )
 
-        return handler(client, target_host, payload)
+        banner, tls_metadata = handler(client, target_host, payload)
+        return banner, tls_metadata, build_probe_metadata_from_definition(probe)
 
     if probe.tls_behavior == TLS_BEHAVIOR_METADATA:
-        return None, handler(client, target_host)
+        return (
+            None,
+            handler(client, target_host),
+            build_probe_metadata_from_definition(probe),
+        )
 
     if probe.tls_behavior == TLS_BEHAVIOR_STARTTLS:
         return handler(client, target_host)
 
     if payload is not None:
-        return send_probe_and_grab_banner(client, payload), None
+        return (
+            send_probe_and_grab_banner(client, payload),
+            None,
+            build_probe_metadata_from_definition(probe),
+        )
 
     if probe.requires_target_host:
-        return handler(client, target_host), None
+        return (
+            handler(client, target_host),
+            None,
+            build_probe_metadata_from_definition(probe),
+        )
 
-    return handler(client), None
+    return handler(client), None, build_probe_metadata_from_definition(probe)

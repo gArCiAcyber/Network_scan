@@ -30,6 +30,7 @@ class PortScanResult:
     response_time: float
     web_url: str | None = None
     tls: dict[str, Any] | None = None
+    probe: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,7 @@ def discover_open_port(
         response_time=response_time,
         web_url=web_url,
         tls=None,
+        probe=None,
     )
 
 
@@ -85,6 +87,7 @@ def probe_open_service(
     """Collect service evidence for one discovered open TCP port."""
     banner = None
     tls = None
+    probe = None
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
@@ -94,7 +97,7 @@ def probe_open_service(
             if connect_code != 0:
                 return finding
 
-            banner, tls = grab_service_banner(client, target_host, finding.port)
+            banner, tls, probe = grab_service_banner(client, target_host, finding.port)
     except OSError:
         return finding
 
@@ -105,6 +108,7 @@ def probe_open_service(
         response_time=finding.response_time,
         web_url=finding.web_url,
         tls=tls,
+        probe=probe,
     )
 
 

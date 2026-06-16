@@ -45,6 +45,11 @@ def make_finding(**overrides: object) -> SimpleNamespace:
         "response_time": 0.1234567,
         "web_url": "https://example.com",
         "tls": TLS_METADATA,
+        "probe": {
+            "name": "https",
+            "transport_security": "implicit_tls",
+            "method": "http_head",
+        },
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -89,6 +94,7 @@ class JSONExporterTests(unittest.TestCase):
         self.assertEqual(port_document["transport"], "tcp")
         self.assertEqual(port_document["status"], "open")
         self.assertEqual(port_document["service"]["name"], "HTTPS")
+        self.assertIn("probe", port_document)
         self.assertEqual(port_document["banner"]["raw"], HTTP_BANNER)
         self.assertEqual(port_document["timing"]["response_time_seconds"], 0.123457)
 
@@ -115,12 +121,137 @@ class JSONExporterTests(unittest.TestCase):
         self.assertFalse(port_document["tls_analysis"]["hostname_mismatch"])
         self.assertEqual(port_document["tls_analysis"]["severity"], "low")
 
+    def test_http_probe_metadata(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                port=80,
+                service="HTTP",
+                web_url="http://example.com",
+                tls=None,
+                probe={
+                    "name": "http",
+                    "transport_security": "none",
+                    "method": "http_head",
+                },
+            ),
+            "example.com",
+        )
+
+        self.assertEqual(
+            port_document["probe"],
+            {
+                "name": "http",
+                "transport_security": "none",
+                "method": "http_head",
+            },
+        )
+
+    def test_https_implicit_tls_probe_metadata(self) -> None:
+        port_document = build_port_document(make_finding(), "example.com")
+
+        self.assertEqual(
+            port_document["probe"],
+            {
+                "name": "https",
+                "transport_security": "implicit_tls",
+                "method": "http_head",
+            },
+        )
+
+    def test_smtp_starttls_probe_metadata(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                port=25,
+                service="SMTP",
+                banner="220 mail.example ESMTP | 250-STARTTLS | 220 Ready",
+                web_url=None,
+                probe={
+                    "name": "smtp",
+                    "transport_security": "starttls",
+                    "method": "smtp_ehlo",
+                    "starttls": {
+                        "supported": True,
+                        "attempted": True,
+                        "upgraded": True,
+                        "error": None,
+                    },
+                },
+            ),
+            "example.com",
+        )
+
+        self.assertEqual(port_document["probe"]["name"], "smtp")
+        self.assertEqual(port_document["probe"]["transport_security"], "starttls")
+        self.assertEqual(port_document["probe"]["method"], "smtp_ehlo")
+        self.assertEqual(
+            port_document["probe"]["starttls"],
+            {
+                "supported": True,
+                "attempted": True,
+                "upgraded": True,
+                "error": None,
+            },
+        )
+
+    def test_ftp_probe_metadata(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                port=21,
+                service="FTP",
+                banner="220 FTP ready | 215 UNIX Type: L8",
+                web_url=None,
+                tls=None,
+                probe={
+                    "name": "ftp",
+                    "transport_security": "none",
+                    "method": "ftp_syst",
+                },
+            ),
+            "example.com",
+        )
+
+        self.assertEqual(
+            port_document["probe"],
+            {
+                "name": "ftp",
+                "transport_security": "none",
+                "method": "ftp_syst",
+            },
+        )
+
+    def test_unknown_fallback_probe_metadata(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                port=9999,
+                service="unknown",
+                banner="custom service",
+                web_url=None,
+                tls=None,
+                probe={
+                    "name": "unknown",
+                    "transport_security": "unknown",
+                    "method": "passive_banner",
+                },
+            ),
+            "example.com",
+        )
+
+        self.assertEqual(
+            port_document["probe"],
+            {
+                "name": "unknown",
+                "transport_security": "unknown",
+                "method": "passive_banner",
+            },
+        )
+
     def test_tcp_scan_document_contains_open_port_documents(self) -> None:
         document = build_tcp_scan_document(make_scan_result([make_finding(port=8443)]))
         open_ports = document["results"]["open_ports"]
 
         self.assertEqual(len(open_ports), 1)
         self.assertEqual(open_ports[0]["port"], 8443)
+        self.assertIn("probe", open_ports[0])
         self.assertEqual(open_ports[0]["http"]["status_code"], 301)
         self.assertEqual(open_ports[0]["tls_analysis"]["severity"], "low")
 

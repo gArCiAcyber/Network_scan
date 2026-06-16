@@ -27,6 +27,7 @@ class PortFindingExportView(Protocol):
     response_time: float
     web_url: str | None
     tls: dict[str, Any] | None
+    probe: dict[str, Any] | None
 
 
 class ScanResultExportView(Protocol):
@@ -125,6 +126,35 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
     return metadata
 
 
+def build_probe_document(finding: PortFindingExportView) -> dict[str, Any]:
+    """Build structured probe metadata for one open port."""
+    probe = getattr(finding, "probe", None)
+
+    if not isinstance(probe, Mapping):
+        return {
+            "name": "unknown",
+            "transport_security": "unknown",
+            "method": "passive_banner",
+        }
+
+    document = {
+        "name": probe.get("name", "unknown"),
+        "transport_security": probe.get("transport_security", "unknown"),
+        "method": probe.get("method", "passive_banner"),
+    }
+
+    starttls = probe.get("starttls")
+    if isinstance(starttls, Mapping):
+        document["starttls"] = {
+            "supported": bool(starttls.get("supported")),
+            "attempted": bool(starttls.get("attempted")),
+            "upgraded": bool(starttls.get("upgraded")),
+            "error": starttls.get("error"),
+        }
+
+    return document
+
+
 def build_port_document(
     finding: PortFindingExportView,
     target_host: str,
@@ -144,6 +174,7 @@ def build_port_document(
         "service": {
             "name": finding.service,
         },
+        "probe": build_probe_document(finding),
         "banner": {
             "raw": finding.banner,
         },

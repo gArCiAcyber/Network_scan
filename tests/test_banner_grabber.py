@@ -174,7 +174,15 @@ class BannerGrabberHelperTests(unittest.TestCase):
         with patch.object(banner_grabber, "grab_http_banner", return_value="http") as mocked:
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 80),
-                ("http", None),
+                (
+                    "http",
+                    None,
+                    {
+                        "name": "http",
+                        "transport_security": "none",
+                        "method": "http_head",
+                    },
+                ),
             )
 
         mocked.assert_called_once_with(client, "example.com")
@@ -196,7 +204,15 @@ class BannerGrabberHelperTests(unittest.TestCase):
         ):
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 443),
-                ("https", {"status": "collected"}),
+                (
+                    "https",
+                    {"status": "collected"},
+                    {
+                        "name": "https",
+                        "transport_security": "implicit_tls",
+                        "method": "http_head",
+                    },
+                ),
             )
 
         request_mock.assert_called_once_with("example.com")
@@ -208,11 +224,39 @@ class BannerGrabberHelperTests(unittest.TestCase):
         with patch.object(
             banner_grabber,
             "grab_smtp_starttls_banner",
-            return_value=("smtp", {"status": "collected"}),
+            return_value=(
+                "smtp",
+                {"status": "collected"},
+                {
+                    "name": "smtp",
+                    "transport_security": "starttls",
+                    "method": "smtp_ehlo",
+                    "starttls": {
+                        "supported": True,
+                        "attempted": True,
+                        "upgraded": True,
+                        "error": None,
+                    },
+                },
+            ),
         ) as mocked:
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 25),
-                ("smtp", {"status": "collected"}),
+                (
+                    "smtp",
+                    {"status": "collected"},
+                    {
+                        "name": "smtp",
+                        "transport_security": "starttls",
+                        "method": "smtp_ehlo",
+                        "starttls": {
+                            "supported": True,
+                            "attempted": True,
+                            "upgraded": True,
+                            "error": None,
+                        },
+                    },
+                ),
             )
 
         mocked.assert_called_once_with(client, "example.com")
@@ -227,7 +271,15 @@ class BannerGrabberHelperTests(unittest.TestCase):
         ) as mocked:
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 465),
-                ("smtps", {"status": "collected"}),
+                (
+                    "smtps",
+                    {"status": "collected"},
+                    {
+                        "name": "smtps",
+                        "transport_security": "implicit_tls",
+                        "method": "smtp_ehlo",
+                    },
+                ),
             )
 
         mocked.assert_called_once_with(client, "example.com", b"EHLO hylianscan.local\r\n")
@@ -238,7 +290,15 @@ class BannerGrabberHelperTests(unittest.TestCase):
         with patch.object(banner_grabber, "grab_ftp_banner", return_value="ftp") as mocked:
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 21),
-                ("ftp", None),
+                (
+                    "ftp",
+                    None,
+                    {
+                        "name": "ftp",
+                        "transport_security": "none",
+                        "method": "ftp_syst",
+                    },
+                ),
             )
 
         mocked.assert_called_once_with(client)
@@ -253,7 +313,15 @@ class BannerGrabberHelperTests(unittest.TestCase):
         ) as mocked:
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 990),
-                ("ftps", {"status": "collected"}),
+                (
+                    "ftps",
+                    {"status": "collected"},
+                    {
+                        "name": "ftps",
+                        "transport_security": "implicit_tls",
+                        "method": "ftp_syst",
+                    },
+                ),
             )
 
         mocked.assert_called_once_with(client, "example.com", b"SYST\r\n")
@@ -268,7 +336,15 @@ class BannerGrabberHelperTests(unittest.TestCase):
         ) as mocked:
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 993),
-                (None, {"status": "collected"}),
+                (
+                    None,
+                    {"status": "collected"},
+                    {
+                        "name": "generic_tls_metadata",
+                        "transport_security": "implicit_tls",
+                        "method": "tls_handshake",
+                    },
+                ),
             )
 
         mocked.assert_called_once_with(client, "example.com")
@@ -279,7 +355,15 @@ class BannerGrabberHelperTests(unittest.TestCase):
         with patch.object(banner_grabber, "grab_banner", return_value="generic") as mocked:
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 9999),
-                ("generic", None),
+                (
+                    "generic",
+                    None,
+                    {
+                        "name": "unknown",
+                        "transport_security": "unknown",
+                        "method": "passive_banner",
+                    },
+                ),
             )
 
         mocked.assert_called_once_with(client)
