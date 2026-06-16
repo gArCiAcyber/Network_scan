@@ -16,6 +16,50 @@ HTTP_STATUS_PATTERN = re.compile(
     r"(?=\s+[A-Za-z][A-Za-z0-9-]*:\s+|$)"
 )
 HTTP_HEADER_PATTERN = re.compile(r"(?<!\S)(?P<name>[A-Za-z][A-Za-z0-9-]*):\s+")
+HTTP_SECURITY_HEADERS = (
+    (
+        "strict-transport-security",
+        "Strict-Transport-Security",
+        "missing_strict_transport_security",
+        True,
+    ),
+    (
+        "content-security-policy",
+        "Content-Security-Policy",
+        "missing_content_security_policy",
+        False,
+    ),
+    (
+        "x-frame-options",
+        "X-Frame-Options",
+        "missing_x_frame_options",
+        False,
+    ),
+    (
+        "x-content-type-options",
+        "X-Content-Type-Options",
+        "missing_x_content_type_options",
+        False,
+    ),
+    (
+        "referrer-policy",
+        "Referrer-Policy",
+        "missing_referrer_policy",
+        False,
+    ),
+    (
+        "permissions-policy",
+        "Permissions-Policy",
+        "missing_permissions_policy",
+        False,
+    ),
+    (
+        "cross-origin-opener-policy",
+        "Cross-Origin-Opener-Policy",
+        "missing_cross_origin_opener_policy",
+        False,
+    ),
+)
 
 
 class PortFindingExportView(Protocol):
@@ -82,6 +126,165 @@ def get_first_header(headers: Mapping[str, Sequence[str]], name: str) -> str | N
     return values[0]
 
 
+def parse_cookie_attributes(attribute_parts: Sequence[str]) -> dict[str, str | bool]:
+    """Parse Set-Cookie attribute parts into a normalized mapping."""
+    attributes: dict[str, str | bool] = {}
+
+    for attribute_part in attribute_parts:
+        attribute = attribute_part.strip()
+
+        if not attribute:
+            continue
+
+        if "=" in attribute:
+            name, value = attribute.split("=", maxsplit=1)
+            attributes[name.strip().lower()] = value.strip()
+        else:
+            attributes[attribute.lower()] = True
+
+    return attributes
+
+
+def build_cookie_security_observations(
+    name: str,
+    secure: bool,
+    httponly: bool,
+    samesite: str | None,
+    path: str | None,
+    domain: str | None,
+) -> list[str]:
+    """Build simple cookie security observations."""
+    observations: list[str] = []
+
+    if not secure:
+        observations.append("missing_secure")
+
+    if not httponly:
+        observations.append("missing_httponly")
+
+    if samesite is None:
+        observations.append("missing_samesite")
+
+    if name.startswith("__Host-") and secure and path == "/" and domain is None:
+        observations.append("host_prefix_valid")
+
+    if name.startswith("__Secure-") and secure:
+        observations.append("secure_prefix_valid")
+
+    return observations
+
+
+def parse_set_cookie_header(header_value: str) -> dict[str, Any] | None:
+    """Parse one Set-Cookie header into structured metadata."""
+    parts = [part.strip() for part in header_value.split(";")]
+
+    if not parts or not parts[0]:
+        return None
+
+    name_value = parts[0]
+    if "=" in name_value:
+        name, value = name_value.split("=", maxsplit=1)
+        cookie_name = name.strip()
+        value_present = bool(value)
+    else:
+        cookie_name = name_value.strip()
+        value_present = False
+
+    if not cookie_name:
+        return None
+
+    attributes = parse_cookie_attributes(parts[1:])
+    secure = bool(attributes.get("secure"))
+    httponly = bool(attributes.get("httponly"))
+    samesite = attributes.get("samesite")
+    path = attributes.get("path")
+    domain = attributes.get("domain")
+    expires = attributes.get("expires")
+    max_age = attributes.get("max-age")
+
+    return {
+        "name": cookie_name,
+        "value_present": value_present,
+        "secure": secure,
+        "httponly": httponly,
+        "samesite": samesite if isinstance(samesite, str) else None,
+        "path": path if isinstance(path, str) else None,
+        "domain": domain if isinstance(domain, str) else None,
+        "expires": expires if isinstance(expires, str) else None,
+        "max_age": max_age if isinstance(max_age, str) else None,
+        "uses_host_prefix": cookie_name.startswith("__Host-"),
+        "uses_secure_prefix": cookie_name.startswith("__Secure-"),
+        "security_observations": build_cookie_security_observations(
+            name=cookie_name,
+            secure=secure,
+            httponly=httponly,
+            samesite=samesite if isinstance(samesite, str) else None,
+            path=path if isinstance(path, str) else None,
+            domain=domain if isinstance(domain, str) else None,
+        ),
+    }
+
+
+def parse_http_cookies(headers: Mapping[str, Sequence[str]]) -> list[dict[str, Any]]:
+    """Parse Set-Cookie headers into structured cookie metadata."""
+    cookies: list[dict[str, Any]] = []
+
+    for header_value in headers.get("set-cookie", []):
+        cookie = parse_set_cookie_header(header_value)
+
+        if cookie is not None:
+            cookies.append(cookie)
+
+    return cookies
+
+
+def is_https_url(url: str | None) -> bool:
+    """Return True when the collected URL clearly uses HTTPS."""
+    return bool(url and url.lower().startswith("https://"))
+
+
+def build_http_security_observations(
+    headers: Mapping[str, Sequence[str]],
+    url: str | None,
+) -> dict[str, Any]:
+    """Build factual HTTP security-header observations from collected headers."""
+    https_response = is_https_url(url)
+    header_documents: dict[str, dict[str, Any]] = {}
+    present_headers: list[str] = []
+    missing_headers: list[str] = []
+    observations: list[str] = []
+
+    for header_key, header_name, missing_observation, https_only in HTTP_SECURITY_HEADERS:
+        values = list(headers.get(header_key, []))
+        present = bool(values)
+        expected = not https_only or https_response
+        header_observations: list[str] = []
+
+        if present:
+            present_headers.append(header_key)
+        elif expected:
+            missing_headers.append(header_key)
+            header_observations.append(missing_observation)
+            observations.append(missing_observation)
+        elif https_only:
+            header_observations.append("not_expected_on_plain_http")
+
+        header_documents[header_key] = {
+            "name": header_name,
+            "present": present,
+            "expected": expected,
+            "values": values,
+            "observations": header_observations,
+        }
+
+    return {
+        "headers": header_documents,
+        "present": present_headers,
+        "missing": missing_headers,
+        "observations": observations,
+    }
+
+
 def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
     """Parse HTTP response metadata while preserving the raw banner elsewhere."""
     metadata: dict[str, Any] = {
@@ -93,6 +296,8 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
         "location": None,
         "content_type": None,
         "headers": {},
+        "cookies": [],
+        "security": build_http_security_observations({}, url),
     }
 
     if banner is None:
@@ -120,6 +325,8 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
             "location": get_first_header(headers, "location"),
             "content_type": get_first_header(headers, "content-type"),
             "headers": headers,
+            "cookies": parse_http_cookies(headers),
+            "security": build_http_security_observations(headers, url),
         }
     )
 

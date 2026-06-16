@@ -3,7 +3,11 @@
 import unittest
 from types import SimpleNamespace
 
-from modules.json_exporter import build_port_document, build_tcp_scan_document
+from modules.json_exporter import (
+    build_port_document,
+    build_tcp_scan_document,
+    parse_set_cookie_header,
+)
 
 
 HTTP_BANNER = (
@@ -11,6 +15,31 @@ HTTP_BANNER = (
     "Server: cloudflare "
     "Location: https://example.com/ "
     "Content-Type: text/html; charset=utf-8"
+)
+
+COOKIE_BANNER = (
+    "HTTP/1.1 200 OK "
+    "Server: hylianscan-mock "
+    "Set-Cookie: session_id=abc123; Secure; HttpOnly; SameSite=Lax; Path=/; "
+    "Max-Age=3600 "
+    "Set-Cookie: tracking_id=xyz; Path=/tracking"
+)
+
+STRONG_SECURITY_BANNER = (
+    "HTTP/1.1 200 OK "
+    "Strict-Transport-Security: max-age=31536000; includeSubDomains "
+    "Content-Security-Policy: default-src 'self' "
+    "X-Frame-Options: DENY "
+    "X-Content-Type-Options: nosniff "
+    "Referrer-Policy: no-referrer "
+    "Permissions-Policy: geolocation=() "
+    "Cross-Origin-Opener-Policy: same-origin"
+)
+
+MISSING_SECURITY_BANNER = (
+    "HTTP/1.1 200 OK "
+    "Server: hylianscan-mock "
+    "Content-Type: text/html"
 )
 
 TLS_METADATA = {
@@ -111,6 +140,195 @@ class JSONExporterTests(unittest.TestCase):
         self.assertEqual(http["content_type"], "text/html; charset=utf-8")
         self.assertEqual(http["headers"]["server"], ["cloudflare"])
         self.assertEqual(http["headers"]["location"], ["https://example.com/"])
+        self.assertEqual(http["cookies"], [])
+        self.assertIn("security", http)
+
+    def test_set_cookie_parser_extracts_security_attributes(self) -> None:
+        cookie = parse_set_cookie_header(
+            "session_id=abc123; Secure; HttpOnly; SameSite=Lax; Path=/; "
+            "Domain=example.com; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Max-Age=3600"
+        )
+
+        self.assertIsNotNone(cookie)
+        self.assertEqual(cookie["name"], "session_id")
+        self.assertTrue(cookie["value_present"])
+        self.assertTrue(cookie["secure"])
+        self.assertTrue(cookie["httponly"])
+        self.assertEqual(cookie["samesite"], "Lax")
+        self.assertEqual(cookie["path"], "/")
+        self.assertEqual(cookie["domain"], "example.com")
+        self.assertEqual(cookie["expires"], "Wed, 21 Oct 2026 07:28:00 GMT")
+        self.assertEqual(cookie["max_age"], "3600")
+        self.assertFalse(cookie["uses_host_prefix"])
+        self.assertFalse(cookie["uses_secure_prefix"])
+        self.assertEqual(cookie["security_observations"], [])
+
+    def test_set_cookie_parser_reports_missing_security_attributes(self) -> None:
+        cookie = parse_set_cookie_header("tracking_id=xyz; Path=/tracking")
+
+        self.assertIsNotNone(cookie)
+        self.assertEqual(cookie["name"], "tracking_id")
+        self.assertTrue(cookie["value_present"])
+        self.assertFalse(cookie["secure"])
+        self.assertFalse(cookie["httponly"])
+        self.assertIsNone(cookie["samesite"])
+        self.assertEqual(
+            cookie["security_observations"],
+            ["missing_secure", "missing_httponly", "missing_samesite"],
+        )
+
+    def test_set_cookie_parser_handles_host_and_secure_prefixes(self) -> None:
+        host_cookie = parse_set_cookie_header(
+            "__Host-session=abc; Secure; HttpOnly; SameSite=Strict; Path=/"
+        )
+        secure_cookie = parse_set_cookie_header(
+            "__Secure-token=def; Secure; HttpOnly; SameSite=None"
+        )
+
+        self.assertIsNotNone(host_cookie)
+        self.assertTrue(host_cookie["uses_host_prefix"])
+        self.assertFalse(host_cookie["uses_secure_prefix"])
+        self.assertIn("host_prefix_valid", host_cookie["security_observations"])
+
+        self.assertIsNotNone(secure_cookie)
+        self.assertFalse(secure_cookie["uses_host_prefix"])
+        self.assertTrue(secure_cookie["uses_secure_prefix"])
+        self.assertIn("secure_prefix_valid", secure_cookie["security_observations"])
+
+    def test_set_cookie_parser_detects_missing_cookie_value(self) -> None:
+        cookie = parse_set_cookie_header("empty_cookie=; Secure")
+
+        self.assertIsNotNone(cookie)
+        self.assertEqual(cookie["name"], "empty_cookie")
+        self.assertFalse(cookie["value_present"])
+
+    def test_http_metadata_parses_multiple_set_cookie_headers(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                banner=COOKIE_BANNER,
+                web_url="http://example.com",
+                tls=None,
+                probe={
+                    "name": "http",
+                    "transport_security": "none",
+                    "method": "http_head",
+                },
+            ),
+            "example.com",
+        )
+        http = port_document["http"]
+        cookies = http["cookies"]
+
+        self.assertEqual(len(http["headers"]["set-cookie"]), 2)
+        self.assertEqual(len(cookies), 2)
+        self.assertEqual(cookies[0]["name"], "session_id")
+        self.assertEqual(cookies[0]["max_age"], "3600")
+        self.assertEqual(cookies[0]["security_observations"], [])
+        self.assertEqual(cookies[1]["name"], "tracking_id")
+        self.assertEqual(
+            cookies[1]["security_observations"],
+            ["missing_secure", "missing_httponly", "missing_samesite"],
+        )
+
+    def test_http_security_observations_with_strong_headers(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                banner=STRONG_SECURITY_BANNER,
+                web_url="https://example.com",
+            ),
+            "example.com",
+        )
+        security = port_document["http"]["security"]
+
+        self.assertEqual(security["missing"], [])
+        self.assertEqual(security["observations"], [])
+        self.assertIn("strict-transport-security", security["present"])
+        self.assertTrue(
+            security["headers"]["strict-transport-security"]["present"]
+        )
+        self.assertTrue(
+            security["headers"]["content-security-policy"]["present"]
+        )
+        self.assertEqual(
+            security["headers"]["x-content-type-options"]["values"],
+            ["nosniff"],
+        )
+
+    def test_http_security_observations_missing_common_headers(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                banner=MISSING_SECURITY_BANNER,
+                web_url="https://example.com",
+            ),
+            "example.com",
+        )
+        security = port_document["http"]["security"]
+
+        self.assertIn("strict-transport-security", security["missing"])
+        self.assertIn("content-security-policy", security["missing"])
+        self.assertIn("missing_strict_transport_security", security["observations"])
+        self.assertIn("missing_content_security_policy", security["observations"])
+        self.assertFalse(
+            security["headers"]["permissions-policy"]["present"]
+        )
+
+    def test_https_response_without_hsts_reports_missing_hsts(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                banner=MISSING_SECURITY_BANNER,
+                web_url="https://example.com",
+            ),
+            "example.com",
+        )
+        hsts = port_document["http"]["security"]["headers"][
+            "strict-transport-security"
+        ]
+
+        self.assertTrue(hsts["expected"])
+        self.assertFalse(hsts["present"])
+        self.assertEqual(hsts["observations"], ["missing_strict_transport_security"])
+
+    def test_http_response_does_not_expect_hsts_like_https(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                banner=MISSING_SECURITY_BANNER,
+                web_url="http://example.com",
+                tls=None,
+                probe={
+                    "name": "http",
+                    "transport_security": "none",
+                    "method": "http_head",
+                },
+            ),
+            "example.com",
+        )
+        security = port_document["http"]["security"]
+        hsts = security["headers"]["strict-transport-security"]
+
+        self.assertFalse(hsts["expected"])
+        self.assertFalse(hsts["present"])
+        self.assertEqual(hsts["observations"], ["not_expected_on_plain_http"])
+        self.assertNotIn("strict-transport-security", security["missing"])
+        self.assertNotIn("missing_strict_transport_security", security["observations"])
+
+    def test_tcp_json_includes_http_security_observation_structure(self) -> None:
+        document = build_tcp_scan_document(
+            make_scan_result(
+                [
+                    make_finding(
+                        banner=STRONG_SECURITY_BANNER,
+                        web_url="https://example.com",
+                    )
+                ]
+            )
+        )
+        http = document["results"]["open_ports"][0]["http"]
+
+        self.assertIn("security", http)
+        self.assertIn("headers", http["security"])
+        self.assertIn("present", http["security"])
+        self.assertIn("missing", http["security"])
+        self.assertIn("observations", http["security"])
 
     def test_tls_analysis_presence_in_exported_port_documents(self) -> None:
         port_document = build_port_document(make_finding(), "example.com")
