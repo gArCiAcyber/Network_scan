@@ -95,6 +95,7 @@ hylianscan/
 |   |-- test_json_exporter.py
 |   |-- test_mock_services.py
 |   |-- test_output.py
+|   |-- test_panel.py
 |   |-- test_ports.py
 |   |-- test_port_profiles.py
 |   |-- test_quiet_mode.py
@@ -214,7 +215,7 @@ Save TCP scan results as JSON:
 python3 hylianscan.py example.com -p 80,443 --json-output tcp_results.json
 ```
 
-The JSON export includes future-ready TCP findings with raw banner evidence, structured probe metadata, HTTP status/header metadata, Set-Cookie metadata and cookie observations, HTTP security-header observations, HTTP URL, timing, TLS certificate metadata, and TLS risk indicators when a TLS service is detected.
+The JSON export includes future-ready TCP findings with raw banner evidence, structured probe metadata, HTTP status/header metadata, Set-Cookie metadata and cookie observations, HTTP security-header observations, HTTP URL, timing, TLS certificate metadata, TLS risk indicators, and structured TLS risk reasons when a TLS service is detected. Saved TXT reports keep the terminal panel concise while adding compact TLS triage explanations when relevant.
 
 Run an automation-friendly quiet TCP scan:
 
