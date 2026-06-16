@@ -16,6 +16,7 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 
 - Flexible Targeting: Resolves domains to IPv4 addresses or accepts direct IPs.
 - High Performance: Multi-threaded TCP scanning utilizing `ThreadPoolExecutor` and `socket.connect_ex()`.
+- Scan Pacing: Optional `--max-rate` control limits how quickly new TCP connection attempts are started.
 - Custom Port Selection: Supports comma-separated lists (`-p 80,443`), explicit ranges (`-p 1-1000`), top-port presets (`--top-ports`), and full 65535 range scanning (`-p -`).
 - Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, and FTP, SMTP STARTTLS upgrade metadata collection, passive banner fallback for unknown services, TLS certificate metadata extraction for HTTPS/implicit-TLS services, and clickable web service hints for standard and common alternate web ports.
 - Clean UI & Reporting: Uses a phase-oriented TCP live display, an Nmap-inspired final panel, quiet automation mode, and clean TXT/JSON report exports.
@@ -119,6 +120,7 @@ Target IP address or domain name.
 --stance               TCP scan stance: fast/din, balanced/nayru, or stealthier/farore.
 -t, --threads          Override the selected stance worker count.
 -T, --timeout          Override the selected stance timeout per TCP port.
+--max-rate             Limit new TCP connection attempts started per second.
 -o, --output           Save TCP reports or choose a passive output directory.
 --json-output          Save TCP or passive subdomain results as JSON inside the output directory.
 --quiet                Reduce terminal output for scripting and automation.
@@ -164,6 +166,12 @@ Scan full TCP range (1-65535):
 python3 hylianscan.py 192.168.0.10 -p - -T 1.0 -t 100
 ```
 
+Scan with high concurrency but paced connection starts:
+
+```bash
+python3 hylianscan.py scanme.nmap.org -p 1-1000 -t 300 --max-rate 100
+```
+
 Save a TCP scan report:
 
 ```bash
@@ -176,7 +184,7 @@ Save TCP scan results as JSON:
 python3 hylianscan.py example.com -p 80,443 --json-output tcp_results.json
 ```
 
-The JSON export includes future-ready TCP findings with raw banner evidence, structured probe metadata, HTTP status/header metadata, HTTP URL, timing, TLS certificate metadata, and TLS risk indicators when a TLS service is detected.
+The JSON export includes future-ready TCP findings with raw banner evidence, structured probe metadata, HTTP status/header metadata, Set-Cookie metadata and cookie observations, HTTP security-header observations, HTTP URL, timing, TLS certificate metadata, and TLS risk indicators when a TLS service is detected.
 
 Run an automation-friendly quiet TCP scan:
 

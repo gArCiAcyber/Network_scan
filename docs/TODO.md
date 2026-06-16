@@ -83,6 +83,9 @@
 - [X] Add protocol probe registry to make service fingerprinting easier to extend.
 - [X] Add SMTP STARTTLS upgrade probing for TLS metadata collection.
 - [X] Add structured probe metadata to TCP JSON reports.
+- [X] Add structured HTTP Set-Cookie analysis to TCP JSON reports.
+- [X] Add structured HTTP security-header observations to TCP JSON reports.
+- [X] Add TCP max-rate pacing for controlled connection start rates.
 - [X] Add local mock-service tests for safe localhost TCP and HTTP probing.
 - [X] Add output helper tests for TXT, JSON, and passive discovery file handling.
 - [X] Add quiet-mode tests to verify automation-friendly plain output.
