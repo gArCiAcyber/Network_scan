@@ -16,10 +16,10 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 
 - Flexible Targeting: Resolves domains to IPv4 addresses or accepts direct IPs.
 - High Performance: Multi-threaded TCP scanning utilizing `ThreadPoolExecutor` and `socket.connect_ex()`.
-- Scan Pacing: Optional `--max-rate` control limits how quickly new TCP connection attempts are started.
+- Scan Pacing: Optional `--max-rate` control limits how quickly new TCP connection attempts are started and is shown in the effective scan configuration.
 - Custom Port Selection: Supports comma-separated lists (`-p 80,443`), explicit ranges (`-p 1-1000`), top-port presets (`--top-ports`), and full 65535 range scanning (`-p -`).
 - Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, and FTP, SMTP STARTTLS upgrade metadata collection, passive banner fallback for unknown services, TLS certificate metadata extraction for HTTPS/implicit-TLS services, and clickable web service hints for standard and common alternate web ports.
-- Clean UI & Reporting: Uses a phase-oriented TCP live display, an Nmap-inspired final panel, quiet automation mode, and clean TXT/JSON report exports.
+- Clean UI & Reporting: Uses target orientation with effective stance/pacing details, a phase-oriented TCP live display, an Nmap-inspired final panel, quiet automation mode, and clean TXT/JSON report exports.
 - Reliability Foundation: Includes standard-library unit tests for CLI parsing, port helpers, banner probing, TLS analysis, JSON export, output helpers, quiet mode, and localhost mock services.
 
 ### Passive Subdomain Discovery
@@ -228,7 +228,7 @@ python3 hylianscan.py example.com -s -a --json-output subdomains.json
 
 Mode Separation: TCP scanning (-p) and passive discovery (-s/-a) are separate modes and cannot be combined in a single command.
 
-Output Behavior: TCP mode shows target orientation, scan progress, discovered open ports, service probing status, and a final report. Passive discovery mode shows selected providers and concise activity telemetry, then saves deduplicated results straight to disk.
+Output Behavior: TCP mode shows target orientation, effective scan configuration, scan progress, discovered open ports, service probing status, and a final report. Passive discovery mode shows selected providers and concise activity telemetry, then saves deduplicated results straight to disk.
 
 
 Roadmap: Future work, including wildcard DNS filtering workflows, is tracked in docs/TODO.md.

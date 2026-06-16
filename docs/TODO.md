@@ -86,6 +86,7 @@
 - [X] Add structured HTTP Set-Cookie analysis to TCP JSON reports.
 - [X] Add structured HTTP security-header observations to TCP JSON reports.
 - [X] Add TCP max-rate pacing for controlled connection start rates.
+- [X] Show effective TCP stance, pacing, and override configuration during scan orientation.
 - [X] Add local mock-service tests for safe localhost TCP and HTTP probing.
 - [X] Add output helper tests for TXT, JSON, and passive discovery file handling.
 - [X] Add quiet-mode tests to verify automation-friendly plain output.
