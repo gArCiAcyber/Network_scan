@@ -63,6 +63,13 @@ TLS_METADATA = {
     },
     "error": None,
 }
+EXPIRED_TLS_METADATA = {
+    **TLS_METADATA,
+    "certificate": {
+        **TLS_METADATA["certificate"],
+        "not_after": "Jan 01 00:00:00 2020 GMT",
+    },
+}
 
 
 def make_finding(**overrides: object) -> SimpleNamespace:
@@ -338,6 +345,26 @@ class JSONExporterTests(unittest.TestCase):
         self.assertFalse(port_document["tls_analysis"]["expired"])
         self.assertFalse(port_document["tls_analysis"]["hostname_mismatch"])
         self.assertEqual(port_document["tls_analysis"]["severity"], "low")
+        self.assertEqual(port_document["tls_analysis"]["reasons"], [])
+
+    def test_tcp_json_includes_tls_analysis_reasons(self) -> None:
+        port_document = build_port_document(
+            make_finding(tls=EXPIRED_TLS_METADATA),
+            "example.com",
+        )
+        tls_analysis = port_document["tls_analysis"]
+
+        self.assertIn("expired", tls_analysis)
+        self.assertIn("days_until_expiry", tls_analysis)
+        self.assertIn("expires_soon", tls_analysis)
+        self.assertIn("hostname_mismatch", tls_analysis)
+        self.assertIn("severity", tls_analysis)
+        self.assertEqual(tls_analysis["severity"], "high")
+        self.assertEqual(len(tls_analysis["reasons"]), 1)
+        self.assertEqual(
+            tls_analysis["reasons"][0]["id"],
+            "certificate_expired",
+        )
 
     def test_http_probe_metadata(self) -> None:
         port_document = build_port_document(

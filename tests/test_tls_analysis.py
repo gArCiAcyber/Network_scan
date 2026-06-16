@@ -16,6 +16,7 @@ def build_tls_metadata(
     dns_names: list[str] | None = None,
     ip_addresses: list[str] | None = None,
     common_names: list[str] | None = None,
+    protocol: str = "TLSv1.3",
 ) -> dict[str, object]:
     """Build minimal collected TLS metadata for pure analysis tests."""
     certificate: dict[str, object] = {
@@ -30,6 +31,9 @@ def build_tls_metadata(
     }
     return {
         "status": "collected",
+        "handshake": {
+            "protocol": protocol,
+        },
         "certificate": certificate,
     }
 
@@ -59,6 +63,8 @@ class TLSAnalysisTests(unittest.TestCase):
         self.assertFalse(analysis["expires_soon"])
         self.assertFalse(analysis["hostname_mismatch"])
         self.assertEqual(analysis["severity"], "high")
+        self.assertEqual(analysis["reasons"][0]["id"], "certificate_expired")
+        self.assertEqual(analysis["reasons"][0]["severity"], "high")
 
     def test_expires_soon_detection(self) -> None:
         metadata = build_tls_metadata(
@@ -77,6 +83,11 @@ class TLSAnalysisTests(unittest.TestCase):
         self.assertTrue(analysis["expires_soon"])
         self.assertFalse(analysis["hostname_mismatch"])
         self.assertEqual(analysis["severity"], "medium")
+        self.assertEqual(
+            analysis["reasons"][0]["id"],
+            "certificate_expires_soon",
+        )
+        self.assertEqual(analysis["reasons"][0]["severity"], "medium")
 
     def test_hostname_mismatch_detection(self) -> None:
         metadata = build_tls_metadata(
@@ -93,6 +104,63 @@ class TLSAnalysisTests(unittest.TestCase):
         self.assertFalse(analysis["expired"])
         self.assertTrue(analysis["hostname_mismatch"])
         self.assertEqual(analysis["severity"], "high")
+        self.assertEqual(analysis["reasons"][0]["id"], "hostname_mismatch")
+        self.assertEqual(analysis["reasons"][0]["severity"], "medium")
+
+    def test_low_risk_certificate_has_no_reasons(self) -> None:
+        metadata = build_tls_metadata(
+            not_after="Dec 31 00:00:00 2026 GMT",
+            dns_names=["example.com"],
+        )
+
+        analysis = build_tls_analysis(
+            metadata,
+            "example.com",
+            now=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(analysis["severity"], "low")
+        self.assertEqual(analysis["reasons"], [])
+
+    def test_multiple_tls_issues_produce_deterministic_reasons(self) -> None:
+        metadata = build_tls_metadata(
+            not_after="Jan 15 00:00:00 2026 GMT",
+            dns_names=["other.example.com"],
+            protocol="TLSv1.0",
+        )
+
+        analysis = build_tls_analysis(
+            metadata,
+            "example.com",
+            now=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(
+            [reason["id"] for reason in analysis["reasons"]],
+            [
+                "legacy_tls_protocol",
+                "certificate_expires_soon",
+                "hostname_mismatch",
+            ],
+        )
+        self.assertEqual(analysis["severity"], "high")
+
+    def test_failed_tls_metadata_collection_produces_unknown_reason(self) -> None:
+        analysis = build_tls_analysis(
+            {
+                "status": "failed",
+                "handshake": {},
+                "certificate": {},
+                "error": "handshake timeout",
+            },
+            "example.com",
+        )
+
+        self.assertEqual(analysis["severity"], "unknown")
+        self.assertEqual(
+            analysis["reasons"][0]["id"],
+            "tls_metadata_collection_failed",
+        )
 
     def test_hostname_mismatch_supports_ip_subject_alt_names(self) -> None:
         metadata = build_tls_metadata(
