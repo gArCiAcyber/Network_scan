@@ -1,8 +1,11 @@
 """Tests for quiet-mode orchestration behavior."""
 
+import argparse
+import io
 import re
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -81,6 +84,24 @@ class QuietModeTests(unittest.TestCase):
         self.assertNotIn("Max Rate", output)
         self.assertNotIn("Config Source", output)
 
+    def test_quiet_tcp_summary_keeps_port_profile_scope_plain(self) -> None:
+        scan_result = ScanResult(
+            target_host="example.com",
+            resolved_ip="93.184.216.34",
+            scanned_ports=2,
+            open_ports=(),
+            duration=1.23,
+        )
+
+        output = build_quiet_final_panel(
+            scan_result,
+            scan_scope="Port Profile: web / sheikah",
+        )
+
+        self.assertIsNone(ANSI_PATTERN.search(output))
+        self.assertIn("Scan Scope: Port Profile: web / sheikah", output)
+        self.assertNotIn("Port Profile  :", output)
+
     def test_run_port_scan_quiet_disables_live_callbacks(self) -> None:
         target = TargetInfo(
             raw_input="127.0.0.1",
@@ -112,6 +133,25 @@ class QuietModeTests(unittest.TestCase):
         self.assertIsNone(call_kwargs["service_probe_start_callback"])
         self.assertIsNone(call_kwargs["service_probe_complete_callback"])
         self.assertIsNone(call_kwargs["max_rate"])
+
+    def test_main_quiet_mode_validation_errors_are_plain_text(self) -> None:
+        args = argparse.Namespace(
+            ports=None,
+            top_ports=None,
+            port_profile="web",
+            subfinder=True,
+            amass=False,
+            quiet=True,
+        )
+
+        output = io.StringIO()
+        with patch("hylianscan.parse_arguments", return_value=args), redirect_stdout(output):
+            hylianscan.main()
+
+        rendered = output.getvalue()
+
+        self.assertIsNone(ANSI_PATTERN.search(rendered))
+        self.assertIn("Error: Use passive discovery provider flags", rendered)
 
     def test_passive_discovery_quiet_disables_telemetry_callback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:

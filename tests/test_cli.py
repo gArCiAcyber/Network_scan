@@ -11,6 +11,7 @@ from core.cli import (
     parse_arguments,
     parse_custom_ports,
     parse_ports_list,
+    resolve_port_profile_label,
     resolve_scan_scope_label,
     validate_max_rate,
     validate_mode,
@@ -18,12 +19,14 @@ from core.cli import (
     validate_threads,
     validate_timeout,
 )
+from modules.port_profiles import resolve_port_profile
 from modules.ports import TOP_400_TCP_PORTS
 
 
 def build_args(
     ports: str | None = None,
     top_ports: int | None = None,
+    port_profile: str | None = None,
     subfinder: bool = False,
     amass: bool = False,
     quiet: bool = False,
@@ -33,6 +36,7 @@ def build_args(
     return argparse.Namespace(
         ports=ports,
         top_ports=top_ports,
+        port_profile=port_profile,
         subfinder=subfinder,
         amass=amass,
         quiet=quiet,
@@ -73,6 +77,31 @@ class CLIHelperTests(unittest.TestCase):
     def test_parse_ports_list_rejects_ports_and_top_ports_together(self) -> None:
         with self.assertRaises(ValueError):
             parse_ports_list(build_args(ports="80", top_ports=10))
+
+    def test_parse_ports_list_handles_port_profile_name(self) -> None:
+        expected_ports = list(resolve_port_profile("web").ports)
+
+        self.assertEqual(parse_ports_list(build_args(port_profile="web")), expected_ports)
+
+    def test_parse_ports_list_handles_port_profile_alias(self) -> None:
+        expected_ports = list(resolve_port_profile("sheikah").ports)
+
+        self.assertEqual(
+            parse_ports_list(build_args(port_profile="sheikah")),
+            expected_ports,
+        )
+
+    def test_parse_ports_list_rejects_unknown_port_profile(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid --port-profile value"):
+            parse_ports_list(build_args(port_profile="unknown-profile"))
+
+    def test_parse_ports_list_rejects_ports_and_port_profile_together(self) -> None:
+        with self.assertRaises(ValueError):
+            parse_ports_list(build_args(ports="80", port_profile="web"))
+
+    def test_parse_ports_list_rejects_top_ports_and_port_profile_together(self) -> None:
+        with self.assertRaises(ValueError):
+            parse_ports_list(build_args(top_ports=10, port_profile="web"))
 
     def test_parse_ports_list_handles_top_ports(self) -> None:
         self.assertEqual(parse_ports_list(build_args(top_ports=5)), TOP_400_TCP_PORTS[:5])
@@ -117,6 +146,17 @@ class CLIHelperTests(unittest.TestCase):
             resolve_scan_scope_label(build_args(top_ports=10)),
             "Selected Port List",
         )
+        self.assertEqual(
+            resolve_scan_scope_label(build_args(port_profile="sheikah")),
+            "Port Profile: web / sheikah",
+        )
+
+    def test_resolve_port_profile_label_returns_profile_and_alias(self) -> None:
+        self.assertIsNone(resolve_port_profile_label(build_args()))
+        self.assertEqual(
+            resolve_port_profile_label(build_args(port_profile="castle")),
+            "admin / castle",
+        )
 
     def test_get_passive_providers_returns_selected_providers(self) -> None:
         self.assertEqual(get_passive_providers(build_args()), [])
@@ -131,6 +171,7 @@ class CLIHelperTests(unittest.TestCase):
         invalid_args = (
             build_args(ports="80", subfinder=True),
             build_args(top_ports=10, amass=True),
+            build_args(port_profile="quick", subfinder=True),
         )
 
         for args in invalid_args:
@@ -144,6 +185,23 @@ class CLIHelperTests(unittest.TestCase):
 
         self.assertEqual(args.target, "example.com")
         self.assertTrue(args.quiet)
+
+    def test_parse_arguments_accepts_port_profile_name(self) -> None:
+        with patch("sys.argv", ["hylianscan", "example.com", "--port-profile", "web"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertEqual(args.port_profile, "web")
+
+    def test_parse_arguments_accepts_port_profile_alias(self) -> None:
+        with patch(
+            "sys.argv",
+            ["hylianscan", "example.com", "--port-profile", "sheikah"],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertEqual(args.port_profile, "sheikah")
 
     def test_parse_arguments_accepts_passive_provider_path_flags(self) -> None:
         with patch(
