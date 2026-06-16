@@ -18,6 +18,7 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 - High Performance: Multi-threaded TCP scanning utilizing `ThreadPoolExecutor` and `socket.connect_ex()`.
 - Scan Pacing: Optional `--max-rate` control limits how quickly new TCP connection attempts are started and is shown in the effective scan configuration.
 - Custom Port Selection: Supports comma-separated lists (`-p 80,443`), explicit ranges (`-p 1-1000`), top-port presets (`--top-ports`), and full 65535 range scanning (`-p -`).
+- Port Profiles: Supports predefined authorized recon workflows with `--port-profile` for `quick/kokiri`, `web/sheikah`, `mail/rito`, `admin/castle`, and `bugbounty/triforce`.
 - Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, and FTP, SMTP STARTTLS upgrade metadata collection, passive banner fallback for unknown services, TLS certificate metadata extraction for HTTPS/implicit-TLS services, and clickable web service hints for standard and common alternate web ports.
 - Clean UI & Reporting: Uses target orientation with effective stance/pacing details, a phase-oriented TCP live display, an Nmap-inspired final panel, quiet automation mode, and clean TXT/JSON report exports.
 - Reliability Foundation: Includes standard-library unit tests for CLI parsing, port helpers, banner probing, TLS analysis, JSON export, output helpers, quiet mode, and localhost mock services.
@@ -78,6 +79,8 @@ hylianscan/
 |   |-- banner_grabber.py
 |   |-- json_exporter.py
 |   |-- ports.py
+|   |-- port_profiles.py
+|   |-- rate_limiter.py
 |   |-- scan_stance.py
 |   |-- subdomain.py
 |   |-- target.py
@@ -93,7 +96,12 @@ hylianscan/
 |   |-- test_mock_services.py
 |   |-- test_output.py
 |   |-- test_ports.py
+|   |-- test_port_profiles.py
 |   |-- test_quiet_mode.py
+|   |-- test_rate_limiter.py
+|   |-- test_scan_orientation.py
+|   |-- test_subdomain.py
+|   |-- test_tcp_scanner.py
 |   |-- test_tls_analysis.py
 |   |-- test_tls_mock_services.py
 |-- versions/
@@ -116,6 +124,7 @@ hylianscan/
 Target IP address or domain name.
 -p, --ports            Ports to scan. Supports comma lists, ranges, and "-".
 --top-ports            Scan the top N built-in TCP ports.
+--port-profile         Use a predefined TCP port profile.
 -s, --subfinder        Enable passive subdomain discovery using Subfinder.
 --subfinder-path       Path to the Subfinder executable when it is not available in PATH.
 -a, --amass            Enable passive subdomain discovery using Amass.
@@ -173,6 +182,18 @@ Scan with high concurrency but paced connection starts:
 
 ```bash
 python3 hylianscan.py scanme.nmap.org -p 1-1000 -t 300 --max-rate 100
+```
+
+Scan a predefined web recon profile:
+
+```bash
+python3 hylianscan.py scanme.nmap.org --port-profile web
+```
+
+Use the equivalent Zelda alias with stance and pacing controls:
+
+```bash
+python3 hylianscan.py scanme.nmap.org --port-profile sheikah --stance fast --max-rate 100
 ```
 
 Save a TCP scan report:
