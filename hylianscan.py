@@ -38,7 +38,11 @@ from core.output import (
     should_create_passive_output_workspace,
     should_create_tcp_output_workspace,
 )
-from core.panel import build_final_panel, build_quiet_final_panel
+from core.panel import (
+    build_final_panel,
+    build_quiet_final_panel,
+    build_saved_text_report,
+)
 from core.passive_telemetry import PassiveActivityTelemetry
 from core.tcp_live_display import TCPScanDisplay
 from core.terminal import (
@@ -451,7 +455,13 @@ def main() -> None:
                 )
 
             print(final_panel)
-            save_report(final_panel, output_path)
+            saved_report = build_saved_text_report(
+                scan_result,
+                scan_scope=scan_scope,
+                scan_stance=None if quiet else format_scan_stance_label(scan_stance),
+                base_report=final_panel,
+            )
+            save_report(saved_report, output_path)
 
             if json_output_path is not None:
                 write_tcp_json_report(scan_result, json_output_path)

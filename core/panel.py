@@ -273,6 +273,57 @@ def build_tls_detail_lines(
     return details
 
 
+def build_tls_reason_text_lines(
+    finding: PortFindingView,
+    target_host: str,
+) -> list[str]:
+    """Build compact saved-report TLS reason lines for one finding."""
+    if not finding.tls:
+        return []
+
+    tls_analysis = build_tls_analysis(finding.tls, target_host)
+    reasons = tls_analysis.get("reasons")
+
+    if not isinstance(reasons, list) or not reasons:
+        return []
+
+    lines = [f"{finding.port}/tcp TLS risk reasons:"]
+
+    for reason in reasons:
+        if not isinstance(reason, dict):
+            continue
+
+        reason_id = reason.get("id", "unknown")
+        severity = reason.get("severity", "unknown")
+        title = reason.get("title", "TLS observation")
+        evidence = reason.get("evidence", "No additional evidence.")
+        recommendation = reason.get("recommendation", "Review TLS configuration.")
+        lines.append(
+            f"- {reason_id} [{severity}]: {title}. "
+            f"Evidence: {evidence} Recommendation: {recommendation}"
+        )
+
+    return lines if len(lines) > 1 else []
+
+
+def build_tls_reason_text_section(summary: ScanSummaryView) -> list[str]:
+    """Build the saved-report TLS explanation section."""
+    lines: list[str] = []
+
+    for finding in summary.open_ports:
+        reason_lines = build_tls_reason_text_lines(finding, summary.target_host)
+
+        if reason_lines:
+            if not lines:
+                lines.extend(["", "TLS Risk Explanations"])
+            else:
+                lines.append("")
+
+            lines.extend(reason_lines)
+
+    return lines
+
+
 def format_detail_lines(details: Sequence[str]) -> list[str]:
     """Render Nmap-style detail lines below a port row."""
     formatted_lines: list[str] = []
@@ -349,6 +400,26 @@ def build_final_panel(
 
     lines.append(PANEL_SEPARATOR)
     return "\n".join(lines)
+
+
+def build_saved_text_report(
+    summary: ScanSummaryView,
+    scan_scope: str = "Default Target List",
+    scan_stance: str | None = None,
+    base_report: str | None = None,
+) -> str:
+    """Build the TXT report, including compact TLS explanation notes."""
+    report = base_report or build_final_panel(
+        summary,
+        scan_scope=scan_scope,
+        scan_stance=scan_stance,
+    )
+    tls_reason_section = build_tls_reason_text_section(summary)
+
+    if not tls_reason_section:
+        return report
+
+    return "\n".join([report, *tls_reason_section])
 
 
 def build_quiet_final_panel(
