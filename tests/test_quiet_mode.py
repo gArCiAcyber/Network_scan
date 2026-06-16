@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import hylianscan
+from core.output import DEFAULT_TCP_TEXT_ARGUMENT
 from core.panel import build_quiet_final_panel
 from modules.target import TargetInfo
 from modules.tcp_scanner import PortScanResult, ScanResult
@@ -152,6 +153,55 @@ class QuietModeTests(unittest.TestCase):
 
         self.assertIsNone(ANSI_PATTERN.search(rendered))
         self.assertIn("Error: Use passive discovery provider flags", rendered)
+
+    def test_main_quiet_tcp_workspace_output_does_not_print_saved_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            workspace_dir = Path(temporary_dir) / "example.com" / "20260616_120000"
+            target = TargetInfo(
+                raw_input="example.com",
+                target_host="example.com",
+                resolved_ip="93.184.216.34",
+                is_ip_address=False,
+            )
+            scan_result = ScanResult(
+                target_host=target.target_host,
+                resolved_ip=target.resolved_ip,
+                scanned_ports=1,
+                open_ports=(),
+                duration=0.01,
+            )
+            args = argparse.Namespace(
+                target="example.com",
+                ports="80",
+                top_ports=None,
+                port_profile=None,
+                subfinder=False,
+                amass=False,
+                output=DEFAULT_TCP_TEXT_ARGUMENT,
+                json_output=None,
+                threads=None,
+                timeout=None,
+                max_rate=None,
+                stance="balanced",
+                quiet=True,
+            )
+
+            output = io.StringIO()
+            with (
+                patch("hylianscan.parse_arguments", return_value=args),
+                patch("hylianscan.resolve_target", return_value=target),
+                patch("hylianscan.resolve_output_workspace", return_value=workspace_dir),
+                patch("hylianscan.run_port_scan", return_value=scan_result),
+                redirect_stdout(output),
+            ):
+                hylianscan.main()
+
+            rendered = output.getvalue()
+
+            self.assertIsNone(ANSI_PATTERN.search(rendered))
+            self.assertIn("No open ports found.", rendered)
+            self.assertNotIn("Report saved to", rendered)
+            self.assertTrue((workspace_dir / "tcp_report.txt").exists())
 
     def test_passive_discovery_quiet_disables_telemetry_callback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
