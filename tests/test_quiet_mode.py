@@ -93,6 +93,7 @@ class QuietModeTests(unittest.TestCase):
         self.assertIsNone(call_kwargs["open_port_callback"])
         self.assertIsNone(call_kwargs["service_probe_start_callback"])
         self.assertIsNone(call_kwargs["service_probe_complete_callback"])
+        self.assertIsNone(call_kwargs["max_rate"])
 
     def test_passive_discovery_quiet_disables_telemetry_callback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:

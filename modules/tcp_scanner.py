@@ -9,6 +9,7 @@ from typing import Any
 
 from modules.banner_grabber import grab_service_banner
 from modules.ports import build_web_url, get_service_name, normalize_ports
+from modules.rate_limiter import MaxRatePacer
 
 
 DEFAULT_TIMEOUT = 1.0
@@ -49,11 +50,15 @@ def discover_open_port(
     resolved_ip: str,
     port: int,
     timeout: float = DEFAULT_TIMEOUT,
+    pacer: MaxRatePacer | None = None,
 ) -> PortScanResult | None:
     """Run TCP connect discovery for one port."""
-    started_at = time.perf_counter()
-
     try:
+        if pacer is not None:
+            pacer.wait()
+
+        started_at = time.perf_counter()
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
             client.settimeout(timeout)
             connect_code = client.connect_ex((resolved_ip, port))
@@ -83,6 +88,7 @@ def probe_open_service(
     resolved_ip: str,
     finding: PortScanResult,
     timeout: float = DEFAULT_TIMEOUT,
+    pacer: MaxRatePacer | None = None,
 ) -> PortScanResult:
     """Collect service evidence for one discovered open TCP port."""
     banner = None
@@ -90,6 +96,9 @@ def probe_open_service(
     probe = None
 
     try:
+        if pacer is not None:
+            pacer.wait()
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
             client.settimeout(timeout)
             connect_code = client.connect_ex((resolved_ip, finding.port))
@@ -117,14 +126,16 @@ def scan_single_port(
     resolved_ip: str,
     port: int,
     timeout: float = DEFAULT_TIMEOUT,
+    max_rate: float | None = None,
 ) -> PortScanResult | None:
     """Scan and probe one TCP port for compatibility with direct callers."""
-    finding = discover_open_port(target_host, resolved_ip, port, timeout)
+    pacer = MaxRatePacer(max_rate) if max_rate is not None else None
+    finding = discover_open_port(target_host, resolved_ip, port, timeout, pacer)
 
     if finding is None:
         return None
 
-    return probe_open_service(target_host, resolved_ip, finding, timeout)
+    return probe_open_service(target_host, resolved_ip, finding, timeout, pacer)
 
 
 def _build_worker_count(port_count: int, max_workers: int) -> int:
@@ -141,6 +152,7 @@ def scan_tcp_ports(
     ports: Iterable[int] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     max_workers: int = DEFAULT_MAX_WORKERS,
+    max_rate: float | None = None,
     progress_callback: ProgressCallback | None = None,
     open_port_callback: OpenPortCallback | None = None,
     service_probe_start_callback: ServiceProbeStartCallback | None = None,
@@ -150,6 +162,7 @@ def scan_tcp_ports(
     started_at = time.perf_counter()
     ports_to_scan = normalize_ports(ports)
     worker_count = _build_worker_count(len(ports_to_scan), max_workers)
+    pacer = MaxRatePacer(max_rate) if max_rate is not None else None
     discovered_ports: list[PortScanResult] = []
     open_ports: list[PortScanResult] = []
     completed_count = 0
@@ -158,7 +171,14 @@ def scan_tcp_ports(
 
     try:
         future_map: dict[Future[PortScanResult | None], int] = {
-            executor.submit(discover_open_port, target_host, resolved_ip, port, timeout): port
+            executor.submit(
+                discover_open_port,
+                target_host,
+                resolved_ip,
+                port,
+                timeout,
+                pacer,
+            ): port
             for port in ports_to_scan
         }
 
@@ -208,6 +228,7 @@ def scan_tcp_ports(
                     resolved_ip,
                     finding,
                     timeout,
+                    pacer,
                 ): finding.port
                 for finding in ordered_discovered_ports
             }

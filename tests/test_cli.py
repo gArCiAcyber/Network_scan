@@ -1,6 +1,7 @@
 """Tests for pure CLI argument helper logic."""
 
 import argparse
+import io
 import unittest
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ from core.cli import (
     parse_custom_ports,
     parse_ports_list,
     resolve_scan_scope_label,
+    validate_max_rate,
     validate_mode,
     validate_port,
     validate_threads,
@@ -25,6 +27,7 @@ def build_args(
     subfinder: bool = False,
     amass: bool = False,
     quiet: bool = False,
+    max_rate: float | None = None,
 ) -> argparse.Namespace:
     """Build a minimal argparse namespace for CLI helper tests."""
     return argparse.Namespace(
@@ -33,6 +36,7 @@ def build_args(
         subfinder=subfinder,
         amass=amass,
         quiet=quiet,
+        max_rate=max_rate,
     )
 
 
@@ -93,6 +97,16 @@ class CLIHelperTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_threads(threads)
 
+    def test_validate_max_rate_accepts_none_and_positive_values(self) -> None:
+        self.assertIsNone(validate_max_rate(None))
+        self.assertEqual(validate_max_rate(100.0), 100.0)
+
+    def test_validate_max_rate_rejects_zero_and_negative_values(self) -> None:
+        for max_rate in (0.0, -0.1, -10.0):
+            with self.subTest(max_rate=max_rate):
+                with self.assertRaises(ValueError):
+                    validate_max_rate(max_rate)
+
     def test_resolve_scan_scope_label_returns_expected_labels(self) -> None:
         self.assertEqual(resolve_scan_scope_label(build_args()), "Default Target List")
         self.assertEqual(
@@ -130,6 +144,21 @@ class CLIHelperTests(unittest.TestCase):
 
         self.assertEqual(args.target, "example.com")
         self.assertTrue(args.quiet)
+
+    def test_parse_arguments_accepts_max_rate_flag(self) -> None:
+        with patch("sys.argv", ["hylianscan", "example.com", "--max-rate", "100"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertEqual(args.max_rate, 100.0)
+
+    def test_parse_arguments_rejects_non_numeric_max_rate(self) -> None:
+        with (
+            patch("sys.argv", ["hylianscan", "example.com", "--max-rate", "fast"]),
+            patch("sys.stderr", new_callable=io.StringIO),
+        ):
+            with self.assertRaises(SystemExit):
+                parse_arguments()
 
     def test_is_quiet_mode_normalizes_missing_and_present_values(self) -> None:
         self.assertFalse(is_quiet_mode(argparse.Namespace()))

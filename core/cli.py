@@ -54,6 +54,11 @@ def parse_arguments() -> argparse.Namespace:
         help="Override the selected stance timeout per TCP port in seconds.",
     )
     parser.add_argument(
+        "--max-rate",
+        type=float,
+        help="Limit how many new TCP connection attempts are started per second.",
+    )
+    parser.add_argument(
         "--stance",
         default=DEFAULT_STANCE,
         help=(
@@ -171,6 +176,17 @@ def validate_threads(threads: int) -> int:
         raise ValueError("--threads must be greater than zero.")
 
     return threads
+
+
+def validate_max_rate(max_rate: float | None) -> float | None:
+    """Validate the optional TCP connection start rate limit."""
+    if max_rate is None:
+        return None
+
+    if max_rate <= 0:
+        raise ValueError("--max-rate must be greater than zero.")
+
+    return max_rate
 
 
 def resolve_scan_stance(args: argparse.Namespace) -> ScanStance:

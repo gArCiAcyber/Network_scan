@@ -13,6 +13,7 @@ from core.cli import (
     parse_ports_list,
     resolve_scan_scope_label,
     resolve_scan_stance,
+    validate_max_rate,
     validate_mode,
 )
 from core.colors import (
@@ -189,6 +190,7 @@ def run_port_scan(
     ports_to_scan: list[int],
     timeout: float,
     max_workers: int,
+    max_rate: float | None = None,
     quiet: bool = False,
 ) -> ScanResult:
     """Run the threaded TCP scanner without embedding TCP logic in the CLI."""
@@ -203,6 +205,7 @@ def run_port_scan(
         ports=ports_to_scan,
         timeout=timeout,
         max_workers=max_workers,
+        max_rate=max_rate,
         progress_callback=None if display is None else display.handle_progress,
         open_port_callback=None if display is None else display.handle_open_port,
         service_probe_start_callback=None if display is None else display.start_service_probe,
@@ -342,6 +345,7 @@ def main() -> None:
             json_output_path = resolve_json_output_path(args.json_output)
             ports_to_scan = parse_ports_list(args)
             scan_stance = resolve_scan_stance(args)
+            max_rate = validate_max_rate(args.max_rate)
             scan_scope = resolve_scan_scope_label(args)
             target = resolve_target(args.target)
 
@@ -353,6 +357,7 @@ def main() -> None:
                 ports_to_scan=ports_to_scan,
                 timeout=scan_stance.timeout,
                 max_workers=scan_stance.workers,
+                max_rate=max_rate,
                 quiet=quiet,
             )
             if quiet:
