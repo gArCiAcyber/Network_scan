@@ -145,6 +145,28 @@ class CLIHelperTests(unittest.TestCase):
         self.assertEqual(args.target, "example.com")
         self.assertTrue(args.quiet)
 
+    def test_parse_arguments_accepts_passive_provider_path_flags(self) -> None:
+        with patch(
+            "sys.argv",
+            [
+                "hylianscan",
+                "example.com",
+                "-s",
+                "-a",
+                "--subfinder-path",
+                "/opt/tools/subfinder",
+                "--amass-path",
+                "/opt/tools/amass",
+            ],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertTrue(args.subfinder)
+        self.assertTrue(args.amass)
+        self.assertEqual(args.subfinder_path, "/opt/tools/subfinder")
+        self.assertEqual(args.amass_path, "/opt/tools/amass")
+
     def test_parse_arguments_accepts_max_rate_flag(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com", "--max-rate", "100"]):
             args = parse_arguments()

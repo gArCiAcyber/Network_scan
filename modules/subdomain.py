@@ -1,9 +1,12 @@
 """Passive subdomain discovery integration for hylianscan."""
 
 import re
+import os
+import shutil
 import subprocess
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from typing import TextIO
 
 
@@ -12,6 +15,45 @@ TelemetryCallback = Callable[[str], None]
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 DEFAULT_PROVIDER_TIMEOUT_SECONDS = 180.0
 PROVIDER_SHUTDOWN_GRACE_SECONDS = 5.0
+
+
+def build_provider_missing_message(provider_name: str, path_option: str) -> str:
+    """Build a clear provider installation/path hint."""
+    return (
+        f"{provider_name} executable was not found. Install {provider_name} and "
+        f"make it available in PATH, or provide the executable path manually with "
+        f"{path_option}."
+    )
+
+
+def resolve_provider_executable(
+    provider_name: str,
+    default_command: str,
+    path_option: str,
+    explicit_path: str | None = None,
+) -> str:
+    """Resolve a passive provider executable from PATH or an explicit path."""
+    if explicit_path:
+        executable_path = Path(explicit_path).expanduser()
+
+        if not executable_path.exists():
+            raise ValueError(
+                f"{provider_name} executable path does not exist: {executable_path}. "
+                f"Provide a valid executable file with {path_option}."
+            )
+
+        if not executable_path.is_file() or not os.access(executable_path, os.X_OK):
+            raise ValueError(
+                f"{provider_name} executable path is not executable: {executable_path}. "
+                f"Provide an executable file with {path_option}."
+            )
+
+        return str(executable_path)
+
+    if shutil.which(default_command) is None:
+        raise ValueError(build_provider_missing_message(provider_name, path_option))
+
+    return default_command
 
 
 def clean_terminal_text(value: str) -> str:
@@ -86,10 +128,12 @@ def run_passive_provider(
             text=True,
             bufsize=1,
         )
+    except FileNotFoundError as error:
+        raise ValueError(
+            build_provider_missing_message(provider_name, f"--{provider_name.lower()}-path")
+        ) from error
     except OSError as error:
-        if telemetry_callback is not None:
-            telemetry_callback(f"[-] Unable to start {provider_name}: {error}")
-        return []
+        raise ValueError(f"Unable to start {provider_name}: {error}") from error
 
     stdout_thread = threading.Thread(
         target=stream_lines,
@@ -140,12 +184,20 @@ def run_subfinder(
     domain: str,
     telemetry_callback: TelemetryCallback | None = None,
     timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    executable_path: str | None = None,
 ) -> list[str]:
     """Run Subfinder passive discovery and return clean subdomain results."""
+    executable = resolve_provider_executable(
+        provider_name="Subfinder",
+        default_command="subfinder",
+        path_option="--subfinder-path",
+        explicit_path=executable_path,
+    )
+
     return run_passive_provider(
         domain=domain,
         provider_name="Subfinder",
-        command=["subfinder", "-d", domain, "-silent"],
+        command=[executable, "-d", domain, "-silent"],
         telemetry_callback=telemetry_callback,
         timeout=timeout,
     )
@@ -155,12 +207,20 @@ def run_amass(
     domain: str,
     telemetry_callback: TelemetryCallback | None = None,
     timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    executable_path: str | None = None,
 ) -> list[str]:
     """Run Amass passive discovery and return clean subdomain results."""
+    executable = resolve_provider_executable(
+        provider_name="Amass",
+        default_command="amass",
+        path_option="--amass-path",
+        explicit_path=executable_path,
+    )
+
     return run_passive_provider(
         domain=domain,
         provider_name="Amass",
-        command=["amass", "enum", "-passive", "-d", domain],
+        command=[executable, "enum", "-passive", "-d", domain],
         telemetry_callback=telemetry_callback,
         timeout=timeout,
     )

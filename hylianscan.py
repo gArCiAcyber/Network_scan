@@ -3,6 +3,7 @@
 
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 from core.banner import show_banner
@@ -286,6 +287,7 @@ def run_passive_subdomain_discovery(
     providers: list[str],
     output_path: Path,
     json_output_path: Path | None = None,
+    provider_paths: Mapping[str, str | None] | None = None,
     quiet: bool = False,
 ) -> str:
     """Run selected passive discovery providers and return a clean summary."""
@@ -293,6 +295,7 @@ def run_passive_subdomain_discovery(
     display = None if quiet else PassiveDiscoveryDisplay(domain)
     provider_results: dict[str, list[str]] = {}
     subdomains: list[str] = []
+    executable_paths = provider_paths or {}
 
     if display is not None:
         display.start()
@@ -310,11 +313,13 @@ def run_passive_subdomain_discovery(
                 provider_results[provider] = run_subfinder(
                     domain,
                     telemetry_callback=telemetry_callback,
+                    executable_path=executable_paths.get("subfinder"),
                 )
             elif provider == "amass":
                 provider_results[provider] = run_amass(
                     domain,
                     telemetry_callback=telemetry_callback,
+                    executable_path=executable_paths.get("amass"),
                 )
 
         if display is not None and telemetry is not None:
@@ -368,6 +373,10 @@ def main() -> None:
                 providers=passive_providers,
                 output_path=output_path,
                 json_output_path=json_output_path,
+                provider_paths={
+                    "subfinder": args.subfinder_path,
+                    "amass": args.amass_path,
+                },
                 quiet=quiet,
             )
             print(final_panel)

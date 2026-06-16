@@ -36,10 +36,18 @@ def parse_arguments() -> argparse.Namespace:
         help="Enable passive subdomain discovery using Subfinder.",
     )
     parser.add_argument(
+        "--subfinder-path",
+        help="Path to the Subfinder executable when it is not available in PATH.",
+    )
+    parser.add_argument(
         "-a",
         "--amass",
         action="store_true",
         help="Enable passive subdomain discovery using Amass.",
+    )
+    parser.add_argument(
+        "--amass-path",
+        help="Path to the Amass executable when it is not available in PATH.",
     )
     parser.add_argument(
         "-t",
