@@ -3,6 +3,7 @@
 import argparse
 
 from modules.ports import TOP_400_TCP_PORTS
+from modules.port_profiles import format_port_profile_label, resolve_port_profile
 from modules.scan_stance import ScanStance, resolve_stance
 
 
@@ -28,6 +29,13 @@ def parse_arguments() -> argparse.Namespace:
         "--top-ports",
         type=int,
         help="Scan the top N built-in TCP ports. Example: --top-ports 400.",
+    )
+    parser.add_argument(
+        "--port-profile",
+        help=(
+            "Use a predefined TCP port profile. Supports quick/kokiri, "
+            "web/sheikah, mail/rito, admin/castle, and bugbounty/triforce."
+        ),
     )
     parser.add_argument(
         "-s",
@@ -141,8 +149,19 @@ def parse_custom_ports(ports_value: str) -> list[int]:
 
 def parse_ports_list(args: argparse.Namespace) -> list[int]:
     """Return the selected TCP port list from CLI arguments."""
+    port_profile = getattr(args, "port_profile", None)
+
     if args.ports and args.top_ports:
         raise ValueError("Use either --ports or --top-ports, not both.")
+
+    if port_profile and args.ports:
+        raise ValueError("Use either --port-profile or --ports, not both.")
+
+    if port_profile and args.top_ports:
+        raise ValueError("Use either --port-profile or --top-ports, not both.")
+
+    if port_profile:
+        return list(resolve_port_profile(port_profile).ports)
 
     if args.ports:
         return parse_custom_ports(args.ports)
@@ -161,6 +180,11 @@ def parse_ports_list(args: argparse.Namespace) -> list[int]:
 
 def resolve_scan_scope_label(args: argparse.Namespace) -> str:
     """Return the final panel scan scope label for the selected port mode."""
+    port_profile = getattr(args, "port_profile", None)
+
+    if port_profile:
+        return f"Port Profile: {format_port_profile_label(port_profile)}"
+
     if args.ports:
         return "Custom Port List"
 
@@ -231,11 +255,22 @@ def get_passive_providers(args: argparse.Namespace) -> list[str]:
 def validate_mode(args: argparse.Namespace) -> None:
     """Prevent ambiguous mode combinations."""
     passive_providers = get_passive_providers(args)
+    port_profile = getattr(args, "port_profile", None)
 
-    if passive_providers and (args.ports or args.top_ports):
+    if passive_providers and (args.ports or args.top_ports or port_profile):
         raise ValueError(
             "Use passive discovery provider flags or port flags for TCP mode, not both."
         )
+
+
+def resolve_port_profile_label(args: argparse.Namespace) -> str | None:
+    """Return the selected port profile display label, if any."""
+    port_profile = getattr(args, "port_profile", None)
+
+    if not port_profile:
+        return None
+
+    return format_port_profile_label(port_profile)
 
 
 def is_quiet_mode(args: argparse.Namespace) -> bool:

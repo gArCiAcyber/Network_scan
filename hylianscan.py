@@ -12,6 +12,7 @@ from core.cli import (
     is_quiet_mode,
     parse_arguments,
     parse_ports_list,
+    resolve_port_profile_label,
     resolve_scan_scope_label,
     resolve_scan_stance,
     validate_max_rate,
@@ -175,6 +176,7 @@ def show_target_orientation(
     port_count: int,
     max_rate: float | None = None,
     has_overrides: bool = False,
+    port_profile_label: str | None = None,
 ) -> None:
     """Render the target orientation and active scan stance block."""
     alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
@@ -197,6 +199,11 @@ def show_target_orientation(
                 f"{format_scan_config_source(has_overrides)}"
             ),
             f"{'Scan Phase':<{label_width}}: Hylian TCP Connect Scan",
+            *(
+                [f"{'Port Profile':<{label_width}}: {port_profile_label}"]
+                if port_profile_label
+                else []
+            ),
             f"{'Port Scope':<{label_width}}: {port_count} ports",
         ]
     )
@@ -352,8 +359,8 @@ def main() -> None:
 
     try:
         args = parse_arguments()
-        validate_mode(args)
         quiet = is_quiet_mode(args)
+        validate_mode(args)
 
         if not quiet:
             clear_screen()
@@ -388,6 +395,7 @@ def main() -> None:
             max_rate = validate_max_rate(args.max_rate)
             has_overrides = has_scan_config_overrides(args)
             scan_scope = resolve_scan_scope_label(args)
+            port_profile_label = resolve_port_profile_label(args)
             target = resolve_target(args.target)
 
             if not quiet:
@@ -397,6 +405,7 @@ def main() -> None:
                     len(ports_to_scan),
                     max_rate=max_rate,
                     has_overrides=has_overrides,
+                    port_profile_label=port_profile_label,
                 )
 
             scan_result = run_port_scan(
