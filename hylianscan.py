@@ -28,12 +28,15 @@ from core.colors import (
     TRIFORCE_RED,
 )
 from core.output import (
+    resolve_output_workspace,
     resolve_json_output_path,
     resolve_output_path,
     resolve_subdomain_json_output_path,
     resolve_subdomain_output_path,
     save_report,
     save_subdomain_results,
+    should_create_passive_output_workspace,
+    should_create_tcp_output_workspace,
 )
 from core.panel import build_final_panel, build_quiet_final_panel
 from core.passive_telemetry import PassiveActivityTelemetry
@@ -369,8 +372,19 @@ def main() -> None:
         passive_providers = get_passive_providers(args)
 
         if passive_providers:
-            output_path = resolve_subdomain_output_path(args.output)
-            json_output_path = resolve_subdomain_json_output_path(args.json_output)
+            workspace_dir = (
+                resolve_output_workspace(args.target)
+                if should_create_passive_output_workspace(args.output, args.json_output)
+                else None
+            )
+            output_path = resolve_subdomain_output_path(
+                args.output,
+                workspace_dir=workspace_dir,
+            )
+            json_output_path = resolve_subdomain_json_output_path(
+                args.json_output,
+                workspace_dir=workspace_dir,
+            )
 
             if not quiet:
                 show_passive_providers(passive_providers)
@@ -388,8 +402,16 @@ def main() -> None:
             )
             print(final_panel)
         else:
-            output_path = resolve_output_path(args.output)
-            json_output_path = resolve_json_output_path(args.json_output)
+            workspace_dir = (
+                resolve_output_workspace(args.target)
+                if should_create_tcp_output_workspace(args.output, args.json_output)
+                else None
+            )
+            output_path = resolve_output_path(args.output, workspace_dir=workspace_dir)
+            json_output_path = resolve_json_output_path(
+                args.json_output,
+                workspace_dir=workspace_dir,
+            )
             ports_to_scan = parse_ports_list(args)
             scan_stance = resolve_scan_stance(args)
             max_rate = validate_max_rate(args.max_rate)
