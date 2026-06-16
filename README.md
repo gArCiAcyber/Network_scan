@@ -25,6 +25,7 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 ### Passive Subdomain Discovery
 
 - **Multi-Provider Discovery:** Supports Subfinder, Amass, or both providers in the same passive run.
+- **Provider Path Control:** Uses provider binaries from `PATH` by default and supports explicit executable paths when needed.
 - **Clean Data Handling:** Automatically sanitizes ANSI escape codes, normalizes results to lowercase, deduplicates, and sorts subdomains alphabetically.
 - **Provider-Aware Output:** Keeps TXT output simple while JSON export tracks provider counts, merged results, and subdomain source attribution.
 - **Activity Telemetry:** Keeps a live enumeration spinner while mapping provider lifecycle events, observed provider output, and timeouts into concise Hylian-themed activity updates.
@@ -34,7 +35,7 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 
 - Python 3 (Standard-library only).
 - Linux terminal environment (preferably Kali Linux). Windows supports basic CLI scans/tests through safe terminal fallbacks.
-- Subfinder and/or Amass installed and available in your `PATH` for passive discovery.
+- Subfinder and/or Amass installed and available in your `PATH` for passive discovery, or explicit executable paths passed with `--subfinder-path` / `--amass-path`.
 
 ## Testing / CI
 
@@ -116,7 +117,9 @@ Target IP address or domain name.
 -p, --ports            Ports to scan. Supports comma lists, ranges, and "-".
 --top-ports            Scan the top N built-in TCP ports.
 -s, --subfinder        Enable passive subdomain discovery using Subfinder.
+--subfinder-path       Path to the Subfinder executable when it is not available in PATH.
 -a, --amass            Enable passive subdomain discovery using Amass.
+--amass-path           Path to the Amass executable when it is not available in PATH.
 --stance               TCP scan stance: fast/din, balanced/nayru, or stealthier/farore.
 -t, --threads          Override the selected stance worker count.
 -T, --timeout          Override the selected stance timeout per TCP port.
@@ -210,6 +213,12 @@ Run passive discovery with both providers:
 
 ```bash
 python3 hylianscan.py example.com -s -a
+```
+
+Run passive discovery with explicit provider paths:
+
+```bash
+python3 hylianscan.py example.com -s -a --subfinder-path /opt/tools/subfinder --amass-path /opt/tools/amass
 ```
 
 Run discovery with a custom output directory:
