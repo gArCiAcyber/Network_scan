@@ -63,6 +63,24 @@ class QuietModeTests(unittest.TestCase):
         self.assertNotIn("TRIFORCE", output)
         self.assertNotIn("------------------------------------------------------------------------", output)
 
+    def test_quiet_tcp_summary_does_not_include_orientation_configuration(self) -> None:
+        scan_result = ScanResult(
+            target_host="example.com",
+            resolved_ip="93.184.216.34",
+            scanned_ports=2,
+            open_ports=(),
+            duration=1.23,
+        )
+
+        output = build_quiet_final_panel(scan_result)
+
+        self.assertNotIn("Target Orientation", output)
+        self.assertNotIn("Stance", output)
+        self.assertNotIn("Workers", output)
+        self.assertNotIn("Timeout", output)
+        self.assertNotIn("Max Rate", output)
+        self.assertNotIn("Config Source", output)
+
     def test_run_port_scan_quiet_disables_live_callbacks(self) -> None:
         target = TargetInfo(
             raw_input="127.0.0.1",

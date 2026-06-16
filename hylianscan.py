@@ -132,6 +132,30 @@ def format_scan_stance_label(stance: ScanStance) -> str:
     return f"{stance.name} ({alias_color}{stance.lore_alias}{RESET})"
 
 
+def has_scan_config_overrides(args: object) -> bool:
+    """Return True when explicit TCP scan controls override stance defaults."""
+    return any(
+        getattr(args, attribute, None) is not None
+        for attribute in ("threads", "timeout", "max_rate")
+    )
+
+
+def format_scan_config_source(has_overrides: bool) -> str:
+    """Return a short label explaining how the effective scan config was chosen."""
+    if has_overrides:
+        return "User Overrides"
+
+    return "Default Stance Values"
+
+
+def format_max_rate_label(max_rate: float | None) -> str:
+    """Return the display label for optional TCP connection start pacing."""
+    if max_rate is None:
+        return "Unlimited"
+
+    return f"{max_rate:g}/s"
+
+
 def merge_subdomain_results(provider_results: dict[str, list[str]]) -> list[str]:
     """Merge provider results into one deduplicated and sorted subdomain list."""
     return sorted(
@@ -148,6 +172,8 @@ def show_target_orientation(
     target: TargetInfo,
     stance: ScanStance,
     port_count: int,
+    max_rate: float | None = None,
+    has_overrides: bool = False,
 ) -> None:
     """Render the target orientation and active scan stance block."""
     alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
@@ -164,6 +190,11 @@ def show_target_orientation(
             ),
             f"{'Workers':<{label_width}}: {stance.workers}",
             f"{'Timeout':<{label_width}}: {stance.timeout:.2f}s",
+            f"{'Max Rate':<{label_width}}: {format_max_rate_label(max_rate)}",
+            (
+                f"{'Config Source':<{label_width}}: "
+                f"{format_scan_config_source(has_overrides)}"
+            ),
             f"{'Scan Phase':<{label_width}}: Hylian TCP Connect Scan",
             f"{'Port Scope':<{label_width}}: {port_count} ports",
         ]
@@ -346,11 +377,18 @@ def main() -> None:
             ports_to_scan = parse_ports_list(args)
             scan_stance = resolve_scan_stance(args)
             max_rate = validate_max_rate(args.max_rate)
+            has_overrides = has_scan_config_overrides(args)
             scan_scope = resolve_scan_scope_label(args)
             target = resolve_target(args.target)
 
             if not quiet:
-                show_target_orientation(target, scan_stance, len(ports_to_scan))
+                show_target_orientation(
+                    target,
+                    scan_stance,
+                    len(ports_to_scan),
+                    max_rate=max_rate,
+                    has_overrides=has_overrides,
+                )
 
             scan_result = run_port_scan(
                 target=target,
