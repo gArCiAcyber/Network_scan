@@ -82,6 +82,7 @@
 - [X] Add phase-oriented TCP live output for connect-scan discovery and service probing.
 - [X] Add protocol probe registry to make service fingerprinting easier to extend.
 - [X] Add SMTP STARTTLS upgrade probing for TLS metadata collection.
+- [X] Add structured probe metadata to TCP JSON reports.
 - [X] Add local mock-service tests for safe localhost TCP and HTTP probing.
 - [X] Add output helper tests for TXT, JSON, and passive discovery file handling.
 - [X] Add quiet-mode tests to verify automation-friendly plain output.
