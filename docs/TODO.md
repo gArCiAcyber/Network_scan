@@ -98,11 +98,7 @@
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add IPv6 support with `socket.getaddrinfo()`.
 - [ ] Add structured scan profiles.
-- [ ] Add configurable Subfinder binary path support.
-- [ ] Add configurable Amass binary path support.
 - [ ] Add STARTTLS upgrade probes for IMAP, POP3, LDAP, and FTP.
-- [X] Add local TLS mock-service tests for HTTPS certificate and TLS metadata parsing.
-- [X] Add local SMTP and FTP mock-service tests for protocol-aware banner parsing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.
 - [ ] Add CI coverage reporting.
 

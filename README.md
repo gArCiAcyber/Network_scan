@@ -48,7 +48,7 @@ Standard local validation:
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
-python -m compileall -q hylianscan.py core modules
+python -m compileall -q hylianscan.py core modules tests
 python hylianscan.py --help
 ```
 
