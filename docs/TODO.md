@@ -93,9 +93,12 @@
 - [X] Add output helper tests for TXT, JSON, and passive discovery file handling.
 - [X] Add quiet-mode tests to verify automation-friendly plain output.
 
+## v1.0 Preparation Completed
+
+- [X] Add target-specific timestamped output workspaces for default TXT and JSON exports.
+
 ## v0.10 / v1.0 Future Work
 
-- [ ] Add target-specific timestamped output workspaces for default TXT and JSON exports.
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add IPv6 support with `socket.getaddrinfo()`.
 - [ ] Add structured scan profiles.
