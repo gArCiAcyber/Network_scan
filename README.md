@@ -19,7 +19,7 @@ Use this project only in your own lab, authorized networks, or explicit pentest 
 - Scan Pacing: Optional `--max-rate` control limits how quickly new TCP connection attempts are started and is shown in the effective scan configuration.
 - Custom Port Selection: Supports comma-separated lists (`-p 80,443`), explicit ranges (`-p 1-1000`), top-port presets (`--top-ports`), and full 65535 range scanning (`-p -`).
 - Port Profiles: Supports predefined authorized recon workflows with `--port-profile` for `quick/kokiri`, `web/sheikah`, `mail/rito`, `admin/castle`, and `bugbounty/triforce`.
-- Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, and FTP, SMTP STARTTLS upgrade metadata collection, passive banner fallback for unknown services, TLS certificate metadata extraction for HTTPS/implicit-TLS services, and clickable web service hints for standard and common alternate web ports.
+- Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, IMAP, POP3, and FTP; TLS upgrade metadata collection through SMTP/IMAP STARTTLS, POP3 STLS, and FTP AUTH TLS; passive banner fallback for unknown services; TLS certificate metadata extraction for implicit-TLS services; and clickable web service hints for standard and common alternate web ports.
 - Clean UI & Reporting: Uses target orientation with effective stance/pacing details, a phase-oriented TCP live display, an Nmap-inspired final panel, quiet automation mode, organized target-specific output workspaces, and clean TXT/JSON report exports.
 - Reliability Foundation: Includes standard-library unit tests for CLI parsing, port helpers, banner probing, TLS analysis, JSON export, output helpers, quiet mode, and localhost mock services.
 

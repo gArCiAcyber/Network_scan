@@ -22,6 +22,8 @@ class PortHelperTests(unittest.TestCase):
     def test_get_service_name_returns_known_and_unknown_services(self) -> None:
         self.assertEqual(get_service_name(80), "HTTP")
         self.assertEqual(get_service_name(443), "HTTPS")
+        self.assertEqual(get_service_name(110), "POP3")
+        self.assertEqual(get_service_name(143), "IMAP")
         self.assertEqual(get_service_name(65001), "Unknown")
 
     def test_build_web_url_omits_default_web_ports(self) -> None:
