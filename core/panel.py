@@ -1,6 +1,5 @@
 """Final report panel rendering for hylianscan."""
 
-import re
 import sys
 from collections.abc import Sequence
 from typing import Any, Protocol
@@ -14,18 +13,11 @@ from core.colors import (
     RESET,
     WARNING_YELLOW,
 )
+from modules.http_metadata import extract_http_header, parse_http_response_head
 from modules.tls_analysis import build_tls_analysis
 
 
 PANEL_SEPARATOR = f"{MUTED_GRAY}{'-' * 72}{RESET}"
-HTTP_STATUS_PATTERN = re.compile(
-    r"^HTTP/\S+\s+(\d{3})(?:\s+(.*?))?(?=\s+[A-Za-z][A-Za-z0-9-]*:\s|$)"
-)
-HTTP_HEADER_PATTERN_TEMPLATE = (
-    r"(?:^|\s){header_name}:\s*(.*?)(?=\s+[A-Za-z][A-Za-z0-9-]*:\s|$)"
-)
-
-
 def get_triforce_symbol() -> str:
     """Return a terminal-safe Triforce symbol."""
     encoding = sys.stdout.encoding or "utf-8"
@@ -114,33 +106,14 @@ def truncate_display_value(value: str, max_length: int = 96) -> str:
     return f"{value[: max_length - 3]}..."
 
 
-def extract_http_header(banner: str, header_name: str) -> str | None:
-    """Extract one HTTP header value from a compact banner string."""
-    pattern = HTTP_HEADER_PATTERN_TEMPLATE.format(
-        header_name=re.escape(header_name)
-    )
-    match = re.search(pattern, banner, flags=re.IGNORECASE)
-
-    if match is None:
-        return None
-
-    value = " ".join(match.group(1).split())
-    return value or None
-
-
 def parse_http_status(banner: str | None) -> tuple[str, str | None] | None:
     """Return HTTP status code and reason phrase from a response banner."""
-    if banner is None:
+    response_head = parse_http_response_head(banner)
+
+    if response_head is None:
         return None
 
-    status_match = HTTP_STATUS_PATTERN.match(banner)
-
-    if status_match is None:
-        return None
-
-    status_code = status_match.group(1)
-    reason = " ".join((status_match.group(2) or "").split()) or None
-    return status_code, reason
+    return str(response_head.status_code), response_head.reason_phrase
 
 
 def format_http_version_signal(banner: str | None, include_reason: bool) -> str | None:

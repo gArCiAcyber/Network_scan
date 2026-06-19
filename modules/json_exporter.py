@@ -1,21 +1,18 @@
 """JSON export helpers for hylianscan scan results."""
 
 import json
-import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
+from modules.http_metadata import (
+    get_first_header,
+    parse_http_headers,
+    parse_http_response_head,
+)
 from modules.tls_analysis import build_tls_analysis
 
 
-HTTP_STATUS_PATTERN = re.compile(
-    r"^HTTP/(?P<version>\S+)\s+"
-    r"(?P<status_code>\d{3})"
-    r"(?:\s+(?P<reason_phrase>.*?))?"
-    r"(?=\s+[A-Za-z][A-Za-z0-9-]*:\s+|$)"
-)
-HTTP_HEADER_PATTERN = re.compile(r"(?<!\S)(?P<name>[A-Za-z][A-Za-z0-9-]*):\s+")
 HTTP_SECURITY_HEADERS = (
     (
         "strict-transport-security",
@@ -82,48 +79,6 @@ class ScanResultExportView(Protocol):
     scanned_ports: int
     open_ports: Sequence[PortFindingExportView]
     duration: float
-
-
-def append_header(headers: dict[str, list[str]], name: str, value: str) -> None:
-    """Append one normalized HTTP header value."""
-    header_name = name.lower()
-    header_value = " ".join(value.split())
-
-    if not header_value:
-        return
-
-    headers.setdefault(header_name, []).append(header_value)
-
-
-def parse_http_headers(header_block: str) -> dict[str, list[str]]:
-    """Parse compact HTTP headers into a case-normalized mapping."""
-    headers: dict[str, list[str]] = {}
-    matches = list(HTTP_HEADER_PATTERN.finditer(header_block))
-
-    for index, match in enumerate(matches):
-        value_start = match.end()
-        value_end = (
-            matches[index + 1].start()
-            if index + 1 < len(matches)
-            else len(header_block)
-        )
-        append_header(
-            headers=headers,
-            name=match.group("name"),
-            value=header_block[value_start:value_end],
-        )
-
-    return headers
-
-
-def get_first_header(headers: Mapping[str, Sequence[str]], name: str) -> str | None:
-    """Return the first value for a normalized HTTP header name."""
-    values = headers.get(name)
-
-    if not values:
-        return None
-
-    return values[0]
 
 
 def parse_cookie_attributes(attribute_parts: Sequence[str]) -> dict[str, str | bool]:
@@ -300,27 +255,18 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
         "security": build_http_security_observations({}, url),
     }
 
-    if banner is None:
+    response_head = parse_http_response_head(banner)
+
+    if response_head is None:
         return metadata
 
-    status_match = HTTP_STATUS_PATTERN.match(banner)
-
-    if status_match is None:
-        return metadata
-
-    protocol = f"HTTP/{status_match.group('version')}"
-    status_code = int(status_match.group("status_code"))
-    reason_phrase = (
-        " ".join((status_match.group("reason_phrase") or "").split())
-        or None
-    )
-    headers = parse_http_headers(banner[status_match.end():])
+    headers = response_head.headers
 
     metadata.update(
         {
-            "protocol": protocol,
-            "status_code": status_code,
-            "reason_phrase": reason_phrase,
+            "protocol": response_head.protocol,
+            "status_code": response_head.status_code,
+            "reason_phrase": response_head.reason_phrase,
             "server": get_first_header(headers, "server"),
             "location": get_first_header(headers, "location"),
             "content_type": get_first_header(headers, "content-type"),

@@ -56,6 +56,31 @@ def make_tls_scan_result() -> SimpleNamespace:
     )
 
 
+def make_http_scan_result() -> SimpleNamespace:
+    """Build a minimal scan result with compact HTTP evidence."""
+    return SimpleNamespace(
+        target_host="example.com",
+        resolved_ip="93.184.216.34",
+        scanned_ports=1,
+        open_ports=(
+            SimpleNamespace(
+                port=80,
+                service="HTTP",
+                banner=(
+                    "HTTP/1.1 301 Moved Permanently "
+                    "Server: cloudflare "
+                    "Location: https://example.com/ "
+                    "Content-Type: text/html"
+                ),
+                response_time=0.01,
+                web_url="http://example.com",
+                tls=None,
+            ),
+        ),
+        duration=1.23,
+    )
+
+
 class PanelRenderingTests(unittest.TestCase):
     """Validate terminal and saved TXT report rendering differences."""
 
@@ -75,6 +100,16 @@ class PanelRenderingTests(unittest.TestCase):
         self.assertIn("443/tcp TLS risk reasons:", report)
         self.assertIn("certificate_expired [high]", report)
         self.assertIn("Recommendation: Renew or rotate the certificate.", report)
+
+    def test_http_status_and_headers_render_unchanged(self) -> None:
+        report = strip_ansi(build_final_panel(make_http_scan_result()))
+
+        self.assertIn(
+            "301 Moved Permanently -> https://example.com/",
+            report,
+        )
+        self.assertIn("http-server-header: cloudflare", report)
+        self.assertIn("http-content-type: text/html", report)
 
 
 if __name__ == "__main__":

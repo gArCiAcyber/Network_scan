@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 
-from modules.json_exporter import parse_http_metadata
+from modules.http_metadata import extract_http_status_code
 from modules.tcp_scanner import ScanResult
 
 
@@ -18,7 +18,6 @@ def filter_scan_result_by_http_status(
     matching_findings = tuple(
         finding
         for finding in scan_result.open_ports
-        if parse_http_metadata(finding.banner, finding.web_url).get("status_code")
-        in accepted_codes
+        if extract_http_status_code(finding.banner) in accepted_codes
     )
     return replace(scan_result, open_ports=matching_findings)
