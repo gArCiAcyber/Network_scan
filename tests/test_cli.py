@@ -186,6 +186,33 @@ class CLIHelperTests(unittest.TestCase):
         self.assertEqual(args.target, "example.com")
         self.assertTrue(args.quiet)
 
+    def test_version_output_does_not_require_target(self) -> None:
+        output = io.StringIO()
+
+        with (
+            patch("sys.argv", ["hylianscan", "--version"]),
+            patch("sys.stdout", output),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            parse_arguments()
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertEqual(output.getvalue(), "hylianscan 1.0.0-dev\n")
+
+    def test_help_output_remains_available_without_target(self) -> None:
+        output = io.StringIO()
+
+        with (
+            patch("sys.argv", ["hylianscan", "--help"]),
+            patch("sys.stdout", output),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            parse_arguments()
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertIn("usage: hylianscan", output.getvalue())
+        self.assertIn("--version", output.getvalue())
+
     def test_parse_arguments_accepts_port_profile_name(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com", "--port-profile", "web"]):
             args = parse_arguments()

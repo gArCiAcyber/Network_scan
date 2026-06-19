@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main CLI orchestrator for hylianscan v0.9."""
+"""Main CLI orchestrator for the hylianscan v1.0 development release."""
 
 import threading
 import time

@@ -2,6 +2,7 @@
 
 import argparse
 
+from core.version import APP_NAME, APP_VERSION
 from modules.ports import TOP_400_TCP_PORTS
 from modules.port_profiles import format_port_profile_label, resolve_port_profile
 from modules.scan_stance import ScanStance, resolve_stance
@@ -13,8 +14,13 @@ DEFAULT_STANCE = "balanced"
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments for the scanner."""
     parser = argparse.ArgumentParser(
-        prog="hylianscan",
+        prog=APP_NAME,
         description="High-performance reconnaissance scanner for authorized targets.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"{APP_NAME} {APP_VERSION}",
     )
     parser.add_argument("target", help="Target IP address or domain name.")
     parser.add_argument(

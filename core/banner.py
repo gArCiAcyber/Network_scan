@@ -1,9 +1,9 @@
 """TrueColor Slant banner rendering for hylianscan."""
 
 from core.colors import RESET
+from core.version import APP_VERSION
 
-VERSION = "0.9"
-FOOTER_TEXT = f"[ HYLIANSCAN v{VERSION} - BY CYLINK ]"
+FOOTER_TEXT = f"[ HYLIANSCAN v{APP_VERSION} - BY CYLINK ]"
 
 SLANT_BANNER_LINES = [
     r"    __          ___                      ",
