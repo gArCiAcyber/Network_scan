@@ -438,6 +438,93 @@ class JSONExporterTests(unittest.TestCase):
             },
         )
 
+    def test_imap_starttls_probe_metadata(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                port=143,
+                service="IMAP",
+                banner="* OK IMAP ready | * CAPABILITY IMAP4rev1 STARTTLS",
+                web_url=None,
+                probe={
+                    "name": "imap",
+                    "transport_security": "starttls",
+                    "method": "imap_starttls",
+                    "starttls": {
+                        "supported": True,
+                        "attempted": True,
+                        "upgraded": True,
+                        "error": None,
+                    },
+                },
+            ),
+            "example.com",
+        )
+
+        self.assertEqual(port_document["probe"]["name"], "imap")
+        self.assertEqual(port_document["probe"]["transport_security"], "starttls")
+        self.assertEqual(port_document["probe"]["method"], "imap_starttls")
+        self.assertTrue(port_document["probe"]["starttls"]["supported"])
+        self.assertTrue(port_document["probe"]["starttls"]["attempted"])
+        self.assertTrue(port_document["probe"]["starttls"]["upgraded"])
+
+    def test_pop3_stls_probe_metadata(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                port=110,
+                service="POP3",
+                banner="+OK POP3 ready | +OK Capability list follows STLS",
+                web_url=None,
+                probe={
+                    "name": "pop3",
+                    "transport_security": "starttls",
+                    "method": "pop3_stls",
+                    "starttls": {
+                        "supported": True,
+                        "attempted": True,
+                        "upgraded": True,
+                        "error": None,
+                    },
+                },
+            ),
+            "example.com",
+        )
+
+        self.assertEqual(port_document["probe"]["name"], "pop3")
+        self.assertEqual(port_document["probe"]["transport_security"], "starttls")
+        self.assertEqual(port_document["probe"]["method"], "pop3_stls")
+        self.assertTrue(port_document["probe"]["starttls"]["supported"])
+        self.assertTrue(port_document["probe"]["starttls"]["attempted"])
+        self.assertTrue(port_document["probe"]["starttls"]["upgraded"])
+
+    def test_ftp_auth_tls_probe_metadata(self) -> None:
+        port_document = build_port_document(
+            make_finding(
+                port=21,
+                service="FTP",
+                banner="220 FTP ready | 234 Proceed with negotiation",
+                web_url=None,
+                probe={
+                    "name": "ftp",
+                    "transport_security": "starttls",
+                    "method": "ftp_auth_tls",
+                    "starttls": {
+                        "supported": True,
+                        "attempted": True,
+                        "upgraded": True,
+                        "error": None,
+                    },
+                },
+            ),
+            "example.com",
+        )
+
+        self.assertEqual(port_document["probe"]["name"], "ftp")
+        self.assertEqual(port_document["probe"]["transport_security"], "starttls")
+        self.assertEqual(port_document["probe"]["method"], "ftp_auth_tls")
+        self.assertTrue(port_document["probe"]["starttls"]["supported"])
+        self.assertTrue(port_document["probe"]["starttls"]["attempted"])
+        self.assertTrue(port_document["probe"]["starttls"]["upgraded"])
+
     def test_ftp_probe_metadata(self) -> None:
         port_document = build_port_document(
             make_finding(

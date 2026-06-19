@@ -260,6 +260,117 @@ class LocalSMTPStartTLSMockServer:
             pass
 
 
+class LocalStartTLSStyleMockServer:
+    """Tiny localhost server for text protocols with TLS upgrade commands."""
+
+    def __init__(
+        self,
+        greeting: bytes,
+        command_flow: list[tuple[bytes, bytes]],
+        max_connections: int = 2,
+    ) -> None:
+        self.greeting = greeting
+        self.command_flow = command_flow
+        self.max_connections = max_connections
+        self.port: int | None = None
+        self.received_commands: list[bytes] = []
+        self._ready = threading.Event()
+        self._temporary_directory = tempfile.TemporaryDirectory()
+        self._context = self._build_context(Path(self._temporary_directory.name))
+        self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server.bind((LOCALHOST, 0))
+        self._server.listen(max_connections)
+        self._server.settimeout(TEST_TIMEOUT)
+        self.port = self._server.getsockname()[1]
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+
+    def __enter__(self) -> "LocalStartTLSStyleMockServer":
+        self._thread.start()
+        self._ready.wait(TEST_TIMEOUT)
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Close server resources."""
+        try:
+            self._server.close()
+        except OSError:
+            pass
+
+        self._thread.join(TEST_TIMEOUT)
+        self._temporary_directory.cleanup()
+
+    def _build_context(self, directory: Path) -> ssl.SSLContext:
+        """Create a server TLS context from embedded test certificate material."""
+        cert_path = directory / "localhost.crt"
+        key_path = directory / "localhost.key"
+        cert_path.write_text(TEST_CERTIFICATE_PEM, encoding="ascii")
+        key_path.write_text(TEST_PRIVATE_KEY_PEM, encoding="ascii")
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        return context
+
+    def _serve(self) -> None:
+        """Accept discovery and protocol upgrade probe connections."""
+        self._ready.set()
+
+        try:
+            for _ in range(self.max_connections):
+                try:
+                    client, _address = self._server.accept()
+                except OSError:
+                    break
+
+                try:
+                    client.settimeout(TEST_TIMEOUT)
+                    self._handle_client(client)
+                finally:
+                    try:
+                        client.close()
+                    except OSError:
+                        pass
+        finally:
+            try:
+                self._server.close()
+            except OSError:
+                pass
+
+    def _handle_client(self, client: socket.socket) -> None:
+        """Handle one plaintext command flow and upgrade to TLS."""
+        try:
+            client.sendall(self.greeting)
+
+            for expected_prefix, response in self.command_flow:
+                command = client.recv(1024)
+
+                if not command:
+                    return
+
+                self.received_commands.append(command)
+
+                if not command.upper().startswith(expected_prefix):
+                    return
+
+                client.sendall(response)
+
+            with self._context.wrap_socket(client, server_side=True) as tls_client:
+                tls_client.settimeout(TEST_TIMEOUT)
+                self._drain_tls_client(tls_client)
+        except (OSError, socket.timeout, ssl.SSLError):
+            return
+
+    def _drain_tls_client(self, tls_client: ssl.SSLSocket) -> None:
+        """Read optional TLS client data after the handshake."""
+        try:
+            tls_client.recv(1024)
+        except (OSError, socket.timeout, ssl.SSLError):
+            pass
+
+
 def patched_tls_registry(port: int) -> Iterator[object]:
     """Patch protocol probing so the ephemeral port is treated as TLS."""
     tls_probe = banner_grabber.ProtocolProbe(
@@ -282,6 +393,42 @@ def patched_smtp_starttls_registry(port: int) -> Iterator[object]:
     )
 
     return patch("modules.banner_grabber.PROTOCOL_PROBE_REGISTRY", (smtp_probe,))
+
+
+def patched_imap_starttls_registry(port: int) -> Iterator[object]:
+    """Patch protocol probing so the ephemeral port is treated as IMAP STARTTLS."""
+    imap_probe = banner_grabber.ProtocolProbe(
+        protocol_name="imap",
+        ports=frozenset({port}),
+        handler_name="grab_imap_starttls_banner",
+        tls_behavior=banner_grabber.TLS_BEHAVIOR_STARTTLS,
+    )
+
+    return patch("modules.banner_grabber.PROTOCOL_PROBE_REGISTRY", (imap_probe,))
+
+
+def patched_pop3_stls_registry(port: int) -> Iterator[object]:
+    """Patch protocol probing so the ephemeral port is treated as POP3 STLS."""
+    pop3_probe = banner_grabber.ProtocolProbe(
+        protocol_name="pop3",
+        ports=frozenset({port}),
+        handler_name="grab_pop3_stls_banner",
+        tls_behavior=banner_grabber.TLS_BEHAVIOR_STARTTLS,
+    )
+
+    return patch("modules.banner_grabber.PROTOCOL_PROBE_REGISTRY", (pop3_probe,))
+
+
+def patched_ftp_auth_tls_registry(port: int) -> Iterator[object]:
+    """Patch protocol probing so the ephemeral port is treated as FTP AUTH TLS."""
+    ftp_probe = banner_grabber.ProtocolProbe(
+        protocol_name="ftp",
+        ports=frozenset({port}),
+        handler_name="grab_ftp_auth_tls_banner",
+        tls_behavior=banner_grabber.TLS_BEHAVIOR_STARTTLS,
+    )
+
+    return patch("modules.banner_grabber.PROTOCOL_PROBE_REGISTRY", (ftp_probe,))
 
 
 class TLSMockServiceScanTests(unittest.TestCase):
@@ -364,6 +511,176 @@ class TLSMockServiceScanTests(unittest.TestCase):
         self.assertEqual(finding.probe["name"], "smtp")
         self.assertEqual(finding.probe["transport_security"], "starttls")
         self.assertEqual(finding.probe["method"], "smtp_ehlo")
+        self.assertEqual(
+            finding.probe["starttls"],
+            {
+                "supported": True,
+                "attempted": True,
+                "upgraded": True,
+                "error": None,
+            },
+        )
+        self.assertIsNotNone(finding.tls)
+        self.assertEqual(finding.tls["status"], "collected")
+        self.assertEqual(
+            finding.tls["certificate"]["subject"]["commonName"],
+            ["localhost"],
+        )
+        self.assertTrue(finding.tls["handshake"]["protocol"])
+
+    def test_local_imap_starttls_service_collects_tls_metadata(self) -> None:
+        command_flow = [
+            (
+                b"A001 CAPABILITY",
+                b"* CAPABILITY IMAP4rev1 STARTTLS AUTH=PLAIN\r\n"
+                b"a001 OK CAPABILITY completed\r\n",
+            ),
+            (
+                b"A002 STARTTLS",
+                b"a002 OK Begin TLS negotiation now\r\n",
+            ),
+        ]
+
+        with LocalStartTLSStyleMockServer(
+            greeting=b"* OK hylianscan.mock IMAP ready\r\n",
+            command_flow=command_flow,
+        ) as server:
+            self.assertIsNotNone(server.port)
+
+            with patched_imap_starttls_registry(server.port):
+                result = scan_tcp_ports(
+                    target_host="localhost",
+                    resolved_ip=LOCALHOST,
+                    ports=[server.port],
+                    timeout=TEST_TIMEOUT,
+                    max_workers=1,
+                )
+
+        self.assertEqual(len(result.open_ports), 1)
+        finding = result.open_ports[0]
+
+        self.assertEqual(finding.port, server.port)
+        self.assertIsNotNone(finding.banner)
+        self.assertIn("* OK hylianscan.mock IMAP ready", finding.banner)
+        self.assertIn("STARTTLS", finding.banner)
+        self.assertTrue(any(b"a001 CAPABILITY" in data for data in server.received_commands))
+        self.assertTrue(any(b"a002 STARTTLS" in data for data in server.received_commands))
+        self.assertIsNotNone(finding.probe)
+        self.assertEqual(finding.probe["name"], "imap")
+        self.assertEqual(finding.probe["transport_security"], "starttls")
+        self.assertEqual(finding.probe["method"], "imap_starttls")
+        self.assertEqual(
+            finding.probe["starttls"],
+            {
+                "supported": True,
+                "attempted": True,
+                "upgraded": True,
+                "error": None,
+            },
+        )
+        self.assertIsNotNone(finding.tls)
+        self.assertEqual(finding.tls["status"], "collected")
+        self.assertEqual(
+            finding.tls["certificate"]["subject"]["commonName"],
+            ["localhost"],
+        )
+        self.assertTrue(finding.tls["handshake"]["protocol"])
+
+    def test_local_pop3_stls_service_collects_tls_metadata(self) -> None:
+        command_flow = [
+            (
+                b"CAPA",
+                b"+OK Capability list follows\r\n"
+                b"STLS\r\n"
+                b"USER\r\n"
+                b".\r\n",
+            ),
+            (
+                b"STLS",
+                b"+OK Begin TLS negotiation\r\n",
+            ),
+        ]
+
+        with LocalStartTLSStyleMockServer(
+            greeting=b"+OK hylianscan.mock POP3 ready\r\n",
+            command_flow=command_flow,
+        ) as server:
+            self.assertIsNotNone(server.port)
+
+            with patched_pop3_stls_registry(server.port):
+                result = scan_tcp_ports(
+                    target_host="localhost",
+                    resolved_ip=LOCALHOST,
+                    ports=[server.port],
+                    timeout=TEST_TIMEOUT,
+                    max_workers=1,
+                )
+
+        self.assertEqual(len(result.open_ports), 1)
+        finding = result.open_ports[0]
+
+        self.assertEqual(finding.port, server.port)
+        self.assertIsNotNone(finding.banner)
+        self.assertIn("+OK hylianscan.mock POP3 ready", finding.banner)
+        self.assertIn("STLS", finding.banner)
+        self.assertTrue(any(b"CAPA" in data for data in server.received_commands))
+        self.assertTrue(any(b"STLS" in data for data in server.received_commands))
+        self.assertIsNotNone(finding.probe)
+        self.assertEqual(finding.probe["name"], "pop3")
+        self.assertEqual(finding.probe["transport_security"], "starttls")
+        self.assertEqual(finding.probe["method"], "pop3_stls")
+        self.assertEqual(
+            finding.probe["starttls"],
+            {
+                "supported": True,
+                "attempted": True,
+                "upgraded": True,
+                "error": None,
+            },
+        )
+        self.assertIsNotNone(finding.tls)
+        self.assertEqual(finding.tls["status"], "collected")
+        self.assertEqual(
+            finding.tls["certificate"]["subject"]["commonName"],
+            ["localhost"],
+        )
+        self.assertTrue(finding.tls["handshake"]["protocol"])
+
+    def test_local_ftp_auth_tls_service_collects_tls_metadata(self) -> None:
+        command_flow = [
+            (
+                b"AUTH TLS",
+                b"234 Proceed with negotiation\r\n",
+            ),
+        ]
+
+        with LocalStartTLSStyleMockServer(
+            greeting=b"220 hylianscan.mock FTP ready\r\n",
+            command_flow=command_flow,
+        ) as server:
+            self.assertIsNotNone(server.port)
+
+            with patched_ftp_auth_tls_registry(server.port):
+                result = scan_tcp_ports(
+                    target_host="localhost",
+                    resolved_ip=LOCALHOST,
+                    ports=[server.port],
+                    timeout=TEST_TIMEOUT,
+                    max_workers=1,
+                )
+
+        self.assertEqual(len(result.open_ports), 1)
+        finding = result.open_ports[0]
+
+        self.assertEqual(finding.port, server.port)
+        self.assertIsNotNone(finding.banner)
+        self.assertIn("220 hylianscan.mock FTP ready", finding.banner)
+        self.assertIn("234 Proceed with negotiation", finding.banner)
+        self.assertTrue(any(b"AUTH TLS" in data for data in server.received_commands))
+        self.assertIsNotNone(finding.probe)
+        self.assertEqual(finding.probe["name"], "ftp")
+        self.assertEqual(finding.probe["transport_security"], "starttls")
+        self.assertEqual(finding.probe["method"], "ftp_auth_tls")
         self.assertEqual(
             finding.probe["starttls"],
             {

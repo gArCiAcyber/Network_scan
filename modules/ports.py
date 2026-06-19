@@ -26,6 +26,14 @@ COMMON_PORTS: dict[int, str] = {
     8880: "HTTP-Alt",
 }
 
+SERVICE_NAMES: dict[int, str] = {
+    **COMMON_PORTS,
+    110: "POP3",
+    143: "IMAP",
+    993: "IMAPS",
+    995: "POP3S",
+}
+
 WEB_PORT_SCHEMES: dict[int, str] = {
     80: "http",
     443: "https",
@@ -104,7 +112,7 @@ def normalize_ports(ports: Iterable[int] | None = None) -> tuple[int, ...]:
 
 def get_service_name(port: int) -> str:
     """Return the expected service name for a common TCP port."""
-    return COMMON_PORTS.get(port, "Unknown")
+    return SERVICE_NAMES.get(port, "Unknown")
 
 
 def build_web_url(resolved_ip: str, port: int) -> str | None:

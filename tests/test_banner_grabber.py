@@ -59,9 +59,49 @@ class BannerGrabberHelperTests(unittest.TestCase):
         self.assertTrue(banner_grabber.smtp_starttls_is_ready("220 Ready to start TLS"))
         self.assertFalse(banner_grabber.smtp_starttls_is_ready("454 TLS not available"))
 
+    def test_starttls_style_helpers_detect_upgrade_readiness(self) -> None:
+        self.assertTrue(
+            banner_grabber.imap_advertises_starttls(
+                "* CAPABILITY IMAP4rev1 STARTTLS AUTH=PLAIN a001 OK"
+            )
+        )
+        self.assertFalse(
+            banner_grabber.imap_advertises_starttls(
+                "* CAPABILITY IMAP4rev1 AUTH=PLAIN a001 OK"
+            )
+        )
+        self.assertTrue(
+            banner_grabber.imap_starttls_is_ready(
+                "a002 OK Begin TLS negotiation now"
+            )
+        )
+        self.assertFalse(
+            banner_grabber.imap_starttls_is_ready(
+                "a002 NO TLS not available"
+            )
+        )
+
+        self.assertTrue(
+            banner_grabber.pop3_advertises_stls(
+                "+OK Capability list follows STLS USER ."
+            )
+        )
+        self.assertFalse(
+            banner_grabber.pop3_advertises_stls(
+                "+OK Capability list follows USER ."
+            )
+        )
+        self.assertTrue(banner_grabber.pop3_stls_is_ready("+OK Begin TLS"))
+        self.assertFalse(banner_grabber.pop3_stls_is_ready("-ERR TLS unavailable"))
+
+        self.assertTrue(banner_grabber.ftp_auth_tls_is_ready("234 Proceed with TLS"))
+        self.assertFalse(banner_grabber.ftp_auth_tls_is_ready("534 TLS unavailable"))
+
     def test_probe_registry_maps_ports_to_protocol_definitions(self) -> None:
         http_probe = banner_grabber.find_probe_definition(80)
         https_probe = banner_grabber.find_probe_definition(443)
+        imap_probe = banner_grabber.find_probe_definition(143)
+        pop3_probe = banner_grabber.find_probe_definition(110)
         generic_tls_probe = banner_grabber.find_probe_definition(993)
         unknown_probe = banner_grabber.find_probe_definition(9999)
 
@@ -75,6 +115,16 @@ class BannerGrabberHelperTests(unittest.TestCase):
         self.assertEqual(smtp_probe.protocol_name, "smtp")
         self.assertEqual(smtp_probe.handler_name, "grab_smtp_starttls_banner")
         self.assertEqual(smtp_probe.tls_behavior, banner_grabber.TLS_BEHAVIOR_STARTTLS)
+
+        self.assertIsNotNone(imap_probe)
+        self.assertEqual(imap_probe.protocol_name, "imap")
+        self.assertEqual(imap_probe.handler_name, "grab_imap_starttls_banner")
+        self.assertEqual(imap_probe.tls_behavior, banner_grabber.TLS_BEHAVIOR_STARTTLS)
+
+        self.assertIsNotNone(pop3_probe)
+        self.assertEqual(pop3_probe.protocol_name, "pop3")
+        self.assertEqual(pop3_probe.handler_name, "grab_pop3_stls_banner")
+        self.assertEqual(pop3_probe.tls_behavior, banner_grabber.TLS_BEHAVIOR_STARTTLS)
 
         self.assertIsNotNone(https_probe)
         self.assertEqual(https_probe.protocol_name, "https")
@@ -261,6 +311,192 @@ class BannerGrabberHelperTests(unittest.TestCase):
 
         mocked.assert_called_once_with(client, "example.com")
 
+    def test_grab_service_banner_dispatches_imap_ports(self) -> None:
+        client = Mock()
+
+        with patch.object(
+            banner_grabber,
+            "grab_imap_starttls_banner",
+            return_value=(
+                "imap",
+                {"status": "collected"},
+                {
+                    "name": "imap",
+                    "transport_security": "starttls",
+                    "method": "imap_starttls",
+                    "starttls": {
+                        "supported": True,
+                        "attempted": True,
+                        "upgraded": True,
+                        "error": None,
+                    },
+                },
+            ),
+        ) as mocked:
+            self.assertEqual(
+                banner_grabber.grab_service_banner(client, "example.com", 143),
+                (
+                    "imap",
+                    {"status": "collected"},
+                    {
+                        "name": "imap",
+                        "transport_security": "starttls",
+                        "method": "imap_starttls",
+                        "starttls": {
+                            "supported": True,
+                            "attempted": True,
+                            "upgraded": True,
+                            "error": None,
+                        },
+                    },
+                ),
+            )
+
+        mocked.assert_called_once_with(client, "example.com")
+
+    def test_grab_service_banner_dispatches_pop3_ports(self) -> None:
+        client = Mock()
+
+        with patch.object(
+            banner_grabber,
+            "grab_pop3_stls_banner",
+            return_value=(
+                "pop3",
+                {"status": "collected"},
+                {
+                    "name": "pop3",
+                    "transport_security": "starttls",
+                    "method": "pop3_stls",
+                    "starttls": {
+                        "supported": True,
+                        "attempted": True,
+                        "upgraded": True,
+                        "error": None,
+                    },
+                },
+            ),
+        ) as mocked:
+            self.assertEqual(
+                banner_grabber.grab_service_banner(client, "example.com", 110),
+                (
+                    "pop3",
+                    {"status": "collected"},
+                    {
+                        "name": "pop3",
+                        "transport_security": "starttls",
+                        "method": "pop3_stls",
+                        "starttls": {
+                            "supported": True,
+                            "attempted": True,
+                            "upgraded": True,
+                            "error": None,
+                        },
+                    },
+                ),
+            )
+
+        mocked.assert_called_once_with(client, "example.com")
+
+    def test_imap_starttls_fallback_when_capability_is_unavailable(self) -> None:
+        client = Mock()
+
+        with (
+            patch.object(banner_grabber, "grab_banner", return_value="* OK IMAP ready"),
+            patch.object(
+                banner_grabber,
+                "send_probe_and_grab_banner",
+                return_value="* CAPABILITY IMAP4rev1 a001 OK",
+            ) as probe_mock,
+        ):
+            banner, tls, probe = banner_grabber.grab_imap_starttls_banner(
+                client,
+                "example.com",
+            )
+
+        self.assertEqual(banner, "* OK IMAP ready | * CAPABILITY IMAP4rev1 a001 OK")
+        self.assertIsNone(tls)
+        self.assertEqual(probe["name"], "imap")
+        self.assertEqual(probe["transport_security"], "none")
+        self.assertEqual(probe["method"], "imap_starttls")
+        self.assertEqual(
+            probe["starttls"],
+            {
+                "supported": False,
+                "attempted": False,
+                "upgraded": False,
+                "error": None,
+            },
+        )
+        probe_mock.assert_called_once_with(client, banner_grabber.IMAP_CAPABILITY_PAYLOAD)
+
+    def test_pop3_stls_fallback_when_upgrade_is_rejected(self) -> None:
+        client = Mock()
+
+        with (
+            patch.object(banner_grabber, "grab_banner", return_value="+OK POP3 ready"),
+            patch.object(
+                banner_grabber,
+                "send_probe_and_grab_banner",
+                side_effect=("+OK Capability list follows STLS .", "-ERR TLS unavailable"),
+            ),
+        ):
+            banner, tls, probe = banner_grabber.grab_pop3_stls_banner(
+                client,
+                "example.com",
+            )
+
+        self.assertEqual(
+            banner,
+            "+OK POP3 ready | +OK Capability list follows STLS . | -ERR TLS unavailable",
+        )
+        self.assertIsNone(tls)
+        self.assertEqual(probe["name"], "pop3")
+        self.assertEqual(probe["transport_security"], "none")
+        self.assertEqual(probe["method"], "pop3_stls")
+        self.assertEqual(
+            probe["starttls"],
+            {
+                "supported": True,
+                "attempted": True,
+                "upgraded": False,
+                "error": "STLS was advertised but the server did not return a +OK response.",
+            },
+        )
+
+    def test_ftp_auth_tls_fallback_when_upgrade_is_rejected(self) -> None:
+        client = Mock()
+
+        with (
+            patch.object(banner_grabber, "grab_banner", return_value="220 FTP ready"),
+            patch.object(
+                banner_grabber,
+                "send_probe_and_grab_banner",
+                side_effect=("534 TLS unavailable", "215 UNIX Type: L8"),
+            ),
+        ):
+            banner, tls, probe = banner_grabber.grab_ftp_auth_tls_banner(
+                client,
+                "example.com",
+            )
+
+        self.assertEqual(
+            banner,
+            "220 FTP ready | 534 TLS unavailable | 215 UNIX Type: L8",
+        )
+        self.assertIsNone(tls)
+        self.assertEqual(probe["name"], "ftp")
+        self.assertEqual(probe["transport_security"], "none")
+        self.assertEqual(probe["method"], "ftp_auth_tls")
+        self.assertEqual(
+            probe["starttls"],
+            {
+                "supported": False,
+                "attempted": True,
+                "upgraded": False,
+                "error": "AUTH TLS was not accepted by the FTP service.",
+            },
+        )
+
     def test_grab_service_banner_dispatches_smtps_ports(self) -> None:
         client = Mock()
 
@@ -287,21 +523,45 @@ class BannerGrabberHelperTests(unittest.TestCase):
     def test_grab_service_banner_dispatches_ftp_ports(self) -> None:
         client = Mock()
 
-        with patch.object(banner_grabber, "grab_ftp_banner", return_value="ftp") as mocked:
+        with patch.object(
+            banner_grabber,
+            "grab_ftp_auth_tls_banner",
+            return_value=(
+                "ftp",
+                {"status": "collected"},
+                {
+                    "name": "ftp",
+                    "transport_security": "starttls",
+                    "method": "ftp_auth_tls",
+                    "starttls": {
+                        "supported": True,
+                        "attempted": True,
+                        "upgraded": True,
+                        "error": None,
+                    },
+                },
+            ),
+        ) as mocked:
             self.assertEqual(
                 banner_grabber.grab_service_banner(client, "example.com", 21),
                 (
                     "ftp",
-                    None,
+                    {"status": "collected"},
                     {
                         "name": "ftp",
-                        "transport_security": "none",
-                        "method": "ftp_syst",
+                        "transport_security": "starttls",
+                        "method": "ftp_auth_tls",
+                        "starttls": {
+                            "supported": True,
+                            "attempted": True,
+                            "upgraded": True,
+                            "error": None,
+                        },
                     },
                 ),
             )
 
-        mocked.assert_called_once_with(client)
+        mocked.assert_called_once_with(client, "example.com")
 
     def test_grab_service_banner_dispatches_ftps_ports(self) -> None:
         client = Mock()
