@@ -14,6 +14,7 @@ from core.cli import (
     parse_ports_list,
     resolve_port_profile_label,
     resolve_scan_scope_label,
+    resolve_target_argument,
     validate_max_rate,
     validate_mode,
     validate_port,
@@ -219,6 +220,87 @@ class CLIHelperTests(unittest.TestCase):
 
         self.assertEqual(args.target, "example.com")
         self.assertTrue(args.quiet)
+
+    def test_parse_arguments_preserves_positional_target(self) -> None:
+        with patch("sys.argv", ["hylianscan", "example.com"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+
+    def test_parse_arguments_accepts_short_url_target(self) -> None:
+        with patch("sys.argv", ["hylianscan", "-u", "example.com"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+
+    def test_parse_arguments_accepts_long_url_target(self) -> None:
+        with patch("sys.argv", ["hylianscan", "--url", "192.0.2.10"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "192.0.2.10")
+
+    def test_parse_arguments_accepts_flags_before_positional_target(self) -> None:
+        with patch(
+            "sys.argv",
+            ["hylianscan", "-p", "80,443", "example.com"],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertEqual(args.ports, "80,443")
+
+    def test_parse_arguments_accepts_flags_after_url_target(self) -> None:
+        with patch(
+            "sys.argv",
+            ["hylianscan", "-u", "example.com", "-p", "80,443"],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertEqual(args.ports, "80,443")
+
+    def test_parse_arguments_rejects_missing_target_with_clear_error(self) -> None:
+        error_output = io.StringIO()
+
+        with (
+            patch("sys.argv", ["hylianscan"]),
+            patch("sys.stderr", error_output),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            parse_arguments()
+
+        self.assertEqual(exit_context.exception.code, 2)
+        self.assertIn("A target is required", error_output.getvalue())
+
+    def test_parse_arguments_rejects_duplicate_target_with_clear_error(self) -> None:
+        error_output = io.StringIO()
+
+        with (
+            patch(
+                "sys.argv",
+                ["hylianscan", "example.com", "-u", "192.0.2.10"],
+            ),
+            patch("sys.stderr", error_output),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            parse_arguments()
+
+        self.assertEqual(exit_context.exception.code, 2)
+        self.assertIn("not both", error_output.getvalue())
+
+    def test_resolve_target_argument_returns_single_target_source(self) -> None:
+        self.assertEqual(
+            resolve_target_argument(
+                argparse.Namespace(target="example.com", target_url=None)
+            ),
+            "example.com",
+        )
+        self.assertEqual(
+            resolve_target_argument(
+                argparse.Namespace(target=None, target_url="192.0.2.10")
+            ),
+            "192.0.2.10",
+        )
 
     def test_version_output_does_not_require_target(self) -> None:
         output = io.StringIO()

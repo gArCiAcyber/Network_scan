@@ -22,7 +22,18 @@ def parse_arguments() -> argparse.Namespace:
         action="version",
         version=f"{APP_NAME} {APP_VERSION}",
     )
-    parser.add_argument("target", help="Target IP address or domain name.")
+    parser.add_argument(
+        "target",
+        nargs="?",
+        help="Target IP address, domain name, or URL-like value.",
+    )
+    parser.add_argument(
+        "-u",
+        "--url",
+        dest="target_url",
+        metavar="TARGET",
+        help="Provide the target explicitly instead of using the positional argument.",
+    )
     parser.add_argument(
         "-p",
         "--ports",
@@ -117,7 +128,32 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Reduce terminal output for scripting and automation.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    try:
+        args.target = resolve_target_argument(args)
+    except ValueError as error:
+        parser.error(str(error))
+
+    return args
+
+
+def resolve_target_argument(args: argparse.Namespace) -> str:
+    """Resolve exactly one positional or explicit CLI target."""
+    positional_target = getattr(args, "target", None)
+    explicit_target = getattr(args, "target_url", None)
+
+    if positional_target and explicit_target:
+        raise ValueError(
+            "Provide the target either positionally or with -u/--url, not both."
+        )
+
+    if not positional_target and not explicit_target:
+        raise ValueError(
+            "A target is required. Provide it positionally or with -u/--url."
+        )
+
+    return explicit_target or positional_target
 
 
 def validate_port(port: int) -> int:
