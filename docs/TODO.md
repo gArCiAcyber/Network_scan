@@ -96,13 +96,14 @@
 ## v1.0 Preparation Completed
 
 - [X] Add target-specific timestamped output workspaces for default TXT and JSON exports.
+- [X] Add IMAP STARTTLS, POP3 STLS, and FTP AUTH TLS upgrade probing.
 
 ## v0.10 / v1.0 Future Work
 
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add IPv6 support with `socket.getaddrinfo()`.
 - [ ] Add structured scan profiles.
-- [ ] Add STARTTLS upgrade probes for IMAP, POP3, LDAP, and FTP.
+- [ ] Add LDAP STARTTLS upgrade probing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.
 - [ ] Add CI coverage reporting.
 
