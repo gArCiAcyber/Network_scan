@@ -81,6 +81,14 @@ def parse_arguments() -> argparse.Namespace:
         help="Limit how many new TCP connection attempts are started per second.",
     )
     parser.add_argument(
+        "-mc",
+        "--match-code",
+        help=(
+            "Report only HTTP/HTTPS findings with matching status codes. "
+            "Supports comma lists and ranges, such as 200,301-304."
+        ),
+    )
+    parser.add_argument(
         "--stance",
         default=DEFAULT_STANCE,
         help=(
@@ -227,6 +235,60 @@ def validate_max_rate(max_rate: float | None) -> float | None:
     return max_rate
 
 
+def validate_http_status_code(status_code: int) -> int:
+    """Validate an HTTP response status code."""
+    if not 100 <= status_code <= 599:
+        raise ValueError(f"Invalid HTTP status code: {status_code}")
+
+    return status_code
+
+
+def parse_http_status_range(status_range: str) -> list[int]:
+    """Parse an inclusive HTTP status-code range."""
+    if status_range.count("-") != 1:
+        raise ValueError(f"Invalid HTTP status range: {status_range}")
+
+    start_text, end_text = status_range.split("-", maxsplit=1)
+
+    if not start_text.strip() or not end_text.strip():
+        raise ValueError(f"Invalid HTTP status range: {status_range}")
+
+    start_code = validate_http_status_code(int(start_text.strip()))
+    end_code = validate_http_status_code(int(end_text.strip()))
+
+    if start_code > end_code:
+        raise ValueError("HTTP status range start cannot be greater than the end.")
+
+    return list(range(start_code, end_code + 1))
+
+
+def parse_match_codes(match_code: str | None) -> list[int] | None:
+    """Parse and normalize the optional HTTP status-code report filter."""
+    if match_code is None:
+        return None
+
+    parsed_codes: list[int] = []
+
+    for chunk in match_code.split(","):
+        item = chunk.strip()
+
+        if not item:
+            raise ValueError("--match-code cannot contain empty values.")
+
+        try:
+            if "-" in item:
+                parsed_codes.extend(parse_http_status_range(item))
+            else:
+                parsed_codes.append(validate_http_status_code(int(item)))
+        except ValueError as error:
+            if str(error).startswith(("Invalid HTTP", "HTTP status range")):
+                raise
+
+            raise ValueError(f"Invalid HTTP status code: {item}") from error
+
+    return sorted(set(parsed_codes))
+
+
 def resolve_scan_stance(args: argparse.Namespace) -> ScanStance:
     """Resolve the selected scan stance and explicit CLI overrides."""
     explicit_threads = None
@@ -262,10 +324,13 @@ def validate_mode(args: argparse.Namespace) -> None:
     """Prevent ambiguous mode combinations."""
     passive_providers = get_passive_providers(args)
     port_profile = getattr(args, "port_profile", None)
+    match_code = getattr(args, "match_code", None)
 
-    if passive_providers and (args.ports or args.top_ports or port_profile):
+    if passive_providers and (
+        args.ports or args.top_ports or port_profile or match_code
+    ):
         raise ValueError(
-            "Use passive discovery provider flags or port flags for TCP mode, not both."
+            "Use passive discovery provider flags or TCP scan/report flags, not both."
         )
 
 

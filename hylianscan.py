@@ -11,6 +11,7 @@ from core.cli import (
     get_passive_providers,
     is_quiet_mode,
     parse_arguments,
+    parse_match_codes,
     parse_ports_list,
     resolve_port_profile_label,
     resolve_scan_scope_label,
@@ -52,6 +53,7 @@ from core.terminal import (
     print_safe,
 )
 from modules.json_exporter import write_subdomain_json_report, write_tcp_json_report
+from modules.http_filter import filter_scan_result_by_http_status
 from modules.scan_stance import ScanStance
 from modules.subdomain import run_amass, run_subfinder
 from modules.target import TargetInfo, TargetResolutionError, resolve_target
@@ -165,6 +167,11 @@ def format_max_rate_label(max_rate: float | None) -> str:
     return f"{max_rate:g}/s"
 
 
+def format_match_codes(match_codes: list[int]) -> str:
+    """Return a readable HTTP status-code filter label."""
+    return ", ".join(str(status_code) for status_code in match_codes)
+
+
 def merge_subdomain_results(provider_results: dict[str, list[str]]) -> list[str]:
     """Merge provider results into one deduplicated and sorted subdomain list."""
     return sorted(
@@ -184,6 +191,7 @@ def show_target_orientation(
     max_rate: float | None = None,
     has_overrides: bool = False,
     port_profile_label: str | None = None,
+    match_codes: list[int] | None = None,
 ) -> None:
     """Render the target orientation and active scan stance block."""
     alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
@@ -209,6 +217,14 @@ def show_target_orientation(
             *(
                 [f"{'Port Profile':<{label_width}}: {port_profile_label}"]
                 if port_profile_label
+                else []
+            ),
+            *(
+                [
+                    f"{'HTTP Filter':<{label_width}}: Status codes "
+                    f"{format_match_codes(match_codes)}"
+                ]
+                if match_codes is not None
                 else []
             ),
             f"{'Port Scope':<{label_width}}: {port_count} ports",
@@ -417,6 +433,7 @@ def main() -> None:
                 workspace_dir=workspace_dir,
             )
             ports_to_scan = parse_ports_list(args)
+            match_codes = parse_match_codes(getattr(args, "match_code", None))
             scan_stance = resolve_scan_stance(args)
             max_rate = validate_max_rate(args.max_rate)
             has_overrides = has_scan_config_overrides(args)
@@ -432,6 +449,7 @@ def main() -> None:
                     max_rate=max_rate,
                     has_overrides=has_overrides,
                     port_profile_label=port_profile_label,
+                    match_codes=match_codes,
                 )
 
             scan_result = run_port_scan(
@@ -442,6 +460,14 @@ def main() -> None:
                 max_rate=max_rate,
                 quiet=quiet,
             )
+            scan_result = filter_scan_result_by_http_status(
+                scan_result,
+                match_codes,
+            )
+
+            if quiet and match_codes is not None:
+                print(f"HTTP Status Filter: {format_match_codes(match_codes)}")
+
             if quiet:
                 final_panel = build_quiet_final_panel(
                     scan_result,

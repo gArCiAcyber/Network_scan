@@ -10,6 +10,7 @@ from core.cli import (
     is_quiet_mode,
     parse_arguments,
     parse_custom_ports,
+    parse_match_codes,
     parse_ports_list,
     resolve_port_profile_label,
     resolve_scan_scope_label,
@@ -31,6 +32,7 @@ def build_args(
     amass: bool = False,
     quiet: bool = False,
     max_rate: float | None = None,
+    match_code: str | None = None,
 ) -> argparse.Namespace:
     """Build a minimal argparse namespace for CLI helper tests."""
     return argparse.Namespace(
@@ -41,6 +43,7 @@ def build_args(
         amass=amass,
         quiet=quiet,
         max_rate=max_rate,
+        match_code=match_code,
     )
 
 
@@ -73,6 +76,33 @@ class CLIHelperTests(unittest.TestCase):
         self.assertEqual(ports[0], 1)
         self.assertEqual(ports[-1], 65535)
         self.assertEqual(len(ports), 65535)
+
+    def test_parse_match_codes_accepts_one_status_code(self) -> None:
+        self.assertEqual(parse_match_codes("200"), [200])
+
+    def test_parse_match_codes_accepts_comma_separated_codes(self) -> None:
+        self.assertEqual(parse_match_codes("302,200,301,200"), [200, 301, 302])
+
+    def test_parse_match_codes_accepts_ranges(self) -> None:
+        self.assertEqual(
+            parse_match_codes("200,204,301-304"),
+            [200, 204, 301, 302, 303, 304],
+        )
+
+    def test_parse_match_codes_rejects_invalid_codes(self) -> None:
+        for match_code in ("99", "600", "not-a-code"):
+            with self.subTest(match_code=match_code):
+                with self.assertRaises(ValueError):
+                    parse_match_codes(match_code)
+
+    def test_parse_match_codes_rejects_invalid_ranges(self) -> None:
+        for match_code in ("304-301", "200-", "200-700", "200-201-202"):
+            with self.subTest(match_code=match_code):
+                with self.assertRaises(ValueError):
+                    parse_match_codes(match_code)
+
+    def test_parse_match_codes_preserves_absent_filter(self) -> None:
+        self.assertIsNone(parse_match_codes(None))
 
     def test_parse_ports_list_rejects_ports_and_top_ports_together(self) -> None:
         with self.assertRaises(ValueError):
@@ -179,6 +209,10 @@ class CLIHelperTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_mode(args)
 
+    def test_validate_mode_rejects_match_code_with_passive_discovery(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_mode(build_args(subfinder=True, match_code="200"))
+
     def test_parse_arguments_accepts_quiet_flag(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com", "--quiet"]):
             args = parse_arguments()
@@ -258,6 +292,16 @@ class CLIHelperTests(unittest.TestCase):
 
         self.assertEqual(args.target, "example.com")
         self.assertEqual(args.max_rate, 100.0)
+
+    def test_parse_arguments_accepts_match_code_flag(self) -> None:
+        with patch(
+            "sys.argv",
+            ["hylianscan", "example.com", "-mc", "200,301-304"],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertEqual(args.match_code, "200,301-304")
 
     def test_parse_arguments_rejects_non_numeric_max_rate(self) -> None:
         with (

@@ -75,6 +75,7 @@ class ScanOrientationTests(unittest.TestCase):
                 max_rate=100.0,
                 has_overrides=True,
                 port_profile_label="web / sheikah",
+                match_codes=[200, 301, 302],
             )
 
         rendered = strip_ansi(output.getvalue())
@@ -86,6 +87,7 @@ class ScanOrientationTests(unittest.TestCase):
         self.assertIn("Config Source : User Overrides", rendered)
         self.assertIn("Scan Phase    : Hylian TCP Connect Scan", rendered)
         self.assertIn("Port Profile  : web / sheikah", rendered)
+        self.assertIn("HTTP Filter   : Status codes 200, 301, 302", rendered)
         self.assertIn("Port Scope    : 1000 ports", rendered)
 
 
