@@ -96,9 +96,27 @@
 ## v1.0 Preparation Completed
 
 - [X] Add target-specific timestamped output workspaces for default TXT and JSON exports.
-- [X] Add IMAP STARTTLS, POP3 STLS, and FTP AUTH TLS upgrade probing.
+- [X] Add IMAP STARTTLS upgrade probing.
+- [X] Add POP3 STLS upgrade probing.
+- [X] Add FTP AUTH TLS upgrade probing.
+- [X] Add structured TLS risk explanations to saved reports.
+- [X] Add predefined TCP port profiles with technical names and Zelda aliases.
+- [X] Add TCP max-rate pacing for controlled connection start rates.
+- [X] Add structured probe metadata to TCP JSON reports.
+- [X] Add structured HTTP security-header observations.
+- [X] Add structured HTTP Set-Cookie observations.
+- [X] Add explicit Subfinder and Amass executable path handling.
+- [X] Show effective scan stance, pacing, and user overrides during scan orientation.
 
-## v0.10 / v1.0 Future Work
+## v1.0 Must-Have Before Release
+
+- [ ] Complete the final README v1.0 content and usage polish.
+- [ ] Run the full release validation suite on supported environments.
+- [ ] Create and complete the v1.0 release checklist.
+- [ ] Confirm documented TCP and passive discovery examples still work.
+- [ ] Confirm README and project documentation match current CLI behavior.
+
+## Post-v1.0 Future Work
 
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add IPv6 support with `socket.getaddrinfo()`.
