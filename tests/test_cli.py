@@ -329,6 +329,24 @@ class CLIHelperTests(unittest.TestCase):
         self.assertIn("usage: hylianscan", output.getvalue())
         self.assertIn("--version", output.getvalue())
 
+    def test_help_describes_host_targets_without_crawling_claims(self) -> None:
+        output = io.StringIO()
+
+        with (
+            patch("sys.argv", ["hylianscan", "--help"]),
+            patch("sys.stdout", output),
+            self.assertRaises(SystemExit),
+        ):
+            parse_arguments()
+
+        help_text = output.getvalue()
+        normalized_help = " ".join(help_text.split())
+        self.assertIn("IP address, hostname, or domain name", normalized_help)
+        self.assertIn("Alternate explicit target host flag", normalized_help)
+        self.assertNotIn("URL-like", normalized_help)
+        self.assertNotIn("crawl", normalized_help.lower())
+        self.assertNotIn("fetch", normalized_help.lower())
+
     def test_parse_arguments_accepts_port_profile_name(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com", "--port-profile", "web"]):
             args = parse_arguments()

@@ -122,6 +122,28 @@ class JSONExporterTests(unittest.TestCase):
         self.assertEqual(document["scan"]["summary"]["open_ports"], 1)
         self.assertEqual(document["scan"]["timing"]["duration_seconds"], 1.234568)
         self.assertIn("open_ports", document["results"])
+        self.assertNotIn("report_filters", document["scan"])
+
+    def test_tcp_json_records_active_http_status_filter(self) -> None:
+        document = build_tcp_scan_document(
+            make_scan_result([make_finding()]),
+            report_filters={
+                "http_status_codes": {
+                    "expression": "200,301-304",
+                    "resolved_codes": [200, 301, 302, 303, 304],
+                }
+            },
+        )
+
+        self.assertEqual(
+            document["scan"]["report_filters"],
+            {
+                "http_status_codes": {
+                    "expression": "200,301-304",
+                    "resolved_codes": [200, 301, 302, 303, 304],
+                }
+            },
+        )
 
     def test_open_port_document_structure(self) -> None:
         port_document = build_port_document(make_finding(), "example.com")

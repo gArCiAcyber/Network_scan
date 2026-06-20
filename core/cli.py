@@ -25,14 +25,17 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "target",
         nargs="?",
-        help="Target IP address, domain name, or URL-like value.",
+        help="Target host string: IP address, hostname, or domain name.",
     )
     parser.add_argument(
         "-u",
         "--url",
         dest="target_url",
         metavar="TARGET",
-        help="Provide the target explicitly instead of using the positional argument.",
+        help=(
+            "Alternate explicit target host flag; accepts an IP address, "
+            "hostname, or domain name."
+        ),
     )
     parser.add_argument(
         "-p",

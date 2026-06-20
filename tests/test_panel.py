@@ -101,6 +101,24 @@ class PanelRenderingTests(unittest.TestCase):
         self.assertIn("certificate_expired [high]", report)
         self.assertIn("Recommendation: Renew or rotate the certificate.", report)
 
+    def test_saved_text_report_records_active_http_status_filter(self) -> None:
+        report = strip_ansi(
+            build_saved_text_report(
+                make_http_scan_result(),
+                match_code_expression="200,301-304",
+            )
+        )
+
+        self.assertIn(
+            "Report Filter: HTTP status codes 200,301-304",
+            report,
+        )
+
+    def test_saved_text_report_omits_inactive_http_status_filter(self) -> None:
+        report = strip_ansi(build_saved_text_report(make_http_scan_result()))
+
+        self.assertNotIn("Report Filter:", report)
+
     def test_http_status_and_headers_render_unchanged(self) -> None:
         report = strip_ansi(build_final_panel(make_http_scan_result()))
 

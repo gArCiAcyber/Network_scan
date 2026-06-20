@@ -193,6 +193,29 @@ class OutputHelperTests(unittest.TestCase):
 
             self.assertEqual(output_path.read_text(encoding="utf-8"), "report body\n")
 
+    def test_save_report_strips_ansi_from_normal_report_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            output_path = Path(temporary_dir) / "report.txt"
+
+            save_report("\x1b[1;32mcolored report\x1b[0m", output_path)
+
+            saved_report = output_path.read_text(encoding="utf-8")
+            self.assertEqual(saved_report, "colored report\n")
+            self.assertNotIn("\x1b[", saved_report)
+
+    def test_save_report_keeps_quiet_text_plain(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            output_path = Path(temporary_dir) / "quiet-report.txt"
+
+            save_report("Target: example.com\nNo open ports found.", output_path)
+
+            saved_report = output_path.read_text(encoding="utf-8")
+            self.assertEqual(
+                saved_report,
+                "Target: example.com\nNo open ports found.\n",
+            )
+            self.assertNotIn("\x1b[", saved_report)
+
     def test_save_report_ignores_none_output_path(self) -> None:
         self.assertIsNone(save_report("report body", None))
 

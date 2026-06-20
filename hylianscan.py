@@ -53,7 +53,10 @@ from core.terminal import (
     print_safe,
 )
 from modules.json_exporter import write_subdomain_json_report, write_tcp_json_report
-from modules.http_filter import filter_scan_result_by_http_status
+from modules.http_filter import (
+    build_http_status_filter_metadata,
+    filter_scan_result_by_http_status,
+)
 from modules.scan_stance import ScanStance
 from modules.subdomain import run_amass, run_subfinder
 from modules.target import TargetInfo, TargetResolutionError, resolve_target
@@ -433,7 +436,12 @@ def main() -> None:
                 workspace_dir=workspace_dir,
             )
             ports_to_scan = parse_ports_list(args)
-            match_codes = parse_match_codes(getattr(args, "match_code", None))
+            match_code_expression = getattr(args, "match_code", None)
+            match_codes = parse_match_codes(match_code_expression)
+            report_filters = build_http_status_filter_metadata(
+                match_code_expression,
+                match_codes,
+            )
             scan_stance = resolve_scan_stance(args)
             max_rate = validate_max_rate(args.max_rate)
             has_overrides = has_scan_config_overrides(args)
@@ -486,11 +494,16 @@ def main() -> None:
                 scan_scope=scan_scope,
                 scan_stance=None if quiet else format_scan_stance_label(scan_stance),
                 base_report=final_panel,
+                match_code_expression=match_code_expression,
             )
             save_report(saved_report, output_path)
 
             if json_output_path is not None:
-                write_tcp_json_report(scan_result, json_output_path)
+                write_tcp_json_report(
+                    scan_result,
+                    json_output_path,
+                    report_filters=report_filters,
+                )
 
             if output_path is not None and not quiet:
                 print_safe(f"[*] Report saved to: {output_path}")

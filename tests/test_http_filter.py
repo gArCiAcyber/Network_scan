@@ -2,7 +2,10 @@
 
 import unittest
 
-from modules.http_filter import filter_scan_result_by_http_status
+from modules.http_filter import (
+    build_http_status_filter_metadata,
+    filter_scan_result_by_http_status,
+)
 from modules.tcp_scanner import PortScanResult, ScanResult
 
 
@@ -48,6 +51,25 @@ class HTTPStatusFilterTests(unittest.TestCase):
             filter_scan_result_by_http_status(scan_result, None),
             scan_result,
         )
+
+    def test_filter_metadata_preserves_expression_and_resolved_codes(self) -> None:
+        metadata = build_http_status_filter_metadata(
+            "200,301-304",
+            [304, 200, 301, 302, 303, 301],
+        )
+
+        self.assertEqual(
+            metadata,
+            {
+                "http_status_codes": {
+                    "expression": "200,301-304",
+                    "resolved_codes": [200, 301, 302, 303, 304],
+                }
+            },
+        )
+
+    def test_filter_metadata_is_absent_without_match_code(self) -> None:
+        self.assertIsNone(build_http_status_filter_metadata(None, None))
 
     def test_matching_http_status_is_reported(self) -> None:
         filtered_result = filter_scan_result_by_http_status(
