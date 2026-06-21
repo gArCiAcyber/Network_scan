@@ -14,6 +14,7 @@ TCP_REPORT_FILENAME = "tcp_report.txt"
 TCP_JSON_FILENAME = "tcp_results.json"
 SUBDOMAIN_REPORT_FILENAME = "subdomains.txt"
 SUBDOMAIN_JSON_FILENAME = "subdomains.json"
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def build_timestamp() -> str:
@@ -158,7 +159,8 @@ def save_report(report_text: str, output_path: Path | None) -> None:
         return
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(report_text + "\n", encoding="utf-8")
+    plain_report = ANSI_ESCAPE_PATTERN.sub("", report_text)
+    output_path.write_text(plain_report + "\n", encoding="utf-8")
 
 
 def save_subdomain_results(subdomains: list[str], output_path: Path) -> None:

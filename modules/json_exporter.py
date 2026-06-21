@@ -340,29 +340,37 @@ def build_port_document(
     }
 
 
-def build_tcp_scan_document(scan_result: ScanResultExportView) -> dict[str, Any]:
+def build_tcp_scan_document(
+    scan_result: ScanResultExportView,
+    report_filters: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build a future-ready JSON document for TCP scan results."""
+    scan_document: dict[str, Any] = {
+        "type": "tcp",
+        "target": {
+            "host": scan_result.target_host,
+            "resolved_ip": scan_result.resolved_ip,
+        },
+        "scope": {
+            "ports_tested": scan_result.scanned_ports,
+        },
+        "summary": {
+            "open_ports": len(scan_result.open_ports),
+        },
+        "timing": {
+            "duration_seconds": round(scan_result.duration, 6),
+        },
+    }
+
+    if report_filters:
+        scan_document["report_filters"] = dict(report_filters)
+
     return {
         "schema": {
             "name": "hylianscan_tcp_scan",
             "version": 1,
         },
-        "scan": {
-            "type": "tcp",
-            "target": {
-                "host": scan_result.target_host,
-                "resolved_ip": scan_result.resolved_ip,
-            },
-            "scope": {
-                "ports_tested": scan_result.scanned_ports,
-            },
-            "summary": {
-                "open_ports": len(scan_result.open_ports),
-            },
-            "timing": {
-                "duration_seconds": round(scan_result.duration, 6),
-            },
-        },
+        "scan": scan_document,
         "results": {
             "open_ports": [
                 build_port_document(finding, scan_result.target_host)
@@ -372,10 +380,14 @@ def build_tcp_scan_document(scan_result: ScanResultExportView) -> dict[str, Any]
     }
 
 
-def write_tcp_json_report(scan_result: ScanResultExportView, output_path: Path) -> None:
+def write_tcp_json_report(
+    scan_result: ScanResultExportView,
+    output_path: Path,
+    report_filters: Mapping[str, Any] | None = None,
+) -> None:
     """Write TCP scan results as pretty JSON."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    document = build_tcp_scan_document(scan_result)
+    document = build_tcp_scan_document(scan_result, report_filters=report_filters)
     output_path.write_text(
         json.dumps(document, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

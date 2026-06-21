@@ -380,6 +380,7 @@ def build_saved_text_report(
     scan_scope: str = "Default Target List",
     scan_stance: str | None = None,
     base_report: str | None = None,
+    match_code_expression: str | None = None,
 ) -> str:
     """Build the TXT report, including compact TLS explanation notes."""
     report = base_report or build_final_panel(
@@ -387,12 +388,19 @@ def build_saved_text_report(
         scan_scope=scan_scope,
         scan_stance=scan_stance,
     )
+    report_sections = [report]
+
+    if match_code_expression is not None:
+        report_sections.append(
+            f"Report Filter: HTTP status codes {match_code_expression.strip()}"
+        )
+
     tls_reason_section = build_tls_reason_text_section(summary)
 
-    if not tls_reason_section:
-        return report
+    if tls_reason_section:
+        report_sections.extend(tls_reason_section)
 
-    return "\n".join([report, *tls_reason_section])
+    return "\n".join(report_sections)
 
 
 def build_quiet_final_panel(
