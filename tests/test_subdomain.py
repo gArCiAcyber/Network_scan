@@ -141,7 +141,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                     quiet=True,
                 )
 
-        self.assertIn("Subdomains Found: 2", summary)
+        self.assertIn("Raw Discoveries: 2", summary)
+        self.assertIn("Unique Subdomains: 2", summary)
         self.assertEqual(
             subfinder.call_args.kwargs["executable_path"],
             "/opt/tools/subfinder",

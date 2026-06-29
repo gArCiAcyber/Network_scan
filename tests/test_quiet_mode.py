@@ -218,7 +218,8 @@ class QuietModeTests(unittest.TestCase):
                     quiet=True,
                 )
 
-            self.assertIn("Subdomains Found: 1", summary)
+            self.assertIn("Raw Discoveries: 1", summary)
+            self.assertIn("Unique Subdomains: 1", summary)
             self.assertEqual(output_path.read_text(encoding="utf-8"), "www.example.com\n")
             self.assertIsNone(subfinder.call_args.kwargs["telemetry_callback"])
 
@@ -241,8 +242,9 @@ class QuietModeTests(unittest.TestCase):
             self.assertNotIn("SHEIKAH MAP UPDATED", summary)
             self.assertNotIn("=", summary)
             self.assertIn("Target: example.com", summary)
-            self.assertIn("Subdomains Found: 1", summary)
-            self.assertIn(f"Output Path: {output_path}", summary)
+            self.assertIn("Raw Discoveries: 1", summary)
+            self.assertIn("Unique Subdomains: 1", summary)
+            self.assertIn(f"Output Path: {output_path.name}", summary)
 
 
 if __name__ == "__main__":

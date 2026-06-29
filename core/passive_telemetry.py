@@ -2,15 +2,6 @@
 
 from dataclasses import dataclass, field
 
-from core.colors import (
-    BOLD_BLUE,
-    BOLD_GOLD,
-    BOLD_MAGENTA,
-    BOLD_PURPLE,
-    BOLD_RED,
-    RESET,
-)
-
 
 TIMEOUT_KEYWORDS = ("timeout", "timed out", "deadline")
 DISCOVERY_KEYWORDS = ("discovered subdomain", "found subdomain", "subdomain")
@@ -36,15 +27,6 @@ FIRST_RESULT_KEYWORDS = ("first result observed",)
 PROVIDER_COMPLETED_KEYWORDS = ("provider completed",)
 MERGE_STARTED_KEYWORDS = ("merge/deduplication started",)
 
-CHARACTER_COLORS = {
-    "Zelda": BOLD_MAGENTA,
-    "Din": BOLD_RED,
-    "Navi": BOLD_BLUE,
-    "Skull Kid": BOLD_PURPLE,
-    "Impa": BOLD_PURPLE,
-    "Triforce": BOLD_GOLD,
-}
-
 
 @dataclass
 class PassiveActivityTelemetry:
@@ -60,6 +42,9 @@ class PassiveActivityTelemetry:
             return None
 
         message = build_activity_message(provider, normalized_output)
+
+        if message is None:
+            return None
 
         if message in self.seen_messages:
             return None
@@ -77,6 +62,9 @@ class PassiveActivityTelemetry:
         normalized_provider = provider.strip().lower()
         message = build_lifecycle_activity_message(normalized_provider, normalized_event)
 
+        if message is None:
+            return None
+
         if message in self.seen_messages:
             return None
 
@@ -89,7 +77,7 @@ def contains_any(value: str, keywords: tuple[str, ...]) -> bool:
     return any(keyword in value for keyword in keywords)
 
 
-def build_activity_message(provider: str, output: str) -> str:
+def build_activity_message(provider: str, output: str) -> str | None:
     """Map technical provider output into a short thematic activity message."""
     normalized_provider = provider.lower()
 
@@ -118,92 +106,62 @@ def build_activity_message(provider: str, output: str) -> str:
         return build_lifecycle_activity_message(normalized_provider, "provider timeout")
 
     if contains_any(output, DISCOVERY_KEYWORDS):
-        return color_character_name("Navi", "Navi is following passive DNS trails...")
+        return f"Reading {provider_label(normalized_provider)} passive DNS results..."
 
     if contains_any(output, CERTIFICATE_KEYWORDS):
-        return color_character_name("Navi", "Navi is listening for certificate clues...")
+        return f"Checking {provider_label(normalized_provider)} certificate transparency data..."
 
     if contains_any(output, ARCHIVE_KEYWORDS):
-        return color_character_name("Zelda", "Zelda is opening the royal archives...")
+        return f"Checking {provider_label(normalized_provider)} archived web records..."
 
     if contains_any(output, THREAT_INTEL_KEYWORDS):
-        return color_character_name("Impa", "Impa is reading threat-intel records...")
+        return f"Checking {provider_label(normalized_provider)} threat-intel sources..."
 
     if contains_any(output, WEB_ECHO_KEYWORDS):
-        return color_character_name(
-            "Skull Kid",
-            "Skull Kid is searching forgotten web echoes...",
-        )
+        return f"Checking {provider_label(normalized_provider)} indexed web sources..."
 
     if normalized_provider == "amass" and contains_any(output, AMASS_GRAPH_KEYWORDS):
-        return color_character_name("Din", "Din is awakening the Amass graph...")
+        return "Reading Amass passive graph data..."
 
     if contains_any(output, PASSIVE_DNS_KEYWORDS):
-        return color_character_name("Navi", "Navi is following passive DNS trails...")
+        return f"Reading {provider_label(normalized_provider)} passive DNS trails..."
 
     if contains_any(output, WARNING_KEYWORDS):
-        return color_character_name("Impa", "Impa is reviewing provider warnings...")
+        return f"Reviewing {provider_label(normalized_provider)} provider warnings..."
 
     if normalized_provider == "amass":
-        return color_character_name("Din", "Din is awakening the Amass graph...")
+        return "Reading Amass passive graph data..."
 
-    return color_character_name("Navi", "Navi is following passive DNS trails...")
-
-
-def color_character_name(character_name: str, message: str) -> str:
-    """Color only the named Hylian character inside an activity message."""
-    color = CHARACTER_COLORS.get(character_name)
-
-    if color is None:
-        return message
-
-    return message.replace(character_name, f"{color}{character_name}{RESET}", 1)
+    return f"Reading {provider_label(normalized_provider)} passive source output..."
 
 
-def build_lifecycle_activity_message(provider: str, event: str) -> str:
-    """Map internal workflow lifecycle events into short thematic activity messages."""
-    provider_label = provider.capitalize()
+def provider_label(provider: str) -> str:
+    """Return a display-safe provider label."""
+    labels = {
+        "subfinder": "Subfinder",
+        "amass": "Amass",
+        "hylianscan": "passive discovery",
+    }
+    return labels.get(provider, provider.capitalize())
+
+
+def build_lifecycle_activity_message(provider: str, event: str) -> str | None:
+    """Map internal workflow lifecycle events into concise activity messages."""
+    label = provider_label(provider)
 
     if event == "provider started":
-        if provider == "amass":
-            return color_character_name(
-                "Din",
-                "Din is awakening the Amass passive graph...",
-            )
-
-        if provider == "subfinder":
-            return color_character_name(
-                "Zelda",
-                "Zelda is opening Subfinder passive records...",
-            )
-
-        return color_character_name(
-            "Zelda",
-            "Zelda is opening passive discovery records...",
-        )
+        return f"Running {label} passive enumeration..."
 
     if event == "first result observed":
-        return color_character_name(
-            "Navi",
-            f"Navi spotted the first {provider_label} discovery...",
-        )
+        return f"{label} returned the first candidate..."
 
     if event == "provider completed":
-        return color_character_name(
-            "Impa",
-            f"Impa closed the {provider_label} records cleanly...",
-        )
+        return None
 
     if event == "merge/deduplication started":
-        return color_character_name(
-            "Triforce",
-            "The Triforce is merging provider discoveries...",
-        )
+        return "Normalizing provider results..."
 
     if event == "provider timeout":
-        return color_character_name(
-            "Triforce",
-            f"The Triforce preserved partial {provider_label} discoveries after timeout...",
-        )
+        return f"{label} timed out; preserving partial results..."
 
-    return color_character_name("Navi", "Navi is following passive DNS trails...")
+    return "Reading passive discovery provider output..."
