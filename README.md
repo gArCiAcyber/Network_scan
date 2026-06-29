@@ -1,275 +1,296 @@
-# hylianscan
+<div align="center">
 
-[![tests](https://github.com/gArCiAcyber/Network_scan/actions/workflows/tests.yml/badge.svg)](https://github.com/gArCiAcyber/Network_scan/actions/workflows/tests.yml)
+<img src="Pictures/hylianscanbannerofficial.png" alt="Hylianscan Banner" width="500">
 
-`hylianscan` is a Python 3 reconnaissance and networking lab tool built for authorized targets, Kali Linux workflows, and practical study of offensive security automation.
+<br>
 
-The current release version is `v0.9`.
+![Python](https://img.shields.io/badge/Built%20with-Python-3776AB?style=for-the-badge\&logo=python\&logoColor=white)
+![Kali Linux](https://img.shields.io/badge/Kali%20Linux-Recommended-557C94?style=for-the-badge\&logo=kalilinux\&logoColor=white)
+![Source Run](https://img.shields.io/badge/Run%20Mode-Source--Run-2ea44f?style=for-the-badge)
+![Authorized Targets](https://img.shields.io/badge/Scope-Authorized%20Targets%20Only-red?style=for-the-badge)
 
-## Scope
+</div>
 
-Use this project only in your own lab, authorized networks, or explicit pentest scopes.
+---
 
-## Current Capabilities
+# 🛡️ Hylianscan
 
-### TCP Port Scanning
+**Hylianscan** is a fantasy-inspired Python reconnaissance tool built for authorized TCP scanning, protocol-aware probing, passive subdomain discovery, and clean evidence reporting.
 
-- Flexible Targeting: Resolves domains to IPv4 addresses or accepts direct IPs.
-- High Performance: Multi-threaded TCP scanning utilizing `ThreadPoolExecutor` and `socket.connect_ex()`.
-- Scan Pacing: Optional `--max-rate` control limits how quickly new TCP connection attempts are started and is shown in the effective scan configuration.
-- Custom Port Selection: Supports comma-separated lists (`-p 80,443`), explicit ranges (`-p 1-1000`), top-port presets (`--top-ports`), and full 65535 range scanning (`-p -`).
-- Port Profiles: Supports predefined authorized recon workflows with `--port-profile` for `quick/kokiri`, `web/sheikah`, `mail/rito`, `admin/castle`, and `bugbounty/triforce`.
-- Smart Reconnaissance: Features protocol-aware banner probes for HTTP, HTTPS, SMTP, IMAP, POP3, and FTP; TLS upgrade metadata collection through SMTP/IMAP STARTTLS, POP3 STLS, and FTP AUTH TLS; passive banner fallback for unknown services; TLS certificate metadata extraction for implicit-TLS services; and clickable web service hints for standard and common alternate web ports.
-- Clean UI & Reporting: Uses target orientation with effective stance/pacing details, a phase-oriented TCP live display, an Nmap-inspired final panel, quiet automation mode, organized target-specific output workspaces, and clean TXT/JSON report exports.
-- Reliability Foundation: Includes standard-library unit tests for CLI parsing, port helpers, banner probing, TLS analysis, JSON export, output helpers, quiet mode, and localhost mock services.
+It is designed for Kali Linux workflows, security labs, portfolio projects, and practical recon automation.
 
-### Passive Subdomain Discovery
-
-- **Multi-Provider Discovery:** Supports Subfinder, Amass, or both providers in the same passive run.
-- **Provider Path Control:** Uses provider binaries from `PATH` by default and supports explicit executable paths when needed.
-- **Clean Data Handling:** Automatically sanitizes ANSI escape codes, normalizes results to lowercase, deduplicates, and sorts subdomains alphabetically.
-- **Provider-Aware Output:** Keeps TXT output simple while JSON export tracks provider counts, merged results, and subdomain source attribution.
-- **Activity Telemetry:** Keeps a live enumeration spinner while mapping provider lifecycle events, observed provider output, and timeouts into concise Hylian-themed activity updates.
-- **Silent Operations:** Prints a clean final summary to the terminal instead of flooding the screen, keeping TXT and optional JSON outputs clean.
-
-## Requirements
-
-- Python 3 (Standard-library only).
-- Linux terminal environment (preferably Kali Linux). Windows supports basic CLI scans/tests through safe terminal fallbacks.
-- Subfinder and/or Amass installed and available in your `PATH` for passive discovery, or explicit executable paths passed with `--subfinder-path` / `--amass-path`.
-
-## Testing / CI
-
-HylianScan uses Python standard-library `unittest` for its test suite.
-
-GitHub Actions runs the test workflow on push and pull request events. Localhost mock services validate scanner behavior safely without contacting external targets.
-
-Standard local validation:
-
-```bash
-python -m unittest discover -s tests -p "test_*.py" -v
-python -m compileall -q hylianscan.py core modules tests
-python hylianscan.py --help
-```
-
-## Project Layout
+Hylianscan does not try to be a giant framework.
+It focuses on a clean recon loop:
 
 ```text
-hylianscan/
-|-- .github/
-|   |-- workflows/
-|   |   |-- tests.yml
-|-- assets/
-|   |-- ascii/
-|   |   |-- .gitkeep
-|-- core/
-|   |-- __init__.py
-|   |-- banner.py
-|   |-- cli.py
-|   |-- colors.py
-|   |-- output.py
-|   |-- panel.py
-|   |-- passive_telemetry.py
-|   |-- tcp_live_display.py
-|   |-- terminal.py
-|-- docs/
-|   |-- TODO.md
-|-- modules/
-|   |-- __init__.py
-|   |-- banner_grabber.py
-|   |-- json_exporter.py
-|   |-- ports.py
-|   |-- port_profiles.py
-|   |-- rate_limiter.py
-|   |-- scan_stance.py
-|   |-- subdomain.py
-|   |-- target.py
-|   |-- tcp_scanner.py
-|   |-- tls_analysis.py
-|-- output/
-|   |-- .gitkeep
-|-- tests/
-|   |-- __init__.py
-|   |-- test_banner_grabber.py
-|   |-- test_cli.py
-|   |-- test_json_exporter.py
-|   |-- test_mock_services.py
-|   |-- test_output.py
-|   |-- test_panel.py
-|   |-- test_ports.py
-|   |-- test_port_profiles.py
-|   |-- test_quiet_mode.py
-|   |-- test_rate_limiter.py
-|   |-- test_scan_orientation.py
-|   |-- test_subdomain.py
-|   |-- test_tcp_scanner.py
-|   |-- test_tls_analysis.py
-|   |-- test_tls_mock_services.py
-|-- versions/
-|   |-- v0.4_summary.md
-|   |-- v0.5_summary.md
-|   |-- v0.6_summary.md
-|   |-- v0.7_summary.md
-|   |-- v0.8_summary.md
-|   |-- v0.9_summary.md
-|-- .gitattributes
-|-- .gitignore
-|-- hylianscan.py
-|-- README.md
-|-- requirements.txt
+target -> scan or discover -> understand services -> save evidence
 ```
 
-## CLI Arguments
+---
+
+## 👀 What Makes Hylianscan Different?
+
+Most beginner scanners stop at:
 
 ```text
-Target IP address or domain name.
--p, --ports            Ports to scan. Supports comma lists, ranges, and "-".
---top-ports            Scan the top N built-in TCP ports.
---port-profile         Use a predefined TCP port profile.
--s, --subfinder        Enable passive subdomain discovery using Subfinder.
---subfinder-path       Path to the Subfinder executable when it is not available in PATH.
--a, --amass            Enable passive subdomain discovery using Amass.
---amass-path           Path to the Amass executable when it is not available in PATH.
---stance               TCP scan stance: fast/din, balanced/nayru, or stealthier/farore.
--t, --threads          Override the selected stance worker count.
--T, --timeout          Override the selected stance timeout per TCP port.
---max-rate             Limit new TCP connection attempts started per second.
--o, --output           Save TCP reports or choose a passive output directory.
---json-output          Save TCP or passive subdomain results as JSON inside the output directory.
---quiet                Reduce terminal output for scripting and automation.
+80/tcp open
+443/tcp open
 ```
 
-## Usage
+Hylianscan tries to go further.
 
-### TCP Scanning Examples
+It can probe services, extract useful protocol metadata, organize results, and export TXT/JSON reports that are easier to review later.
 
-Scan with default top-ports:
+| Area                         | What Hylianscan does                                                   |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| **Protocol-aware TCP recon** | Detects useful service hints instead of only showing open ports.       |
+| **Passive discovery**        | Runs Subfinder, Amass, or both, then merges and deduplicates results.  |
+| **Clean reporting**          | Saves target-specific TXT/JSON evidence into organized output folders. |
+| **Terminal-first workflow**  | Built to feel good inside Kali/Linux terminals without heavy setup.    |
+| **Source-run simplicity**    | Runs directly with Python from the repository.                         |
+
+---
+
+## 🧠 Engineering Focus
+
+Hylianscan was built as a practical security-tooling project focused on:
+
+* Python CLI architecture.
+* TCP networking fundamentals.
+* Protocol-aware service probing.
+* Passive provider orchestration.
+* TXT/JSON evidence generation.
+* Modular standard-library code.
+* Testable scanner, parser, output, and reporting components.
+
+The goal is not only to scan targets, but to show how a recon tool can be structured, tested, and presented like a real project.
+
+---
+
+## 🎞️ Showcase
+
+### 🧪 Protocol-Aware Probing
+
+Hylianscan scans selected TCP ports and then probes open services for useful evidence such as SSH banners, HTTP status codes, headers, content types, TLS details, and web hints.
+
+<img src="Pictures/protocol-aware-probing.gif" alt="Hylianscan Protocol-Aware Probing Demo" width="780">
 
 ```bash
+python3 hylianscan.py -u scanme.nmap.org -p 20-25,53,80,110,143,443,587,993,995,8080,8443,9000,9090 --max-rate 3
+```
+
+---
+
+### 🗺️ Passive Discovery
+
+Passive Discovery can run **Subfinder**, **Amass**, or both providers in the same workflow.
+
+Hylianscan keeps provider activity visible, counts raw discoveries, removes duplicates, and writes the final subdomain map to disk.
+
+<img src="Pictures/passive-discovery.gif" alt="Hylianscan Passive Discovery Demo" width="780">
+
+```bash
+python3 hylianscan.py example.com --subfinder --amass -o --json-output
+```
+
+```text
+========================================================================
+[+] SHEIKAH MAP UPDATED
+[+] Target Realm       : example.com
+[+] Raw Discoveries    : 20
+[+] Unique Subdomains  : 16
+[+] Slate Database     : output/example.com/<timestamp>/subdomains.txt
+========================================================================
+```
+
+---
+
+### 📁 Clean Reporting
+
+Hylianscan can save terminal findings into clean TXT and JSON reports.
+
+This makes it easier to keep evidence, compare scans, and reuse results in later automation.
+
+<img src="Pictures/clean-reporting.gif" alt="Hylianscan Clean Reporting Demo" width="780">
+
+```bash
+python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
+```
+
+---
+
+## 🧬 Features
+
+### 🕵️ TCP Recon
+
+* Domain and IPv4 target support.
+* Custom port lists, ranges, top-port presets, and full TCP range support.
+* Multi-threaded TCP scanning.
+* Optional pacing with `--max-rate`.
+* Protocol-aware probes for common services.
+* HTTP status, header, content-type, and URL hints.
+* STARTTLS/STLS/AUTH TLS upgrade checks for supported services.
+* TLS certificate metadata for implicit TLS services.
+* Passive banner fallback for unknown services.
+* Clean final terminal panel.
+* TXT and JSON exports.
+* Quiet mode for automation.
+
+### 🗺️ Passive Discovery
+
+* Subfinder support.
+* Amass support.
+* Provider path overrides with `--subfinder-path` and `--amass-path`.
+* Provider-aware terminal activity.
+* Raw discovery counts.
+* Unique subdomain counts.
+* Deduplicated and sorted output.
+* TXT and JSON export.
+* Clean relative output paths.
+
+### 📁 Reporting
+
+* Target-specific timestamped workspaces.
+* Human-readable TXT reports.
+* Structured JSON output.
+* Compact terminal summaries.
+* Automation-friendly quiet mode.
+
+---
+
+## 📦 Installation
+
+Clone and run from source:
+
+```bash
+git clone https://github.com/gArCiAcyber/Network_scan.git
+cd Network_scan
+python3 hylianscan.py --help
+```
+
+Hylianscan uses the Python standard library for its core execution.
+
+For Passive Discovery, install Subfinder and/or Amass separately and keep them available in your `PATH`, or pass explicit paths with `--subfinder-path` and `--amass-path`.
+
+---
+
+## 🤔 TCP Usage
+
+```bash
+# Basic scan
 python3 hylianscan.py scanme.nmap.org
+
+# Custom ports
+python3 hylianscan.py -u scanme.nmap.org -p 22,80,443
+
+# Controlled paced scan
+python3 hylianscan.py -u scanme.nmap.org -p 20-25,53,80,110,143,443,587,993,995,8080,8443,9000,9090 --max-rate 3
+
+# Save TXT and JSON reports
+python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 ```
 
-Scan custom ports with custom timeout and threads:
+---
+
+## 🗺️ Passive Discovery Usage
 
 ```bash
-python3 hylianscan.py scanme.nmap.org -p 80,443,8080 -T 1.5 -t 20
+# Subfinder only
+python3 hylianscan.py example.com --subfinder
+
+# Amass only
+python3 hylianscan.py example.com --amass
+
+# Subfinder + Amass with TXT/JSON output
+python3 hylianscan.py example.com --subfinder --amass -o --json-output
 ```
 
-Scan with the fast stance:
+---
 
-```bash
-python3 hylianscan.py scanme.nmap.org --stance fast
-```
+## 🚪 Port Profiles
 
-Use the equivalent Triforce lore alias:
+Hylianscan includes predefined profiles for common authorized recon workflows.
 
-```bash
-python3 hylianscan.py scanme.nmap.org --stance din
-```
-
-Scan custom port range:
-
-```bash
-python3 hylianscan.py 192.168.0.10 -p 1-1000 -T 1.0 -t 50
-```
-
-Scan full TCP range (1-65535):
-
-```bash
-python3 hylianscan.py 192.168.0.10 -p - -T 1.0 -t 100
-```
-
-Scan with high concurrency but paced connection starts:
-
-```bash
-python3 hylianscan.py scanme.nmap.org -p 1-1000 -t 300 --max-rate 100
-```
-
-Scan a predefined web recon profile:
+| Profile     | Alias      | Purpose                             |
+| ----------- | ---------- | ----------------------------------- |
+| `quick`     | `kokiri`   | Small first-contact scan.           |
+| `web`       | `sheikah`  | Web-focused recon ports.            |
+| `mail`      | `rito`     | Mail and STARTTLS-related services. |
+| `admin`     | `castle`   | Common admin and management ports.  |
+| `bugbounty` | `triforce` | Broader authorized recon profile.   |
 
 ```bash
 python3 hylianscan.py scanme.nmap.org --port-profile web
+python3 hylianscan.py scanme.nmap.org --port-profile sheikah
 ```
 
-Use the equivalent Zelda alias with stance and pacing controls:
+---
+
+## 🛡️ Scan Stances
+
+Scan stances control the balance between speed and caution.
+
+| Stance       | Alias    | Behavior                          |
+| ------------ | -------- | --------------------------------- |
+| `fast`       | `din`    | Faster scanning defaults.         |
+| `balanced`   | `nayru`  | Default balanced behavior.        |
+| `stealthier` | `farore` | Slower and more cautious probing. |
 
 ```bash
-python3 hylianscan.py scanme.nmap.org --port-profile sheikah --stance fast --max-rate 100
+python3 hylianscan.py scanme.nmap.org --stance balanced
+python3 hylianscan.py scanme.nmap.org -p 1-1000 -t 100 -T 1.0 --max-rate 50
 ```
 
-Save a TCP scan report:
+---
+
+## 📁 Output
+
+When output is enabled, Hylianscan creates organized workspaces:
+
+```text
+output/<target>/<timestamp>/
+```
+
+Common files:
+
+```text
+tcp_report.txt
+tcp_results.json
+subdomains.txt
+subdomains.json
+```
+
+TXT output is designed for quick reading.
+JSON output is designed for automation, parsing, evidence tracking, and later tooling.
+
+---
+
+## 🧪 Testing
 
 ```bash
-python3 hylianscan.py example.com -p 80,443 -o web_report.txt
+python3 -m unittest discover -s tests -p "test_*.py" -v
+python3 -m compileall -q hylianscan.py core modules tests
+python3 hylianscan.py --help
 ```
 
-Save a TCP scan report into a target-specific timestamped workspace:
+---
 
-```bash
-python3 hylianscan.py example.com -p 80,443 -o
-```
+## ❗ Notes
 
-Save TCP scan results as JSON:
+* TCP scanning and Passive Discovery are separate modes.
+* Passive Discovery requires Subfinder and/or Amass.
+* Full-range TCP scans should only be used in authorized environments.
+* Demo commands should be treated as examples, not permission to scan public systems.
+* The tool is intended for labs, learning, legitimate recon, and authorized security work.
 
-```bash
-python3 hylianscan.py example.com -p 80,443 --json-output tcp_results.json
-```
+---
 
-The JSON export includes future-ready TCP findings with raw banner evidence, structured probe metadata, HTTP status/header metadata, Set-Cookie metadata and cookie observations, HTTP security-header observations, HTTP URL, timing, TLS certificate metadata, TLS risk indicators, and structured TLS risk reasons when a TLS service is detected. Saved TXT reports keep the terminal panel concise while adding compact TLS triage explanations when relevant.
+## ⚠️ Be Safe
 
-Run an automation-friendly quiet TCP scan:
+Hylianscan is a reconnaissance tool.
 
-```bash
-python3 hylianscan.py example.com -p 80,443 --quiet
-```
+Keep your scans scoped.
+Keep your evidence organized.
+Only test what you are allowed to test.
 
-### Subdomain Discovery Examples
-
-Run passive discovery with Subfinder only:
-
-```bash
-python3 hylianscan.py example.com -s
-```
-
-Run passive discovery with Amass only:
-
-```bash
-python3 hylianscan.py example.com -a
-```
-
-Run passive discovery with both providers:
-
-```bash
-python3 hylianscan.py example.com -s -a
-```
-
-Run passive discovery with explicit provider paths:
-
-```bash
-python3 hylianscan.py example.com -s -a --subfinder-path /opt/tools/subfinder --amass-path /opt/tools/amass
-```
-
-Run discovery with a custom output directory:
-
-```bash
-python3 hylianscan.py example.com -s -o reports
-```
-
-Save passive discovery as TXT and JSON:
-
-```bash
-python3 hylianscan.py example.com -s -a --json-output subdomains.json
-```
-
-## Execution Notes
-
-Mode Separation: TCP scanning (-p) and passive discovery (-s/-a) are separate modes and cannot be combined in a single command.
-
-Output Behavior: TCP mode shows target orientation, effective scan configuration, scan progress, discovered open ports, service probing status, and a final report. Passive discovery mode shows selected providers and concise activity telemetry, then saves deduplicated results straight to disk. Default TXT/JSON output requests create `output/<target>/<timestamp>/` workspaces with names such as `tcp_report.txt`, `tcp_results.json`, `subdomains.txt`, and `subdomains.json`; explicit user-provided paths keep the existing behavior.
-
-
-Roadmap: Future work, including wildcard DNS filtering workflows, is tracked in docs/TODO.md.
-
-## Be Safe!
-
-Use this project only in your own lab, authorized networks, or explicit pentest scopes.
+**Authorized targets only.**
