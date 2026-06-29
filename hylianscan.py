@@ -178,7 +178,7 @@ def format_match_codes(match_codes: list[int]) -> str:
 
 def format_passive_activity_line(message: str) -> str:
     """Return one formatted passive activity line."""
-    for marker in ("[*]", "[+]", "[]"):
+    for marker in ("[*]", "[+]"):
         if message.startswith(marker):
             return f"{HACKER_GREEN}{marker}{RESET} {message[len(marker):].strip()}"
 
@@ -190,10 +190,7 @@ def format_relative_output_path(output_path: Path) -> str:
     try:
         display_path = str(output_path.resolve().relative_to(Path.cwd().resolve()))
     except ValueError:
-        try:
-            display_path = os.path.relpath(output_path.resolve(), Path.cwd().resolve())
-        except ValueError:
-            display_path = output_path.name
+        display_path = output_path.name
     except Exception:
         display_path = str(output_path)
 
