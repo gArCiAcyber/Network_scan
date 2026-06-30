@@ -160,7 +160,14 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 
 ## 📦 Installation
 
-Clone and run from source:
+Recommended CLI install with `pipx`:
+
+```bash
+pipx install git+https://github.com/gArCiAcyber/Network_scan.git
+hylianscan --help
+```
+
+Alternative source-run workflow:
 
 ```bash
 git clone https://github.com/gArCiAcyber/Network_scan.git
