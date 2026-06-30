@@ -25,3 +25,8 @@ estudos/*
 # Private AI skills
 skill-agents/
 
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+
