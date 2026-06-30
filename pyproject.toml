@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hylianscan"
+version = "1.0.0.dev0"
+description = "Fantasy-inspired Python reconnaissance tool for authorized TCP scanning, passive discovery, and clean evidence reporting."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "gArCiAcyber" }
+]
+keywords = [
+  "reconnaissance",
+  "network-scanner",
+  "tcp-scanner",
+  "security-tools",
+  "subdomain-discovery",
+  "kali-linux"
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Environment :: Console",
+  "Topic :: Security",
+  "Topic :: System :: Networking"
+]
+dependencies = []
+
+[project.scripts]
+hylianscan = "hylianscan:main"
+
+[tool.setuptools]
+py-modules = ["hylianscan"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "modules*"]
