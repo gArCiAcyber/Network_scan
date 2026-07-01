@@ -96,6 +96,14 @@
 ## v1.0 Preparation Completed
 
 - [X] Add target-specific timestamped output workspaces for default TXT and JSON exports.
+- [X] Add source-based `pip install` support through `pyproject.toml`.
+- [X] Add `pipx` installation documentation as the recommended CLI install path.
+- [X] Add GitHub Actions validation for `pipx install`.
+- [X] Add local `scripts/validate_pipx_install.sh` automation.
+- [X] Add cross-platform `scripts/validate_release.py` release validation automation.
+- [X] Add packaging metadata tests for `pyproject.toml`.
+- [X] Add CLI `--version` support backed by centralized version metadata.
+- [X] Add explicit `-u / --url` target flag while preserving positional targets.
 - [X] Add IMAP STARTTLS upgrade probing.
 - [X] Add POP3 STLS upgrade probing.
 - [X] Add FTP AUTH TLS upgrade probing.
@@ -107,14 +115,18 @@
 - [X] Add structured HTTP Set-Cookie observations.
 - [X] Add explicit Subfinder and Amass executable path handling.
 - [X] Show effective scan stance, pacing, and user overrides during scan orientation.
+- [X] Polish README installation and showcase structure for v1.0 development.
+- [X] Add safer localhost-focused tests and packaging validation coverage.
 
 ## v1.0 Must-Have Before Release
 
-- [ ] Complete the final README v1.0 content and usage polish.
-- [ ] Run the full release validation suite on supported environments.
-- [ ] Create and complete the v1.0 release checklist.
-- [ ] Confirm documented TCP and passive discovery examples still work.
-- [ ] Confirm README and project documentation match current CLI behavior.
+- [ ] Run `scripts/validate_release.py` from a clean checkout.
+- [ ] Verify GitHub Actions `tests` and `pipx install` workflows pass on the final main branch.
+- [ ] Confirm `pipx install git+https://github.com/gArCiAcyber/Network_scan.git` works after the final release push.
+- [ ] Complete the private v1.0 release checklist.
+- [ ] Confirm documented TCP, passive discovery, match-code, and output workspace examples still work.
+- [ ] Perform one final README consistency audit against `python hylianscan.py --help`.
+- [ ] Tag the release only after validation and documentation checks pass.
 
 ## Post-v1.0 Future Work
 
@@ -124,6 +136,8 @@
 - [ ] Add LDAP STARTTLS upgrade probing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.
 - [ ] Add CI coverage reporting.
+- [ ] Extract reusable test fixtures for certificates, mock services, HTTP samples, and scan result builders.
+- [ ] Evaluate optional PyPI publication after the source and `pipx` install paths are stable.
 
 ## Long-Term Research
 
