@@ -109,6 +109,7 @@
 - [X] Add FTP AUTH TLS upgrade probing.
 - [X] Add structured TLS risk explanations to saved reports.
 - [X] Add predefined TCP port profiles with technical names and Zelda aliases.
+- [X] Add information-only CLI commands for listing built-in port profiles and scan stances.
 - [X] Add TCP max-rate pacing for controlled connection start rates.
 - [X] Add structured probe metadata to TCP JSON reports.
 - [X] Add structured HTTP security-header observations.

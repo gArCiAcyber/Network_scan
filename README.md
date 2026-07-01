@@ -227,6 +227,7 @@ Hylianscan includes predefined profiles for common authorized recon workflows.
 | `bugbounty` | `triforce` | Broader authorized recon profile.   |
 
 ```bash
+python3 hylianscan.py --list-port-profiles
 python3 hylianscan.py scanme.nmap.org --port-profile web
 python3 hylianscan.py scanme.nmap.org --port-profile sheikah
 ```
@@ -244,6 +245,7 @@ Scan stances control the balance between speed and caution.
 | `stealthier` | `farore` | Slower and more cautious probing. |
 
 ```bash
+python3 hylianscan.py --list-stances
 python3 hylianscan.py scanme.nmap.org --stance balanced
 python3 hylianscan.py scanme.nmap.org -p 1-1000 -t 100 -T 1.0 --max-rate 50
 ```
