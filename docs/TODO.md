@@ -117,13 +117,15 @@
 - [X] Show effective scan stance, pacing, and user overrides during scan orientation.
 - [X] Polish README installation and showcase structure for v1.0 development.
 - [X] Add safer localhost-focused tests and packaging validation coverage.
+- [X] Add README example validation tests for documented CLI commands and assets.
+- [X] Add a public v1.0 release checklist under `docs/`.
 
 ## v1.0 Must-Have Before Release
 
 - [ ] Run `scripts/validate_release.py` from a clean checkout.
 - [ ] Verify GitHub Actions `tests` and `pipx install` workflows pass on the final main branch.
 - [ ] Confirm `pipx install git+https://github.com/gArCiAcyber/Network_scan.git` works after the final release push.
-- [ ] Complete the private v1.0 release checklist.
+- [ ] Complete the final v1.0 release checklist.
 - [ ] Confirm documented TCP, passive discovery, match-code, and output workspace examples still work.
 - [ ] Perform one final README consistency audit against `python hylianscan.py --help`.
 - [ ] Tag the release only after validation and documentation checks pass.
