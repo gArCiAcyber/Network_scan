@@ -44,6 +44,11 @@ STANCE_PROFILES: dict[str, ScanStance] = {
 }
 
 
+def list_scan_stances() -> tuple[ScanStance, ...]:
+    """Return built-in scan stances in display order."""
+    return tuple(STANCE_PROFILES.values())
+
+
 def resolve_stance(
     stance_value: str,
     explicit_workers: int | None = None,

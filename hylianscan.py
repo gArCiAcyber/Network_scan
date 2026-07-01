@@ -9,8 +9,11 @@ from pathlib import Path
 
 from core.banner import show_banner
 from core.cli import (
+    format_port_profiles_listing,
+    format_scan_stances_listing,
     get_passive_providers,
     is_quiet_mode,
+    is_information_command,
     parse_arguments,
     parse_match_codes,
     parse_ports_list,
@@ -431,6 +434,18 @@ def main() -> None:
     try:
         args = parse_arguments()
         quiet = is_quiet_mode(args)
+
+        if is_information_command(args):
+            if args.list_port_profiles:
+                print(format_port_profiles_listing())
+
+            if args.list_stances:
+                if args.list_port_profiles:
+                    print()
+                print(format_scan_stances_listing())
+
+            return
+
         validate_mode(args)
 
         if not quiet:

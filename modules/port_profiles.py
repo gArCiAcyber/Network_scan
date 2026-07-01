@@ -202,6 +202,11 @@ def get_valid_port_profile_values() -> tuple[str, ...]:
     return tuple(sorted(PORT_PROFILE_ALIASES))
 
 
+def list_port_profiles() -> tuple[PortProfile, ...]:
+    """Return built-in port profiles in display order."""
+    return tuple(PORT_PROFILES.values())
+
+
 def resolve_port_profile(profile_value: str) -> PortProfile:
     """Resolve a technical profile name or Zelda alias."""
     normalized_value = profile_value.strip().lower()

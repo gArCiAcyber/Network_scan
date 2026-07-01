@@ -6,7 +6,10 @@ import unittest
 from unittest.mock import patch
 
 from core.cli import (
+    format_port_profiles_listing,
+    format_scan_stances_listing,
     get_passive_providers,
+    is_information_command,
     is_quiet_mode,
     parse_arguments,
     parse_custom_ports,
@@ -314,6 +317,40 @@ class CLIHelperTests(unittest.TestCase):
 
         self.assertEqual(exit_context.exception.code, 0)
         self.assertEqual(output.getvalue(), "hylianscan 1.0.0-dev\n")
+
+    def test_list_port_profiles_does_not_require_target(self) -> None:
+        with patch("sys.argv", ["hylianscan", "--list-port-profiles"]):
+            args = parse_arguments()
+
+        self.assertTrue(args.list_port_profiles)
+        self.assertTrue(is_information_command(args))
+        self.assertIsNone(args.target)
+
+    def test_list_stances_does_not_require_target(self) -> None:
+        with patch("sys.argv", ["hylianscan", "--list-stances"]):
+            args = parse_arguments()
+
+        self.assertTrue(args.list_stances)
+        self.assertTrue(is_information_command(args))
+        self.assertIsNone(args.target)
+
+    def test_port_profiles_listing_includes_expected_profiles(self) -> None:
+        output = format_port_profiles_listing()
+
+        self.assertIn("quick / kokiri", output)
+        self.assertIn("web / sheikah", output)
+        self.assertIn("bugbounty / triforce", output)
+        self.assertIn("Port Count", output)
+        self.assertIn("Ports", output)
+
+    def test_scan_stances_listing_includes_expected_stances(self) -> None:
+        output = format_scan_stances_listing()
+
+        self.assertIn("fast / din", output)
+        self.assertIn("balanced / nayru", output)
+        self.assertIn("stealthier / farore", output)
+        self.assertIn("Workers", output)
+        self.assertIn("Timeout", output)
 
     def test_help_output_remains_available_without_target(self) -> None:
         output = io.StringIO()
