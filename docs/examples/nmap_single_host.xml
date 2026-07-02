@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sV -p 22,80 -oX - 127.0.0.1" start="1710000000" startstr="Sat Mar 9 12:00:00 2024" version="7.94" xmloutputversion="1.05">
+  <host>
+    <status state="up"/>
+    <address addr="127.0.0.1" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="22">
+        <state state="open"/>
+        <service name="ssh" product="OpenSSH" version="9.6" method="probed" conf="10">
+          <cpe>cpe:/a:openbsd:openssh:9.6</cpe>
+        </service>
+      </port>
+      <port protocol="tcp" portid="80">
+        <state state="open"/>
+        <service name="http" product="nginx" version="1.24" method="probed" conf="10">
+          <cpe>cpe:/a:nginx:nginx:1.24</cpe>
+        </service>
+      </port>
+    </ports>
+  </host>
+</nmaprun>

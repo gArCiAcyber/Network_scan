@@ -249,8 +249,8 @@ python3 hylianscan.py example.com --subfinder --amass -o --json-output
 Use this mode to review an existing Nmap XML result without running Nmap or starting a live scan.
 
 ```bash
-python3 hylianscan.py --nmap-xml nmap-results.xml
-python3 hylianscan.py --nmap-xml nmap-results.xml -o --json-output
+python3 hylianscan.py --nmap-xml docs/examples/nmap_single_host.xml
+python3 hylianscan.py --nmap-xml docs/examples/nmap_single_host.xml -o --json-output
 ```
 
 The import currently supports a single up host and open TCP ports from the XML file. When output is enabled, Hylianscan saves `nmap_import_report.txt` and `nmap_import_results.json`.
