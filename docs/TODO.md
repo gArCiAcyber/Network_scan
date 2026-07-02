@@ -122,6 +122,7 @@
 - [X] Add a public v1.0 release checklist under `docs/`.
 - [X] Add Nmap XML import foundation with `--nmap-xml`.
 - [X] Add TXT and JSON reporting for Nmap XML import mode.
+- [X] Add optional live Nmap enrichment after native TCP scanning.
 
 ## v1.0 Must-Have Before Release
 
@@ -135,7 +136,7 @@
 
 ## Post-v1.0 Future Work
 
-- [ ] Add optional live Nmap enrichment runner after native TCP scanning.
+- [ ] Add saved TXT/JSON report merging for optional live Nmap enrichment.
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add IPv6 support with `socket.getaddrinfo()`.
 - [ ] Add structured scan profiles.

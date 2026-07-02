@@ -43,6 +43,8 @@ def build_args(
     max_rate: float | None = None,
     match_code: str | None = None,
     nmap_xml: str | None = None,
+    nmap: bool = False,
+    nmap_path: str | None = None,
     subfinder_path: str | None = None,
     amass_path: str | None = None,
 ) -> argparse.Namespace:
@@ -59,6 +61,8 @@ def build_args(
         max_rate=max_rate,
         match_code=match_code,
         nmap_xml=nmap_xml,
+        nmap=nmap,
+        nmap_path=nmap_path,
         subfinder_path=subfinder_path,
         amass_path=amass_path,
     )
@@ -267,6 +271,39 @@ class CLIHelperTests(unittest.TestCase):
             with self.subTest(args=args):
                 with self.assertRaisesRegex(ValueError, "TCP scan tuning flags"):
                     validate_mode(args)
+
+    def test_validate_mode_rejects_live_nmap_with_passive_flags(self) -> None:
+        invalid_args = (
+            build_args(nmap=True, subfinder=True),
+            build_args(nmap=True, amass=True),
+            build_args(nmap=True, subfinder_path="/opt/subfinder"),
+            build_args(nmap=True, amass_path="/opt/amass"),
+        )
+
+        for args in invalid_args:
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(ValueError, "passive discovery"):
+                    validate_mode(args)
+
+    def test_validate_mode_rejects_live_nmap_with_nmap_xml(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--nmap or --nmap-xml"):
+            validate_mode(build_args(nmap=True, nmap_xml="scan.xml"))
+
+    def test_validate_mode_rejects_nmap_path_without_live_nmap(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--nmap-path"):
+            validate_mode(build_args(nmap_path="/usr/bin/nmap"))
+
+    def test_validate_mode_allows_live_nmap_with_tcp_scan_flags(self) -> None:
+        validate_mode(
+            build_args(
+                nmap=True,
+                ports="22,80",
+                threads=10,
+                timeout=2.0,
+                max_rate=5.0,
+                match_code="200",
+            )
+        )
 
     def test_parse_arguments_accepts_quiet_flag(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com", "--quiet"]):
@@ -488,6 +525,24 @@ class CLIHelperTests(unittest.TestCase):
 
         self.assertEqual(args.target, "example.com")
         self.assertEqual(args.max_rate, 100.0)
+
+    def test_parse_arguments_accepts_live_nmap_flag(self) -> None:
+        with patch("sys.argv", ["hylianscan", "example.com", "--nmap"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertTrue(args.nmap)
+
+    def test_parse_arguments_accepts_nmap_path_with_live_nmap(self) -> None:
+        with patch(
+            "sys.argv",
+            ["hylianscan", "example.com", "--nmap", "--nmap-path", "/usr/bin/nmap"],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertTrue(args.nmap)
+        self.assertEqual(args.nmap_path, "/usr/bin/nmap")
 
     def test_parse_arguments_accepts_match_code_flag(self) -> None:
         with patch(

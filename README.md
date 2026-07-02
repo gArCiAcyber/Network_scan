@@ -156,6 +156,14 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Compact terminal summaries.
 * Automation-friendly quiet mode.
 
+### Optional Nmap Enrichment
+
+* Runs Nmap service/version enrichment only when `--nmap` is provided.
+* Hylianscan performs the native TCP scan first.
+* Nmap runs only against TCP ports already found open by Hylianscan.
+* Nmap must be installed separately.
+* Enrichment is printed to the terminal only in this milestone.
+
 ### Nmap XML Import
 
 * Imports an existing Nmap XML file with `--nmap-xml`.
@@ -187,6 +195,8 @@ Hylianscan uses the Python standard library for its core execution.
 
 For Passive Discovery, install Subfinder and/or Amass separately and keep them available in your `PATH`, or pass explicit paths with `--subfinder-path` and `--amass-path`.
 
+For optional live Nmap enrichment, install Nmap separately and keep it available in your `PATH`, or pass an explicit path with `--nmap-path`.
+
 ---
 
 ## 🤔 TCP Usage
@@ -204,6 +214,17 @@ python3 hylianscan.py -u scanme.nmap.org -p 20-25,53,80,110,143,443,587,993,995,
 # Save TXT and JSON reports
 python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 ```
+
+### Optional Live Nmap Enrichment
+
+Use `--nmap` when you want Hylianscan to scan first, then ask Nmap for service/version enrichment only on ports Hylianscan already found open.
+
+```bash
+python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap
+python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap --nmap-path /usr/bin/nmap
+```
+
+This does not replace Hylianscan's native TCP scan and does not save Nmap enrichment into TXT/JSON reports yet.
 
 ---
 

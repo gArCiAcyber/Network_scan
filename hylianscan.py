@@ -68,6 +68,11 @@ from modules.http_filter import (
     build_http_status_filter_metadata,
     filter_scan_result_by_http_status,
 )
+from modules.nmap_enrichment import (
+    format_nmap_enrichment_skipped,
+    format_nmap_enrichment_summary,
+)
+from modules.nmap_runner import run_nmap_service_version_scan
 from modules.nmap_xml import (
     format_nmap_xml_import_summary,
     parse_single_host_nmap_xml_file,
@@ -319,6 +324,38 @@ def run_nmap_xml_import(
     return summary
 
 
+def run_live_nmap_enrichment(
+    target: TargetInfo,
+    scan_result: ScanResult,
+    nmap_binary: str | None = None,
+) -> str:
+    """Run optional Nmap service enrichment against native open TCP ports."""
+    open_ports = [finding.port for finding in scan_result.open_ports]
+
+    if not open_ports:
+        return format_nmap_enrichment_skipped("no open TCP ports found.")
+
+    try:
+        keyword_arguments = {}
+
+        if nmap_binary:
+            keyword_arguments["nmap_binary"] = nmap_binary
+
+        import_result = run_nmap_service_version_scan(
+            target.resolved_ip,
+            open_ports,
+            **keyword_arguments,
+        )
+    except (RuntimeError, ValueError) as error:
+        return format_nmap_enrichment_skipped(str(error))
+
+    return format_nmap_enrichment_summary(
+        import_result,
+        target.resolved_ip,
+        open_ports,
+    )
+
+
 def main() -> None:
     """Coordinate the full CLI execution flow."""
     quiet = False
@@ -417,7 +454,7 @@ def main() -> None:
                     match_codes=match_codes,
                 )
 
-            scan_result = run_port_scan(
+            native_scan_result = run_port_scan(
                 target=target,
                 ports_to_scan=ports_to_scan,
                 timeout=scan_stance.timeout,
@@ -426,7 +463,7 @@ def main() -> None:
                 quiet=quiet,
             )
             scan_result = filter_scan_result_by_http_status(
-                scan_result,
+                native_scan_result,
                 match_codes,
             )
 
@@ -464,6 +501,16 @@ def main() -> None:
 
             if output_path is not None and not quiet:
                 print_safe(f"[*] Report saved to: {output_path}")
+
+            if getattr(args, "nmap", False):
+                print()
+                print(
+                    run_live_nmap_enrichment(
+                        target,
+                        native_scan_result,
+                        getattr(args, "nmap_path", None),
+                    )
+                )
 
     except ValueError as error:
         if quiet:
