@@ -6,7 +6,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-import hylianscan
+from core import passive_display
 from core.passive_telemetry import PassiveActivityTelemetry
 
 
@@ -21,7 +21,7 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
         output = io.StringIO()
 
         with redirect_stdout(output):
-            hylianscan.show_passive_providers(["subfinder", "amass"])
+            passive_display.show_passive_providers(["subfinder", "amass"])
 
         rendered = ANSI_PATTERN.sub("", output.getvalue())
 
@@ -52,7 +52,7 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
     def test_passive_summary_uses_raw_unique_counts_and_relative_path(self) -> None:
         output_path = Path("output") / "example.com" / "20260628_120000" / "subdomains.txt"
 
-        summary = hylianscan.build_passive_subdomain_summary(
+        summary = passive_display.build_passive_subdomain_summary(
             domain="example.com",
             raw_discovery_count=8,
             unique_subdomain_count=5,
@@ -72,7 +72,9 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
     def test_passive_activity_line_uses_status_marker_for_duplicate_removal(self) -> None:
         rendered = ANSI_PATTERN.sub(
             "",
-            hylianscan.format_passive_activity_line("[*] Removing duplicate subdomains..."),
+            passive_display.format_passive_activity_line(
+                "[*] Removing duplicate subdomains..."
+            ),
         )
 
         self.assertEqual(rendered, "[*] Removing duplicate subdomains...")

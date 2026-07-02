@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 """Main CLI orchestrator for the hylianscan v1.0 development release."""
 
-import os
-import threading
-import time
 from collections.abc import Mapping
 from pathlib import Path
 
 from core.banner import show_banner
 from core.cli import (
-    format_port_profiles_listing,
-    format_scan_stances_listing,
     get_passive_providers,
     is_quiet_mode,
     is_information_command,
@@ -25,13 +20,13 @@ from core.cli import (
 )
 from core.colors import (
     ALERT_RED,
-    HACKER_GREEN,
     INFO_BLUE,
     RESET,
     TRIFORCE_BLUE,
     TRIFORCE_GREEN,
     TRIFORCE_RED,
 )
+from core.info_commands import build_information_command_output
 from core.output import (
     resolve_output_workspace,
     resolve_json_output_path,
@@ -48,12 +43,17 @@ from core.panel import (
     build_quiet_final_panel,
     build_saved_text_report,
 )
+from core.passive_display import (
+    PassiveDiscoveryDisplay,
+    build_passive_subdomain_summary,
+    format_passive_provider_count_message,
+    show_passive_providers,
+)
 from core.passive_telemetry import PassiveActivityTelemetry
 from core.tcp_live_display import TCPScanDisplay
 from core.terminal import (
     clear_dynamic_line,
     clear_screen,
-    DynamicBlockRenderer,
     print_safe,
 )
 from modules.json_exporter import write_subdomain_json_report, write_tcp_json_report
@@ -72,76 +72,6 @@ STANCE_ALIAS_COLORS = {
     "Nayru": TRIFORCE_BLUE,
     "Farore": TRIFORCE_GREEN,
 }
-PASSIVE_PROVIDER_LABELS = {
-    "subfinder": ("Subfinder", TRIFORCE_BLUE),
-    "amass": ("Amass", TRIFORCE_RED),
-}
-PASSIVE_SPINNER_FRAMES = ("|", "/", "-", "\\")
-PASSIVE_SPINNER_INTERVAL_SECONDS = 0.12
-PASSIVE_MAX_ACTIVITY_LINES = 8
-
-
-class PassiveDiscoveryDisplay:
-    """Render passive discovery spinner and deduplicated activity messages."""
-
-    def __init__(self, domain: str) -> None:
-        self.domain = domain
-        self._renderer = DynamicBlockRenderer()
-        self._stop_event = threading.Event()
-        self._lock = threading.Lock()
-        self._thread: threading.Thread | None = None
-        self._frame_index = 0
-        self._activities: list[str] = []
-        self._seen_activities: set[str] = set()
-
-    def start(self) -> None:
-        """Start the passive discovery spinner."""
-        self._thread = threading.Thread(target=self._spin, daemon=True)
-        self._thread.start()
-
-    def add_activity(self, message: str | None) -> None:
-        """Add one deduplicated activity message under the spinner."""
-        if message is None or message in self._seen_activities:
-            return
-
-        with self._lock:
-            self._seen_activities.add(message)
-            self._activities.append(format_passive_activity_line(message))
-            self._activities = self._activities[-PASSIVE_MAX_ACTIVITY_LINES:]
-            self._render_locked()
-
-    def stop(self) -> None:
-        """Stop the spinner and leave the last activity messages visible."""
-        self._stop_event.set()
-
-        if self._thread is not None:
-            self._thread.join()
-
-        with self._lock:
-            if self._activities:
-                self._renderer.render(self._activities)
-                self._renderer.release()
-            else:
-                self._renderer.clear()
-
-    def _spin(self) -> None:
-        """Update the spinner line until passive discovery finishes."""
-        while not self._stop_event.is_set():
-            with self._lock:
-                self._render_locked()
-
-            time.sleep(PASSIVE_SPINNER_INTERVAL_SECONDS)
-
-    def _render_locked(self) -> None:
-        """Render the current passive discovery block."""
-        frame = PASSIVE_SPINNER_FRAMES[self._frame_index % len(PASSIVE_SPINNER_FRAMES)]
-        self._frame_index += 1
-        spinner_line = (
-            f"{ALERT_RED}[*]{RESET} "
-            f"Enumerating subdomains for {self.domain}... "
-            f"{ALERT_RED}{frame}{RESET}"
-        )
-        self._renderer.render([spinner_line, *self._activities])
 
 
 def format_scan_stance_label(stance: ScanStance) -> str:
@@ -177,27 +107,6 @@ def format_max_rate_label(max_rate: float | None) -> str:
 def format_match_codes(match_codes: list[int]) -> str:
     """Return a readable HTTP status-code filter label."""
     return ", ".join(str(status_code) for status_code in match_codes)
-
-
-def format_passive_activity_line(message: str) -> str:
-    """Return one formatted passive activity line."""
-    for marker in ("[*]", "[+]"):
-        if message.startswith(marker):
-            return f"{HACKER_GREEN}{marker}{RESET} {message[len(marker):].strip()}"
-
-    return f"{HACKER_GREEN}[*]{RESET} {message}"
-
-
-def format_relative_output_path(output_path: Path) -> str:
-    """Return a display-safe path relative to the current working directory."""
-    try:
-        display_path = str(output_path.resolve().relative_to(Path.cwd().resolve()))
-    except ValueError:
-        display_path = output_path.name
-    except Exception:
-        display_path = str(output_path)
-
-    return display_path.replace(os.sep, "/")
 
 
 def merge_subdomain_results(provider_results: dict[str, list[str]]) -> list[str]:
@@ -264,17 +173,6 @@ def show_target_orientation(
     print()
 
 
-def show_passive_providers(providers: list[str]) -> None:
-    """Render selected passive discovery providers before enumeration starts."""
-    print(f"{HACKER_GREEN}[*] Passive Discovery Providers:{RESET}")
-
-    for provider in providers:
-        label, color = PASSIVE_PROVIDER_LABELS[provider]
-        print(f"{HACKER_GREEN}[+] {color}{label}{RESET} enabled")
-
-    print()
-
-
 def run_port_scan(
     target: TargetInfo,
     ports_to_scan: list[int],
@@ -308,41 +206,6 @@ def run_port_scan(
         clear_dynamic_line()
 
     return result
-
-
-def build_passive_subdomain_summary(
-    domain: str,
-    raw_discovery_count: int,
-    unique_subdomain_count: int,
-    output_path: Path,
-    quiet: bool = False,
-) -> str:
-    """Build the final passive discovery summary."""
-    display_output_path = format_relative_output_path(output_path)
-
-    if quiet:
-        return "\n".join(
-            [
-                f"Target: {domain}",
-                f"Raw Discoveries: {raw_discovery_count}",
-                f"Unique Subdomains: {unique_subdomain_count}",
-                f"Output Path: {display_output_path}",
-            ]
-        )
-
-    separator = f"{HACKER_GREEN}{'=' * 72}{RESET}"
-    return "\n".join(
-        [
-            "",
-            separator,
-            f"{HACKER_GREEN}[+] SHEIKAH MAP UPDATED{RESET}",
-            f"{HACKER_GREEN}[+] Target Realm       : {domain}{RESET}",
-            f"{HACKER_GREEN}[+] Raw Discoveries    : {raw_discovery_count}{RESET}",
-            f"{HACKER_GREEN}[+] Unique Subdomains  : {unique_subdomain_count}{RESET}",
-            f"{HACKER_GREEN}[+] Slate Database     : {display_output_path}{RESET}",
-            separator,
-        ]
-    )
 
 
 def run_passive_subdomain_discovery(
@@ -386,9 +249,11 @@ def run_passive_subdomain_discovery(
                 )
 
             if display is not None:
-                label = PASSIVE_PROVIDER_LABELS[provider][0]
                 display.add_activity(
-                    f"[+] {label} returned {len(provider_results[provider])} candidates"
+                    format_passive_provider_count_message(
+                        provider,
+                        len(provider_results[provider]),
+                    )
                 )
 
         if display is not None and telemetry is not None:
@@ -436,14 +301,7 @@ def main() -> None:
         quiet = is_quiet_mode(args)
 
         if is_information_command(args):
-            if args.list_port_profiles:
-                print(format_port_profiles_listing())
-
-            if args.list_stances:
-                if args.list_port_profiles:
-                    print()
-                print(format_scan_stances_listing())
-
+            print(build_information_command_output(args))
             return
 
         validate_mode(args)

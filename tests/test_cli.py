@@ -6,8 +6,6 @@ import unittest
 from unittest.mock import patch
 
 from core.cli import (
-    format_port_profiles_listing,
-    format_scan_stances_listing,
     get_passive_providers,
     is_information_command,
     is_quiet_mode,
@@ -23,6 +21,10 @@ from core.cli import (
     validate_port,
     validate_threads,
     validate_timeout,
+)
+from core.info_commands import (
+    format_port_profiles_listing,
+    format_scan_stances_listing,
 )
 from modules.port_profiles import resolve_port_profile
 from modules.ports import TOP_400_TCP_PORTS

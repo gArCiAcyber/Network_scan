@@ -4,12 +4,8 @@ import argparse
 
 from core.version import APP_NAME, APP_VERSION
 from modules.ports import TOP_400_TCP_PORTS
-from modules.port_profiles import (
-    format_port_profile_label,
-    list_port_profiles,
-    resolve_port_profile,
-)
-from modules.scan_stance import ScanStance, list_scan_stances, resolve_stance
+from modules.port_profiles import format_port_profile_label, resolve_port_profile
+from modules.scan_stance import ScanStance, resolve_stance
 
 
 DEFAULT_STANCE = "balanced"
@@ -409,39 +405,3 @@ def resolve_port_profile_label(args: argparse.Namespace) -> str | None:
 def is_quiet_mode(args: argparse.Namespace) -> bool:
     """Return True when automation-friendly quiet output is enabled."""
     return bool(getattr(args, "quiet", False))
-
-
-def format_port_profiles_listing() -> str:
-    """Return plain-text details for built-in TCP port profiles."""
-    lines = ["Built-in TCP port profiles:"]
-
-    for profile in list_port_profiles():
-        ports = ", ".join(str(port) for port in profile.ports)
-        lines.extend(
-            [
-                "",
-                f"{profile.name} / {profile.alias}",
-                f"  Description : {profile.description}",
-                f"  Port Count  : {len(profile.ports)}",
-                f"  Ports       : {ports}",
-            ]
-        )
-
-    return "\n".join(lines)
-
-
-def format_scan_stances_listing() -> str:
-    """Return plain-text details for built-in TCP scan stances."""
-    lines = ["Built-in TCP scan stances:"]
-
-    for stance in list_scan_stances():
-        lines.extend(
-            [
-                "",
-                f"{stance.name} / {stance.lore_alias.lower()}",
-                f"  Workers : {stance.workers}",
-                f"  Timeout : {stance.timeout:.2f}s",
-            ]
-        )
-
-    return "\n".join(lines)
