@@ -38,6 +38,16 @@ def parse_arguments() -> argparse.Namespace:
         help="Import an existing Nmap XML file and exit without scanning.",
     )
     parser.add_argument(
+        "--nmap",
+        action="store_true",
+        help="Run optional Nmap service/version enrichment after native TCP scanning.",
+    )
+    parser.add_argument(
+        "--nmap-path",
+        metavar="PATH",
+        help="Path to the Nmap executable for optional live enrichment.",
+    )
+    parser.add_argument(
         "target",
         nargs="?",
         help="Target host string: IP address, hostname, or domain name.",
@@ -399,6 +409,8 @@ def validate_mode(args: argparse.Namespace) -> None:
     port_profile = getattr(args, "port_profile", None)
     match_code = getattr(args, "match_code", None)
     nmap_xml = getattr(args, "nmap_xml", None)
+    nmap = getattr(args, "nmap", False)
+    nmap_path = getattr(args, "nmap_path", None)
     subfinder_path = getattr(args, "subfinder_path", None)
     amass_path = getattr(args, "amass_path", None)
     threads = getattr(args, "threads", None)
@@ -409,6 +421,18 @@ def validate_mode(args: argparse.Namespace) -> None:
         raise ValueError(
             "Use passive discovery provider flags or TCP scan/report flags, not both."
         )
+
+    if nmap_path and not nmap:
+        raise ValueError("Use --nmap-path only together with --nmap.")
+
+    if nmap:
+        passive_flags = passive_providers or subfinder_path or amass_path
+
+        if nmap_xml:
+            raise ValueError("Use --nmap or --nmap-xml, not both.")
+
+        if passive_flags:
+            raise ValueError("Use --nmap with TCP scanning, not passive discovery.")
 
     if nmap_xml:
         passive_flags = passive_providers or subfinder_path or amass_path
