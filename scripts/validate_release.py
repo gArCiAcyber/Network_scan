@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -26,7 +27,11 @@ def print_step(title: str) -> None:
     print(f"\n==> {title}", flush=True)
 
 
-def run_step(title: str, command: list[str]) -> None:
+def run_step(
+    title: str,
+    command: list[str],
+    cwd: Path = REPOSITORY_ROOT,
+) -> None:
     """Run one validation command and stop immediately on failure."""
     print_step(title)
     print(f"$ {format_command(command)}", flush=True)
@@ -34,7 +39,7 @@ def run_step(title: str, command: list[str]) -> None:
     try:
         subprocess.run(
             command,
-            cwd=REPOSITORY_ROOT,
+            cwd=cwd,
             check=True,
             stderr=subprocess.STDOUT,
         )
@@ -64,6 +69,7 @@ def main() -> int:
     run_step("Version command", [python, "hylianscan.py", "--version"])
     run_step("Help command", [python, "hylianscan.py", "--help"])
     validate_nmap_xml_fixture(python)
+    validate_runtime_output_root(python)
     run_step(
         "Compile validation",
         [python, "-m", "compileall", "-q", "hylianscan.py", "core", "modules", "tests"],
@@ -113,6 +119,52 @@ def validate_nmap_xml_fixture(python: str) -> None:
         )
     finally:
         cleanup_nmap_import_outputs()
+
+
+def validate_runtime_output_root(python: str) -> None:
+    """Validate default reports resolve under the runtime current directory."""
+    require_file(NMAP_XML_FIXTURE, "Nmap XML fixture")
+    cleanup_nmap_import_outputs()
+
+    with tempfile.TemporaryDirectory(prefix="hylianscan-output-root-") as temporary_dir:
+        runtime_cwd = Path(temporary_dir)
+        expected_txt = runtime_cwd / NMAP_IMPORT_TXT_OUTPUT
+        expected_json = runtime_cwd / NMAP_IMPORT_JSON_OUTPUT
+
+        run_step(
+            "Runtime CWD output root validation",
+            [
+                python,
+                str(REPOSITORY_ROOT / "hylianscan.py"),
+                "--nmap-xml",
+                str(REPOSITORY_ROOT / NMAP_XML_FIXTURE),
+                "-o",
+                "--json-output",
+            ],
+            cwd=runtime_cwd,
+        )
+
+        for output_path in (expected_txt, expected_json):
+            if not output_path.is_file():
+                print(
+                    f"\n[FAIL] Expected runtime output was not created: {output_path}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+
+        for repository_output in (NMAP_IMPORT_TXT_OUTPUT, NMAP_IMPORT_JSON_OUTPUT):
+            if (REPOSITORY_ROOT / repository_output).exists():
+                print(
+                    "\n[FAIL] Runtime output was written under the repository root "
+                    f"instead of the runtime cwd: {repository_output}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+
+        run_step(
+            "Runtime CWD JSON validation",
+            [python, "-m", "json.tool", str(expected_json)],
+        )
 
 
 def cleanup_nmap_import_outputs() -> None:
