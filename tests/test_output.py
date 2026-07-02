@@ -3,14 +3,14 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core.output import (
     DEFAULT_TCP_JSON_ARGUMENT,
     DEFAULT_TCP_TEXT_ARGUMENT,
-    OUTPUT_DIR,
-    PROJECT_ROOT,
     resolve_nmap_import_json_output_path,
     resolve_nmap_import_output_path,
+    resolve_output_dir,
     resolve_output_workspace,
     resolve_json_output_path,
     resolve_output_path,
@@ -38,7 +38,7 @@ class OutputHelperTests(unittest.TestCase):
     def test_resolve_output_workspace_uses_target_and_timestamp(self) -> None:
         self.assertEqual(
             resolve_output_workspace("Example.COM", timestamp="20260616_120000"),
-            OUTPUT_DIR / "example.com" / "20260616_120000",
+            resolve_output_dir() / "example.com" / "20260616_120000",
         )
 
     def test_resolve_output_workspace_can_use_injected_timestamp_factory(self) -> None:
@@ -47,22 +47,80 @@ class OutputHelperTests(unittest.TestCase):
                 "192.0.2.10",
                 timestamp_factory=lambda: "20260616_121500",
             ),
-            OUTPUT_DIR / "192.0.2.10" / "20260616_121500",
+            resolve_output_dir() / "192.0.2.10" / "20260616_121500",
         )
+
+    def test_default_outputs_use_runtime_current_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            runtime_cwd = Path(temporary_dir)
+
+            with patch("core.output.Path.cwd", return_value=runtime_cwd):
+                workspace_dir = resolve_output_workspace(
+                    "example.com",
+                    timestamp="20260616_120000",
+                )
+
+                self.assertEqual(
+                    workspace_dir,
+                    runtime_cwd / "output" / "example.com" / "20260616_120000",
+                )
+                self.assertEqual(
+                    resolve_output_path(DEFAULT_TCP_TEXT_ARGUMENT, workspace_dir),
+                    runtime_cwd
+                    / "output"
+                    / "example.com"
+                    / "20260616_120000"
+                    / "tcp_report.txt",
+                )
+                self.assertEqual(
+                    resolve_json_output_path(DEFAULT_TCP_JSON_ARGUMENT, workspace_dir),
+                    runtime_cwd
+                    / "output"
+                    / "example.com"
+                    / "20260616_120000"
+                    / "tcp_results.json",
+                )
+                self.assertEqual(
+                    resolve_subdomain_output_path(None, workspace_dir),
+                    runtime_cwd
+                    / "output"
+                    / "example.com"
+                    / "20260616_120000"
+                    / "subdomains.txt",
+                )
+                self.assertEqual(
+                    resolve_subdomain_json_output_path(
+                        DEFAULT_TCP_JSON_ARGUMENT,
+                        workspace_dir,
+                    ),
+                    runtime_cwd
+                    / "output"
+                    / "example.com"
+                    / "20260616_120000"
+                    / "subdomains.json",
+                )
+                self.assertEqual(
+                    resolve_nmap_import_output_path(DEFAULT_TCP_TEXT_ARGUMENT),
+                    runtime_cwd / "output" / "nmap_import_report.txt",
+                )
+                self.assertEqual(
+                    resolve_nmap_import_json_output_path(DEFAULT_TCP_JSON_ARGUMENT),
+                    runtime_cwd / "output" / "nmap_import_results.json",
+                )
 
     def test_resolve_output_path_handles_none_and_safe_filename(self) -> None:
         self.assertIsNone(resolve_output_path(None))
         self.assertEqual(
             resolve_output_path("reports/custom.txt"),
-            OUTPUT_DIR / "custom.txt",
+            resolve_output_dir() / "custom.txt",
         )
         self.assertEqual(
             resolve_output_path(""),
-            OUTPUT_DIR / "hylianscan_results.txt",
+            resolve_output_dir() / "hylianscan_results.txt",
         )
 
     def test_resolve_output_path_uses_workspace_default_tcp_report_name(self) -> None:
-        workspace_dir = OUTPUT_DIR / "example.com" / "20260616_120000"
+        workspace_dir = resolve_output_dir() / "example.com" / "20260616_120000"
 
         self.assertEqual(
             resolve_output_path(DEFAULT_TCP_TEXT_ARGUMENT, workspace_dir=workspace_dir),
@@ -77,19 +135,19 @@ class OutputHelperTests(unittest.TestCase):
         self.assertIsNone(resolve_json_output_path(None))
         self.assertEqual(
             resolve_json_output_path("tcp_results"),
-            OUTPUT_DIR / "tcp_results.json",
+            resolve_output_dir() / "tcp_results.json",
         )
         self.assertEqual(
             resolve_json_output_path("reports/tcp_results.json"),
-            OUTPUT_DIR / "tcp_results.json",
+            resolve_output_dir() / "tcp_results.json",
         )
         self.assertEqual(
             resolve_json_output_path(""),
-            OUTPUT_DIR / "hylianscan_tcp_results.json",
+            resolve_output_dir() / "hylianscan_tcp_results.json",
         )
 
     def test_resolve_json_output_path_uses_workspace_default_tcp_json_name(self) -> None:
-        workspace_dir = OUTPUT_DIR / "example.com" / "20260616_120000"
+        workspace_dir = resolve_output_dir() / "example.com" / "20260616_120000"
 
         self.assertEqual(
             resolve_json_output_path(
@@ -107,19 +165,19 @@ class OutputHelperTests(unittest.TestCase):
         self.assertIsNone(resolve_subdomain_json_output_path(None))
         self.assertEqual(
             resolve_subdomain_json_output_path("subdomains"),
-            OUTPUT_DIR / "subdomains.json",
+            resolve_output_dir() / "subdomains.json",
         )
         self.assertEqual(
             resolve_subdomain_json_output_path("hylianscan_tcp_results.json"),
-            OUTPUT_DIR / "hylianscan_subdomains.json",
+            resolve_output_dir() / "hylianscan_subdomains.json",
         )
         self.assertEqual(
             resolve_subdomain_json_output_path(""),
-            OUTPUT_DIR / "hylianscan_subdomains.json",
+            resolve_output_dir() / "hylianscan_subdomains.json",
         )
 
     def test_resolve_subdomain_json_output_path_uses_workspace_default_name(self) -> None:
-        workspace_dir = OUTPUT_DIR / "example.com" / "20260616_120000"
+        workspace_dir = resolve_output_dir() / "example.com" / "20260616_120000"
 
         self.assertEqual(
             resolve_subdomain_json_output_path(
@@ -136,19 +194,19 @@ class OutputHelperTests(unittest.TestCase):
     def test_resolve_subdomain_output_path_handles_defaults_and_relative_dirs(self) -> None:
         self.assertEqual(
             resolve_subdomain_output_path(None),
-            OUTPUT_DIR / "hylianscan_subdomains.txt",
+            resolve_output_dir() / "hylianscan_subdomains.txt",
         )
         self.assertEqual(
             resolve_subdomain_output_path("hylianscan_results.txt"),
-            OUTPUT_DIR / "subdomains.txt",
+            resolve_output_dir() / "subdomains.txt",
         )
         self.assertEqual(
             resolve_subdomain_output_path("reports"),
-            PROJECT_ROOT / "reports" / "subdomains.txt",
+            Path.cwd() / "reports" / "subdomains.txt",
         )
 
     def test_resolve_subdomain_output_path_uses_workspace_default_name(self) -> None:
-        workspace_dir = OUTPUT_DIR / "example.com" / "20260616_120000"
+        workspace_dir = resolve_output_dir() / "example.com" / "20260616_120000"
 
         self.assertEqual(
             resolve_subdomain_output_path(None, workspace_dir=workspace_dir),
@@ -175,22 +233,22 @@ class OutputHelperTests(unittest.TestCase):
         self.assertIsNone(resolve_nmap_import_output_path(None))
         self.assertEqual(
             resolve_nmap_import_output_path(DEFAULT_TCP_TEXT_ARGUMENT),
-            OUTPUT_DIR / "nmap_import_report.txt",
+            resolve_output_dir() / "nmap_import_report.txt",
         )
         self.assertEqual(
             resolve_nmap_import_output_path("custom.txt"),
-            OUTPUT_DIR / "custom.txt",
+            resolve_output_dir() / "custom.txt",
         )
 
     def test_resolve_nmap_import_json_output_path_uses_import_defaults(self) -> None:
         self.assertIsNone(resolve_nmap_import_json_output_path(None))
         self.assertEqual(
             resolve_nmap_import_json_output_path(DEFAULT_TCP_JSON_ARGUMENT),
-            OUTPUT_DIR / "nmap_import_results.json",
+            resolve_output_dir() / "nmap_import_results.json",
         )
         self.assertEqual(
             resolve_nmap_import_json_output_path("nmap-import"),
-            OUTPUT_DIR / "nmap-import.json",
+            resolve_output_dir() / "nmap-import.json",
         )
 
     def test_workspace_creation_detection_for_tcp_defaults(self) -> None:

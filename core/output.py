@@ -6,8 +6,6 @@ from pathlib import Path
 import re
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = PROJECT_ROOT / "output"
 DEFAULT_TCP_TEXT_ARGUMENT = "hylianscan_results.txt"
 DEFAULT_TCP_JSON_ARGUMENT = "hylianscan_tcp_results.json"
 TCP_REPORT_FILENAME = "tcp_report.txt"
@@ -17,6 +15,11 @@ SUBDOMAIN_JSON_FILENAME = "subdomains.json"
 NMAP_IMPORT_REPORT_FILENAME = "nmap_import_report.txt"
 NMAP_IMPORT_JSON_FILENAME = "nmap_import_results.json"
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def resolve_output_dir() -> Path:
+    """Return the runtime output directory for generated reports."""
+    return Path.cwd() / "output"
 
 
 def build_timestamp() -> str:
@@ -40,7 +43,7 @@ def resolve_output_workspace(
 ) -> Path:
     """Resolve the target-specific timestamped output workspace directory."""
     timestamp_value = timestamp or timestamp_factory()
-    return OUTPUT_DIR / sanitize_target_name(target) / timestamp_value
+    return resolve_output_dir() / sanitize_target_name(target) / timestamp_value
 
 
 def is_default_tcp_text_output_request(output_value: str | None) -> bool:
@@ -87,7 +90,7 @@ def resolve_output_path(
         return workspace_dir / TCP_REPORT_FILENAME
 
     safe_filename = Path(output_value).name or DEFAULT_TCP_TEXT_ARGUMENT
-    return OUTPUT_DIR / safe_filename
+    return resolve_output_dir() / safe_filename
 
 
 def resolve_json_output_path(
@@ -106,7 +109,7 @@ def resolve_json_output_path(
     if Path(safe_filename).suffix.lower() != ".json":
         safe_filename = f"{safe_filename}.json"
 
-    return OUTPUT_DIR / safe_filename
+    return resolve_output_dir() / safe_filename
 
 
 def resolve_subdomain_json_output_path(
@@ -128,7 +131,7 @@ def resolve_subdomain_json_output_path(
     if Path(safe_filename).suffix.lower() != ".json":
         safe_filename = f"{safe_filename}.json"
 
-    return OUTPUT_DIR / safe_filename
+    return resolve_output_dir() / safe_filename
 
 
 def resolve_subdomain_output_path(
@@ -142,15 +145,15 @@ def resolve_subdomain_output_path(
         return workspace_dir / SUBDOMAIN_REPORT_FILENAME
 
     if output_value is None:
-        return OUTPUT_DIR / "hylianscan_subdomains.txt"
+        return resolve_output_dir() / "hylianscan_subdomains.txt"
 
     if output_value == DEFAULT_TCP_TEXT_ARGUMENT:
-        return OUTPUT_DIR / SUBDOMAIN_REPORT_FILENAME
+        return resolve_output_dir() / SUBDOMAIN_REPORT_FILENAME
 
     requested_dir = Path(output_value).expanduser()
 
     if not requested_dir.is_absolute():
-        requested_dir = PROJECT_ROOT / requested_dir
+        requested_dir = Path.cwd() / requested_dir
 
     return requested_dir / "subdomains.txt"
 
@@ -165,7 +168,7 @@ def resolve_nmap_import_output_path(output_value: str | None) -> Path | None:
     if safe_filename == DEFAULT_TCP_TEXT_ARGUMENT:
         safe_filename = NMAP_IMPORT_REPORT_FILENAME
 
-    return OUTPUT_DIR / safe_filename
+    return resolve_output_dir() / safe_filename
 
 
 def resolve_nmap_import_json_output_path(output_value: str | None) -> Path | None:
@@ -181,7 +184,7 @@ def resolve_nmap_import_json_output_path(output_value: str | None) -> Path | Non
     if Path(safe_filename).suffix.lower() != ".json":
         safe_filename = f"{safe_filename}.json"
 
-    return OUTPUT_DIR / safe_filename
+    return resolve_output_dir() / safe_filename
 
 
 def save_report(report_text: str, output_path: Path | None) -> None:
