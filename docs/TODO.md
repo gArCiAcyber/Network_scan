@@ -116,7 +116,7 @@
 - [X] Add structured HTTP Set-Cookie observations.
 - [X] Add explicit Subfinder and Amass executable path handling.
 - [X] Show effective scan stance, pacing, and user overrides during scan orientation.
-- [X] Polish README installation and showcase structure for v1.0 development.
+- [X] Polish README installation and showcase structure for v1.0.
 - [X] Add safer localhost-focused tests and packaging validation coverage.
 - [X] Add README example validation tests for documented CLI commands and assets.
 - [X] Add a public v1.0 release checklist under `docs/`.

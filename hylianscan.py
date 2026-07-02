@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main CLI orchestrator for the hylianscan v1.0 development release."""
+"""Main CLI orchestrator for the hylianscan v1.0.0 release."""
 
 from collections.abc import Mapping
 from pathlib import Path
