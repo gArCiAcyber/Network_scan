@@ -130,16 +130,13 @@ def parse_arguments() -> argparse.Namespace:
         "--output",
         nargs="?",
         const="hylianscan_results.txt",
-        help=(
-            "Save TCP reports inside output/ or choose a directory for "
-            "passive subdomain results."
-        ),
+        help="Save TXT reports for TCP scans, passive discovery, or Nmap XML import.",
     )
     parser.add_argument(
         "--json-output",
         nargs="?",
         const="hylianscan_tcp_results.json",
-        help="Save TCP or passive subdomain results as JSON inside the output directory.",
+        help="Save TCP, passive subdomain, or Nmap XML import results as JSON.",
     )
     parser.add_argument(
         "--quiet",
@@ -404,6 +401,9 @@ def validate_mode(args: argparse.Namespace) -> None:
     nmap_xml = getattr(args, "nmap_xml", None)
     subfinder_path = getattr(args, "subfinder_path", None)
     amass_path = getattr(args, "amass_path", None)
+    threads = getattr(args, "threads", None)
+    timeout = getattr(args, "timeout", None)
+    max_rate = getattr(args, "max_rate", None)
 
     if passive_providers and (ports or top_ports or port_profile or match_code):
         raise ValueError(
@@ -413,12 +413,16 @@ def validate_mode(args: argparse.Namespace) -> None:
     if nmap_xml:
         passive_flags = passive_providers or subfinder_path or amass_path
         tcp_flags = ports or top_ports or port_profile or match_code
+        tcp_tuning_flags = threads is not None or timeout is not None or max_rate is not None
 
         if passive_flags:
             raise ValueError("Use --nmap-xml or passive discovery flags, not both.")
 
         if tcp_flags:
             raise ValueError("Use --nmap-xml or TCP scan/report flags, not both.")
+
+        if tcp_tuning_flags:
+            raise ValueError("Use --nmap-xml or TCP scan tuning flags, not both.")
 
 
 def resolve_port_profile_label(args: argparse.Namespace) -> str | None:

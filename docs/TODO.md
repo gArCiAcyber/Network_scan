@@ -121,6 +121,7 @@
 - [X] Add README example validation tests for documented CLI commands and assets.
 - [X] Add a public v1.0 release checklist under `docs/`.
 - [X] Add Nmap XML import foundation with `--nmap-xml`.
+- [X] Add TXT and JSON reporting for Nmap XML import mode.
 
 ## v1.0 Must-Have Before Release
 

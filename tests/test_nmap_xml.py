@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import io
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -160,6 +161,12 @@ class NmapXmlParserTests(unittest.TestCase):
 class NmapXmlCliTests(unittest.TestCase):
     """Validate the Nmap XML import-only CLI path."""
 
+    def write_sample_xml(self, directory: str) -> Path:
+        """Write a sample Nmap XML file into a temporary directory."""
+        xml_path = Path(directory) / "nmap-results.xml"
+        xml_path.write_text(SINGLE_HOST_XML, encoding="utf-8")
+        return xml_path
+
     def test_nmap_xml_import_exits_before_scan_setup(self) -> None:
         with tempfile.NamedTemporaryFile(
             "w",
@@ -192,6 +199,98 @@ class NmapXmlCliTests(unittest.TestCase):
         resolve_target.assert_not_called()
         run_port_scan.assert_not_called()
         passive_discovery.assert_not_called()
+
+    def test_nmap_xml_import_with_output_saves_txt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            xml_path = self.write_sample_xml(temporary_dir)
+            txt_output_path = Path(temporary_dir) / "nmap_import_report.txt"
+            output = io.StringIO()
+
+            with (
+                patch("sys.argv", ["hylianscan", "--nmap-xml", str(xml_path), "-o"]),
+                patch("sys.stdout", output),
+                patch(
+                    "hylianscan.resolve_nmap_import_output_path",
+                    return_value=txt_output_path,
+                ),
+                patch(
+                    "hylianscan.resolve_nmap_import_json_output_path",
+                    return_value=None,
+                ),
+            ):
+                hylianscan.main()
+
+            saved_report = txt_output_path.read_text(encoding="utf-8")
+            self.assertIn("Nmap XML Import", saved_report)
+            self.assertIn("Host: 127.0.0.1", saved_report)
+            self.assertNotIn("\x1b[", saved_report)
+            self.assertIn("Nmap XML Import", output.getvalue())
+
+    def test_nmap_xml_import_with_json_output_saves_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            xml_path = self.write_sample_xml(temporary_dir)
+            json_output_path = Path(temporary_dir) / "nmap_import_results.json"
+
+            with (
+                patch(
+                    "sys.argv",
+                    ["hylianscan", "--nmap-xml", str(xml_path), "--json-output"],
+                ),
+                patch("sys.stdout", io.StringIO()),
+                patch(
+                    "hylianscan.resolve_nmap_import_output_path",
+                    return_value=None,
+                ),
+                patch(
+                    "hylianscan.resolve_nmap_import_json_output_path",
+                    return_value=json_output_path,
+                ),
+            ):
+                hylianscan.main()
+
+            document = json.loads(json_output_path.read_text(encoding="utf-8"))
+            self.assertEqual(document["mode"], "nmap_xml_import")
+            self.assertEqual(document["source"]["scanner"], "nmap")
+            self.assertEqual(document["source"]["version"], "7.94")
+            self.assertEqual(document["host"]["primary_address"], "127.0.0.1")
+            self.assertEqual(document["open_tcp_ports"][0]["port"], 22)
+            self.assertEqual(document["open_tcp_ports"][0]["service"]["name"], "ssh")
+            self.assertEqual(
+                document["open_tcp_ports"][0]["service"]["cpe"],
+                ["cpe:/a:openbsd:openssh:9.6"],
+            )
+
+    def test_nmap_xml_import_with_output_and_json_output_saves_both(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            xml_path = self.write_sample_xml(temporary_dir)
+            txt_output_path = Path(temporary_dir) / "nmap_import_report.txt"
+            json_output_path = Path(temporary_dir) / "nmap_import_results.json"
+
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "hylianscan",
+                        "--nmap-xml",
+                        str(xml_path),
+                        "-o",
+                        "--json-output",
+                    ],
+                ),
+                patch("sys.stdout", io.StringIO()),
+                patch(
+                    "hylianscan.resolve_nmap_import_output_path",
+                    return_value=txt_output_path,
+                ),
+                patch(
+                    "hylianscan.resolve_nmap_import_json_output_path",
+                    return_value=json_output_path,
+                ),
+            ):
+                hylianscan.main()
+
+            self.assertTrue(txt_output_path.exists())
+            self.assertTrue(json_output_path.exists())
 
 
 if __name__ == "__main__":

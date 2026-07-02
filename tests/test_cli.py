@@ -38,6 +38,8 @@ def build_args(
     subfinder: bool = False,
     amass: bool = False,
     quiet: bool = False,
+    threads: int | None = None,
+    timeout: float | None = None,
     max_rate: float | None = None,
     match_code: str | None = None,
     nmap_xml: str | None = None,
@@ -52,6 +54,8 @@ def build_args(
         subfinder=subfinder,
         amass=amass,
         quiet=quiet,
+        threads=threads,
+        timeout=timeout,
         max_rate=max_rate,
         match_code=match_code,
         nmap_xml=nmap_xml,
@@ -250,6 +254,18 @@ class CLIHelperTests(unittest.TestCase):
         for args in invalid_args:
             with self.subTest(args=args):
                 with self.assertRaises(ValueError):
+                    validate_mode(args)
+
+    def test_validate_mode_rejects_nmap_xml_with_tcp_tuning_flags(self) -> None:
+        invalid_args = (
+            build_args(nmap_xml="scan.xml", threads=25),
+            build_args(nmap_xml="scan.xml", timeout=2.0),
+            build_args(nmap_xml="scan.xml", max_rate=100.0),
+        )
+
+        for args in invalid_args:
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(ValueError, "TCP scan tuning flags"):
                     validate_mode(args)
 
     def test_parse_arguments_accepts_quiet_flag(self) -> None:

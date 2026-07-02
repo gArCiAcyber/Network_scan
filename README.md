@@ -162,6 +162,7 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Does not run Nmap.
 * Does not require Nmap to be installed.
 * Does not perform live scanning.
+* Supports TXT and JSON export with `-o` and `--json-output`.
 
 ---
 
@@ -227,9 +228,10 @@ Use this mode to review an existing Nmap XML result without running Nmap or star
 
 ```bash
 python3 hylianscan.py --nmap-xml nmap-results.xml
+python3 hylianscan.py --nmap-xml nmap-results.xml -o --json-output
 ```
 
-The import currently supports a single up host and open TCP ports from the XML file.
+The import currently supports a single up host and open TCP ports from the XML file. When output is enabled, Hylianscan saves `nmap_import_report.txt` and `nmap_import_results.json`.
 
 ---
 
@@ -286,6 +288,8 @@ tcp_report.txt
 tcp_results.json
 subdomains.txt
 subdomains.json
+nmap_import_report.txt
+nmap_import_results.json
 ```
 
 TXT output is designed for quick reading.

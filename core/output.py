@@ -14,6 +14,8 @@ TCP_REPORT_FILENAME = "tcp_report.txt"
 TCP_JSON_FILENAME = "tcp_results.json"
 SUBDOMAIN_REPORT_FILENAME = "subdomains.txt"
 SUBDOMAIN_JSON_FILENAME = "subdomains.json"
+NMAP_IMPORT_REPORT_FILENAME = "nmap_import_report.txt"
+NMAP_IMPORT_JSON_FILENAME = "nmap_import_results.json"
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
@@ -151,6 +153,35 @@ def resolve_subdomain_output_path(
         requested_dir = PROJECT_ROOT / requested_dir
 
     return requested_dir / "subdomains.txt"
+
+
+def resolve_nmap_import_output_path(output_value: str | None) -> Path | None:
+    """Resolve the optional Nmap XML import TXT output path."""
+    if output_value is None:
+        return None
+
+    safe_filename = Path(output_value).name or NMAP_IMPORT_REPORT_FILENAME
+
+    if safe_filename == DEFAULT_TCP_TEXT_ARGUMENT:
+        safe_filename = NMAP_IMPORT_REPORT_FILENAME
+
+    return OUTPUT_DIR / safe_filename
+
+
+def resolve_nmap_import_json_output_path(output_value: str | None) -> Path | None:
+    """Resolve the optional Nmap XML import JSON output path."""
+    if output_value is None:
+        return None
+
+    safe_filename = Path(output_value).name or NMAP_IMPORT_JSON_FILENAME
+
+    if safe_filename == DEFAULT_TCP_JSON_ARGUMENT:
+        safe_filename = NMAP_IMPORT_JSON_FILENAME
+
+    if Path(safe_filename).suffix.lower() != ".json":
+        safe_filename = f"{safe_filename}.json"
+
+    return OUTPUT_DIR / safe_filename
 
 
 def save_report(report_text: str, output_path: Path | None) -> None:
