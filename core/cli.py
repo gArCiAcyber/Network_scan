@@ -33,6 +33,11 @@ def parse_arguments() -> argparse.Namespace:
         help="List built-in TCP scan stances and exit without scanning.",
     )
     parser.add_argument(
+        "--nmap-xml",
+        metavar="PATH",
+        help="Import an existing Nmap XML file and exit without scanning.",
+    )
+    parser.add_argument(
         "target",
         nargs="?",
         help="Target host string: IP address, hostname, or domain name.",
@@ -144,7 +149,13 @@ def parse_arguments() -> argparse.Namespace:
     args = parser.parse_args()
 
     try:
-        if not is_information_command(args):
+        if is_information_command(args) or is_nmap_xml_import_command(args):
+            if args.target and args.target_url:
+                raise ValueError(
+                    "Provide the target either positionally or with -u/--url, not both."
+                )
+            args.target = args.target_url or args.target
+        else:
             args.target = resolve_target_argument(args)
     except ValueError as error:
         parser.error(str(error))
@@ -158,6 +169,11 @@ def is_information_command(args: argparse.Namespace) -> bool:
         getattr(args, "list_port_profiles", False)
         or getattr(args, "list_stances", False)
     )
+
+
+def is_nmap_xml_import_command(args: argparse.Namespace) -> bool:
+    """Return True when the CLI should import an existing Nmap XML file."""
+    return bool(getattr(args, "nmap_xml", None))
 
 
 def resolve_target_argument(args: argparse.Namespace) -> str:
@@ -381,15 +397,28 @@ def get_passive_providers(args: argparse.Namespace) -> list[str]:
 def validate_mode(args: argparse.Namespace) -> None:
     """Prevent ambiguous mode combinations."""
     passive_providers = get_passive_providers(args)
+    ports = getattr(args, "ports", None)
+    top_ports = getattr(args, "top_ports", None)
     port_profile = getattr(args, "port_profile", None)
     match_code = getattr(args, "match_code", None)
+    nmap_xml = getattr(args, "nmap_xml", None)
+    subfinder_path = getattr(args, "subfinder_path", None)
+    amass_path = getattr(args, "amass_path", None)
 
-    if passive_providers and (
-        args.ports or args.top_ports or port_profile or match_code
-    ):
+    if passive_providers and (ports or top_ports or port_profile or match_code):
         raise ValueError(
             "Use passive discovery provider flags or TCP scan/report flags, not both."
         )
+
+    if nmap_xml:
+        passive_flags = passive_providers or subfinder_path or amass_path
+        tcp_flags = ports or top_ports or port_profile or match_code
+
+        if passive_flags:
+            raise ValueError("Use --nmap-xml or passive discovery flags, not both.")
+
+        if tcp_flags:
+            raise ValueError("Use --nmap-xml or TCP scan/report flags, not both.")
 
 
 def resolve_port_profile_label(args: argparse.Namespace) -> str | None:

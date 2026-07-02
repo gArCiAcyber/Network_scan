@@ -8,6 +8,7 @@ from unittest.mock import patch
 from core.cli import (
     get_passive_providers,
     is_information_command,
+    is_nmap_xml_import_command,
     is_quiet_mode,
     parse_arguments,
     parse_custom_ports,
@@ -39,6 +40,9 @@ def build_args(
     quiet: bool = False,
     max_rate: float | None = None,
     match_code: str | None = None,
+    nmap_xml: str | None = None,
+    subfinder_path: str | None = None,
+    amass_path: str | None = None,
 ) -> argparse.Namespace:
     """Build a minimal argparse namespace for CLI helper tests."""
     return argparse.Namespace(
@@ -50,6 +54,9 @@ def build_args(
         quiet=quiet,
         max_rate=max_rate,
         match_code=match_code,
+        nmap_xml=nmap_xml,
+        subfinder_path=subfinder_path,
+        amass_path=amass_path,
     )
 
 
@@ -219,6 +226,32 @@ class CLIHelperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_mode(build_args(subfinder=True, match_code="200"))
 
+    def test_validate_mode_rejects_nmap_xml_with_passive_flags(self) -> None:
+        invalid_args = (
+            build_args(nmap_xml="scan.xml", subfinder=True),
+            build_args(nmap_xml="scan.xml", amass=True),
+            build_args(nmap_xml="scan.xml", subfinder_path="/opt/subfinder"),
+            build_args(nmap_xml="scan.xml", amass_path="/opt/amass"),
+        )
+
+        for args in invalid_args:
+            with self.subTest(args=args):
+                with self.assertRaises(ValueError):
+                    validate_mode(args)
+
+    def test_validate_mode_rejects_nmap_xml_with_tcp_scan_flags(self) -> None:
+        invalid_args = (
+            build_args(nmap_xml="scan.xml", ports="80"),
+            build_args(nmap_xml="scan.xml", top_ports=10),
+            build_args(nmap_xml="scan.xml", port_profile="web"),
+            build_args(nmap_xml="scan.xml", match_code="200"),
+        )
+
+        for args in invalid_args:
+            with self.subTest(args=args):
+                with self.assertRaises(ValueError):
+                    validate_mode(args)
+
     def test_parse_arguments_accepts_quiet_flag(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com", "--quiet"]):
             args = parse_arguments()
@@ -334,6 +367,14 @@ class CLIHelperTests(unittest.TestCase):
 
         self.assertTrue(args.list_stances)
         self.assertTrue(is_information_command(args))
+        self.assertIsNone(args.target)
+
+    def test_nmap_xml_does_not_require_target(self) -> None:
+        with patch("sys.argv", ["hylianscan", "--nmap-xml", "scan.xml"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.nmap_xml, "scan.xml")
+        self.assertTrue(is_nmap_xml_import_command(args))
         self.assertIsNone(args.target)
 
     def test_port_profiles_listing_includes_expected_profiles(self) -> None:
