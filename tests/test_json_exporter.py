@@ -9,6 +9,10 @@ from modules.json_exporter import (
     build_tcp_scan_document,
     parse_set_cookie_header,
 )
+from modules.nmap_enrichment import (
+    build_completed_nmap_enrichment,
+    build_skipped_nmap_enrichment,
+)
 from modules.nmap_xml import parse_nmap_xml_text
 
 
@@ -190,6 +194,7 @@ class JSONExporterTests(unittest.TestCase):
         self.assertEqual(document["scan"]["timing"]["duration_seconds"], 1.234568)
         self.assertIn("open_ports", document["results"])
         self.assertNotIn("report_filters", document["scan"])
+        self.assertNotIn("enrichment", document)
 
     def test_tcp_json_records_active_http_status_filter(self) -> None:
         document = build_tcp_scan_document(
@@ -211,6 +216,48 @@ class JSONExporterTests(unittest.TestCase):
                 }
             },
         )
+
+    def test_tcp_json_includes_completed_nmap_enrichment(self) -> None:
+        import_result = parse_nmap_xml_text(NMAP_XML)
+        enrichment = build_completed_nmap_enrichment(
+            import_result,
+            "127.0.0.1",
+            [80, 80],
+        )
+        document = build_tcp_scan_document(
+            make_scan_result([make_finding()]),
+            nmap_enrichment=enrichment,
+        )
+
+        nmap = document["enrichment"]["nmap"]
+        self.assertEqual(nmap["enabled"], True)
+        self.assertEqual(nmap["status"], "completed")
+        self.assertEqual(nmap["target"], "127.0.0.1")
+        self.assertEqual(nmap["ports_requested"], [80])
+        self.assertEqual(nmap["ports_returned"], [80])
+        self.assertEqual(nmap["results"][0]["port"], 80)
+        self.assertEqual(nmap["results"][0]["service"]["name"], "http")
+        self.assertEqual(nmap["results"][0]["service"]["product"], "nginx")
+        self.assertEqual(nmap["results"][0]["service"]["confidence"], "high")
+
+    def test_tcp_json_includes_skipped_nmap_enrichment(self) -> None:
+        enrichment = build_skipped_nmap_enrichment(
+            "no open TCP ports found.",
+            "127.0.0.1",
+            [],
+        )
+        document = build_tcp_scan_document(
+            make_scan_result([]),
+            nmap_enrichment=enrichment,
+        )
+
+        nmap = document["enrichment"]["nmap"]
+        self.assertEqual(nmap["enabled"], True)
+        self.assertEqual(nmap["status"], "skipped")
+        self.assertEqual(nmap["target"], "127.0.0.1")
+        self.assertEqual(nmap["ports_requested"], [])
+        self.assertEqual(nmap["reason"], "no open TCP ports found.")
+        self.assertNotIn("results", nmap)
 
     def test_open_port_document_structure(self) -> None:
         port_document = build_port_document(make_finding(), "example.com")

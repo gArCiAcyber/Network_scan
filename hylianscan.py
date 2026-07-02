@@ -69,8 +69,9 @@ from modules.http_filter import (
     filter_scan_result_by_http_status,
 )
 from modules.nmap_enrichment import (
-    format_nmap_enrichment_skipped,
-    format_nmap_enrichment_summary,
+    NmapEnrichmentResult,
+    build_completed_nmap_enrichment,
+    build_skipped_nmap_enrichment,
 )
 from modules.nmap_runner import run_nmap_service_version_scan
 from modules.nmap_xml import (
@@ -328,12 +329,16 @@ def run_live_nmap_enrichment(
     target: TargetInfo,
     scan_result: ScanResult,
     nmap_binary: str | None = None,
-) -> str:
+) -> NmapEnrichmentResult:
     """Run optional Nmap service enrichment against native open TCP ports."""
     open_ports = [finding.port for finding in scan_result.open_ports]
 
     if not open_ports:
-        return format_nmap_enrichment_skipped("no open TCP ports found.")
+        return build_skipped_nmap_enrichment(
+            "no open TCP ports found.",
+            target.resolved_ip,
+            open_ports,
+        )
 
     try:
         keyword_arguments = {}
@@ -347,13 +352,17 @@ def run_live_nmap_enrichment(
             **keyword_arguments,
         )
 
-        return format_nmap_enrichment_summary(
+        return build_completed_nmap_enrichment(
             import_result,
             target.resolved_ip,
             open_ports,
         )
     except (RuntimeError, ValueError) as error:
-        return format_nmap_enrichment_skipped(str(error))
+        return build_skipped_nmap_enrichment(
+            str(error),
+            target.resolved_ip,
+            open_ports,
+        )
 
 
 def main() -> None:
@@ -483,6 +492,15 @@ def main() -> None:
                 )
 
             print(final_panel)
+            nmap_enrichment = None
+
+            if getattr(args, "nmap", False):
+                nmap_enrichment = run_live_nmap_enrichment(
+                    target,
+                    native_scan_result,
+                    getattr(args, "nmap_path", None),
+                )
+
             saved_report = build_saved_text_report(
                 scan_result,
                 scan_scope=scan_scope,
@@ -490,6 +508,12 @@ def main() -> None:
                 base_report=final_panel,
                 match_code_expression=match_code_expression,
             )
+
+            if nmap_enrichment is not None:
+                saved_report = "\n\n".join(
+                    [saved_report, nmap_enrichment.terminal_text]
+                )
+
             save_report(saved_report, output_path)
 
             if json_output_path is not None:
@@ -497,20 +521,15 @@ def main() -> None:
                     scan_result,
                     json_output_path,
                     report_filters=report_filters,
+                    nmap_enrichment=nmap_enrichment,
                 )
 
             if output_path is not None and not quiet:
                 print_safe(f"[*] Report saved to: {output_path}")
 
-            if getattr(args, "nmap", False):
+            if nmap_enrichment is not None:
                 print()
-                print(
-                    run_live_nmap_enrichment(
-                        target,
-                        native_scan_result,
-                        getattr(args, "nmap_path", None),
-                    )
-                )
+                print(nmap_enrichment.terminal_text)
 
     except ValueError as error:
         if quiet:
