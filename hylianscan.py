@@ -346,14 +346,14 @@ def run_live_nmap_enrichment(
             open_ports,
             **keyword_arguments,
         )
+
+        return format_nmap_enrichment_summary(
+            import_result,
+            target.resolved_ip,
+            open_ports,
+        )
     except (RuntimeError, ValueError) as error:
         return format_nmap_enrichment_skipped(str(error))
-
-    return format_nmap_enrichment_summary(
-        import_result,
-        target.resolved_ip,
-        open_ports,
-    )
 
 
 def main() -> None:

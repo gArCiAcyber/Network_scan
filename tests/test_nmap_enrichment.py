@@ -198,6 +198,23 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             output.getvalue(),
         )
 
+    def test_main_prints_warning_when_nmap_summary_formatting_fails(self) -> None:
+        scan_result = make_scan_result((make_open_port(),))
+        import_result = parse_nmap_xml_text("<nmaprun scanner='nmap'/>")
+        output = io.StringIO()
+
+        with (
+            patch("sys.argv", ["hylianscan", "example.com", "-p", "80", "--nmap", "--quiet"]),
+            patch("sys.stdout", output),
+            patch("hylianscan.resolve_target", return_value=make_target()),
+            patch("hylianscan.run_port_scan", return_value=scan_result),
+            patch("hylianscan.run_nmap_service_version_scan", return_value=import_result),
+        ):
+            hylianscan.main()
+
+        self.assertIn("Nmap enrichment skipped:", output.getvalue())
+        self.assertIn("requires exactly one up host", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
