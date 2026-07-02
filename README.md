@@ -156,6 +156,13 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Compact terminal summaries.
 * Automation-friendly quiet mode.
 
+### Nmap XML Import
+
+* Imports an existing Nmap XML file with `--nmap-xml`.
+* Does not run Nmap.
+* Does not require Nmap to be installed.
+* Does not perform live scanning.
+
 ---
 
 ## 📦 Installation
@@ -211,6 +218,18 @@ python3 hylianscan.py example.com --amass
 # Subfinder + Amass with TXT/JSON output
 python3 hylianscan.py example.com --subfinder --amass -o --json-output
 ```
+
+---
+
+## Nmap XML Import
+
+Use this mode to review an existing Nmap XML result without running Nmap or starting a live scan.
+
+```bash
+python3 hylianscan.py --nmap-xml nmap-results.xml
+```
+
+The import currently supports a single up host and open TCP ports from the XML file.
 
 ---
 

@@ -120,6 +120,7 @@
 - [X] Add safer localhost-focused tests and packaging validation coverage.
 - [X] Add README example validation tests for documented CLI commands and assets.
 - [X] Add a public v1.0 release checklist under `docs/`.
+- [X] Add Nmap XML import foundation with `--nmap-xml`.
 
 ## v1.0 Must-Have Before Release
 
@@ -133,6 +134,7 @@
 
 ## Post-v1.0 Future Work
 
+- [ ] Add optional live Nmap enrichment runner after native TCP scanning.
 - [ ] Add TXT report export templates into `output/`.
 - [ ] Add IPv6 support with `socket.getaddrinfo()`.
 - [ ] Add structured scan profiles.
