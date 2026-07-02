@@ -401,6 +401,9 @@ def validate_mode(args: argparse.Namespace) -> None:
     nmap_xml = getattr(args, "nmap_xml", None)
     subfinder_path = getattr(args, "subfinder_path", None)
     amass_path = getattr(args, "amass_path", None)
+    threads = getattr(args, "threads", None)
+    timeout = getattr(args, "timeout", None)
+    max_rate = getattr(args, "max_rate", None)
 
     if passive_providers and (ports or top_ports or port_profile or match_code):
         raise ValueError(
@@ -410,12 +413,16 @@ def validate_mode(args: argparse.Namespace) -> None:
     if nmap_xml:
         passive_flags = passive_providers or subfinder_path or amass_path
         tcp_flags = ports or top_ports or port_profile or match_code
+        tcp_tuning_flags = threads is not None or timeout is not None or max_rate is not None
 
         if passive_flags:
             raise ValueError("Use --nmap-xml or passive discovery flags, not both.")
 
         if tcp_flags:
             raise ValueError("Use --nmap-xml or TCP scan/report flags, not both.")
+
+        if tcp_tuning_flags:
+            raise ValueError("Use --nmap-xml or TCP scan tuning flags, not both.")
 
 
 def resolve_port_profile_label(args: argparse.Namespace) -> str | None:
