@@ -10,6 +10,12 @@ from modules.http_metadata import (
     parse_http_headers,
     parse_http_response_head,
 )
+from modules.nmap_xml import (
+    NmapAddress,
+    NmapPort,
+    NmapXmlImport,
+    require_single_up_host,
+)
 from modules.tls_analysis import build_tls_analysis
 
 
@@ -476,6 +482,84 @@ def write_subdomain_json_report(
     """Write passive subdomain discovery results as provider-aware JSON."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document = build_subdomain_discovery_document(target_domain, provider_results)
+    output_path.write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def build_nmap_address_document(address: NmapAddress) -> dict[str, Any]:
+    """Build one JSON-ready Nmap host address document."""
+    return {
+        "address": address.address,
+        "type": address.address_type,
+        "vendor": address.vendor,
+    }
+
+
+def build_nmap_port_document(port: NmapPort) -> dict[str, Any]:
+    """Build one JSON-ready imported Nmap open TCP port document."""
+    service = port.service
+
+    return {
+        "port": port.port,
+        "protocol": port.protocol,
+        "state": port.state,
+        "service": {
+            "name": service.name,
+            "product": service.product,
+            "version": service.version,
+            "extrainfo": service.extrainfo,
+            "tunnel": service.tunnel,
+            "method": service.method,
+            "conf": service.confidence_raw,
+            "confidence": service.confidence,
+            "cpe": list(service.cpes),
+        },
+    }
+
+
+def build_nmap_xml_import_document(
+    import_result: NmapXmlImport,
+    source_path: str,
+) -> dict[str, Any]:
+    """Build a JSON document for imported Nmap XML evidence."""
+    host = require_single_up_host(import_result)
+    metadata = import_result.metadata
+
+    return {
+        "tool": "hylianscan",
+        "mode": "nmap_xml_import",
+        "source": {
+            "path": source_path,
+            "scanner": metadata.scanner,
+            "args": metadata.args,
+            "version": metadata.version,
+            "xmloutputversion": metadata.xmloutputversion,
+            "start": metadata.start,
+            "startstr": metadata.startstr,
+        },
+        "host": {
+            "status": host.status,
+            "addresses": [
+                build_nmap_address_document(address) for address in host.addresses
+            ],
+            "primary_address": host.primary_address,
+        },
+        "open_tcp_ports": [
+            build_nmap_port_document(port) for port in host.open_tcp_ports
+        ],
+    }
+
+
+def write_nmap_xml_import_json_report(
+    import_result: NmapXmlImport,
+    source_path: str,
+    output_path: Path,
+) -> None:
+    """Write imported Nmap XML evidence as pretty JSON."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    document = build_nmap_xml_import_document(import_result, source_path)
     output_path.write_text(
         json.dumps(document, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

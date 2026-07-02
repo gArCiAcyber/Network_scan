@@ -4,10 +4,12 @@ import unittest
 from types import SimpleNamespace
 
 from modules.json_exporter import (
+    build_nmap_xml_import_document,
     build_port_document,
     build_tcp_scan_document,
     parse_set_cookie_header,
 )
+from modules.nmap_xml import parse_nmap_xml_text
 
 
 HTTP_BANNER = (
@@ -41,6 +43,25 @@ MISSING_SECURITY_BANNER = (
     "Server: hylianscan-mock "
     "Content-Type: text/html"
 )
+NMAP_XML = """<?xml version="1.0"?>
+<nmaprun scanner="nmap" args="nmap -sV -oX scan.xml 127.0.0.1"
+         start="1710000000" startstr="Sat Mar 9 12:00:00 2024"
+         version="7.94" xmloutputversion="1.05">
+  <host>
+    <status state="up"/>
+    <address addr="127.0.0.1" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="80">
+        <state state="open"/>
+        <service name="http" product="nginx" version="1.24"
+                 extrainfo="reverse proxy" method="probed" conf="10">
+          <cpe>cpe:/a:nginx:nginx:1.24</cpe>
+        </service>
+      </port>
+    </ports>
+  </host>
+</nmaprun>
+"""
 
 TLS_METADATA = {
     "status": "collected",
@@ -104,6 +125,52 @@ def make_scan_result(open_ports: list[SimpleNamespace]) -> SimpleNamespace:
 
 class JSONExporterTests(unittest.TestCase):
     """Validate pure TCP JSON export structure."""
+
+    def test_nmap_xml_import_document_contains_import_evidence(self) -> None:
+        import_result = parse_nmap_xml_text(NMAP_XML)
+        document = build_nmap_xml_import_document(import_result, "scan.xml")
+
+        self.assertEqual(document["tool"], "hylianscan")
+        self.assertEqual(document["mode"], "nmap_xml_import")
+        self.assertEqual(document["source"]["path"], "scan.xml")
+        self.assertEqual(document["source"]["scanner"], "nmap")
+        self.assertEqual(document["source"]["args"], "nmap -sV -oX scan.xml 127.0.0.1")
+        self.assertEqual(document["source"]["version"], "7.94")
+        self.assertEqual(document["source"]["xmloutputversion"], "1.05")
+        self.assertEqual(document["source"]["start"], "1710000000")
+        self.assertEqual(document["source"]["startstr"], "Sat Mar 9 12:00:00 2024")
+        self.assertEqual(document["host"]["status"], "up")
+        self.assertEqual(document["host"]["primary_address"], "127.0.0.1")
+        self.assertEqual(
+            document["host"]["addresses"],
+            [
+                {
+                    "address": "127.0.0.1",
+                    "type": "ipv4",
+                    "vendor": None,
+                }
+            ],
+        )
+        self.assertEqual(len(document["open_tcp_ports"]), 1)
+
+        port = document["open_tcp_ports"][0]
+        self.assertEqual(port["port"], 80)
+        self.assertEqual(port["protocol"], "tcp")
+        self.assertEqual(port["state"], "open")
+        self.assertEqual(
+            port["service"],
+            {
+                "name": "http",
+                "product": "nginx",
+                "version": "1.24",
+                "extrainfo": "reverse proxy",
+                "tunnel": None,
+                "method": "probed",
+                "conf": 10,
+                "confidence": "high",
+                "cpe": ["cpe:/a:nginx:nginx:1.24"],
+            },
+        )
 
     def test_tcp_json_schema_structure(self) -> None:
         document = build_tcp_scan_document(make_scan_result([make_finding()]))

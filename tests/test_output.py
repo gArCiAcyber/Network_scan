@@ -9,6 +9,8 @@ from core.output import (
     DEFAULT_TCP_TEXT_ARGUMENT,
     OUTPUT_DIR,
     PROJECT_ROOT,
+    resolve_nmap_import_json_output_path,
+    resolve_nmap_import_output_path,
     resolve_output_workspace,
     resolve_json_output_path,
     resolve_output_path,
@@ -168,6 +170,28 @@ class OutputHelperTests(unittest.TestCase):
                 resolve_subdomain_output_path(temporary_dir),
                 expected_path,
             )
+
+    def test_resolve_nmap_import_output_path_uses_import_defaults(self) -> None:
+        self.assertIsNone(resolve_nmap_import_output_path(None))
+        self.assertEqual(
+            resolve_nmap_import_output_path(DEFAULT_TCP_TEXT_ARGUMENT),
+            OUTPUT_DIR / "nmap_import_report.txt",
+        )
+        self.assertEqual(
+            resolve_nmap_import_output_path("custom.txt"),
+            OUTPUT_DIR / "custom.txt",
+        )
+
+    def test_resolve_nmap_import_json_output_path_uses_import_defaults(self) -> None:
+        self.assertIsNone(resolve_nmap_import_json_output_path(None))
+        self.assertEqual(
+            resolve_nmap_import_json_output_path(DEFAULT_TCP_JSON_ARGUMENT),
+            OUTPUT_DIR / "nmap_import_results.json",
+        )
+        self.assertEqual(
+            resolve_nmap_import_json_output_path("nmap-import"),
+            OUTPUT_DIR / "nmap-import.json",
+        )
 
     def test_workspace_creation_detection_for_tcp_defaults(self) -> None:
         self.assertFalse(should_create_tcp_output_workspace(None, None))

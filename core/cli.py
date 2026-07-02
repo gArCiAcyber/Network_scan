@@ -130,16 +130,13 @@ def parse_arguments() -> argparse.Namespace:
         "--output",
         nargs="?",
         const="hylianscan_results.txt",
-        help=(
-            "Save TCP reports inside output/ or choose a directory for "
-            "passive subdomain results."
-        ),
+        help="Save TXT reports for TCP scans, passive discovery, or Nmap XML import.",
     )
     parser.add_argument(
         "--json-output",
         nargs="?",
         const="hylianscan_tcp_results.json",
-        help="Save TCP or passive subdomain results as JSON inside the output directory.",
+        help="Save TCP, passive subdomain, or Nmap XML import results as JSON.",
     )
     parser.add_argument(
         "--quiet",

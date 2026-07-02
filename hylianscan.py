@@ -31,6 +31,8 @@ from core.info_commands import build_information_command_output
 from core.output import (
     resolve_output_workspace,
     resolve_json_output_path,
+    resolve_nmap_import_json_output_path,
+    resolve_nmap_import_output_path,
     resolve_output_path,
     resolve_subdomain_json_output_path,
     resolve_subdomain_output_path,
@@ -57,7 +59,11 @@ from core.terminal import (
     clear_screen,
     print_safe,
 )
-from modules.json_exporter import write_subdomain_json_report, write_tcp_json_report
+from modules.json_exporter import (
+    write_nmap_xml_import_json_report,
+    write_subdomain_json_report,
+    write_tcp_json_report,
+)
 from modules.http_filter import (
     build_http_status_filter_metadata,
     filter_scan_result_by_http_status,
@@ -297,10 +303,20 @@ def run_passive_subdomain_discovery(
     )
 
 
-def run_nmap_xml_import(xml_path: str) -> str:
+def run_nmap_xml_import(
+    xml_path: str,
+    output_path: Path | None = None,
+    json_output_path: Path | None = None,
+) -> str:
     """Import an existing Nmap XML file and return a plain summary."""
     import_result = parse_single_host_nmap_xml_file(xml_path)
-    return format_nmap_xml_import_summary(import_result, xml_path)
+    summary = format_nmap_xml_import_summary(import_result, xml_path)
+    save_report(summary, output_path)
+
+    if json_output_path is not None:
+        write_nmap_xml_import_json_report(import_result, xml_path, json_output_path)
+
+    return summary
 
 
 def main() -> None:
@@ -318,7 +334,15 @@ def main() -> None:
         validate_mode(args)
 
         if is_nmap_xml_import_command(args):
-            print(run_nmap_xml_import(args.nmap_xml))
+            output_path = resolve_nmap_import_output_path(args.output)
+            json_output_path = resolve_nmap_import_json_output_path(args.json_output)
+            print(
+                run_nmap_xml_import(
+                    args.nmap_xml,
+                    output_path=output_path,
+                    json_output_path=json_output_path,
+                )
+            )
             return
 
         if not quiet:
