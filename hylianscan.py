@@ -9,6 +9,7 @@ from core.cli import (
     get_passive_providers,
     is_quiet_mode,
     is_information_command,
+    is_nmap_xml_import_command,
     parse_arguments,
     parse_match_codes,
     parse_ports_list,
@@ -60,6 +61,10 @@ from modules.json_exporter import write_subdomain_json_report, write_tcp_json_re
 from modules.http_filter import (
     build_http_status_filter_metadata,
     filter_scan_result_by_http_status,
+)
+from modules.nmap_xml import (
+    format_nmap_xml_import_summary,
+    parse_single_host_nmap_xml_file,
 )
 from modules.scan_stance import ScanStance
 from modules.subdomain import run_amass, run_subfinder
@@ -292,6 +297,12 @@ def run_passive_subdomain_discovery(
     )
 
 
+def run_nmap_xml_import(xml_path: str) -> str:
+    """Import an existing Nmap XML file and return a plain summary."""
+    import_result = parse_single_host_nmap_xml_file(xml_path)
+    return format_nmap_xml_import_summary(import_result, xml_path)
+
+
 def main() -> None:
     """Coordinate the full CLI execution flow."""
     quiet = False
@@ -305,6 +316,10 @@ def main() -> None:
             return
 
         validate_mode(args)
+
+        if is_nmap_xml_import_command(args):
+            print(run_nmap_xml_import(args.nmap_xml))
+            return
 
         if not quiet:
             clear_screen()
