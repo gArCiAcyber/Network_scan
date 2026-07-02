@@ -162,7 +162,7 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Hylianscan performs the native TCP scan first.
 * Nmap runs only against TCP ports already found open by Hylianscan.
 * Nmap must be installed separately.
-* Enrichment is printed to the terminal only in this milestone.
+* Enrichment is printed to the terminal and included in saved TXT/JSON reports when `-o` and/or `--json-output` are used.
 
 ### Nmap XML Import
 
@@ -222,9 +222,10 @@ Use `--nmap` when you want Hylianscan to scan first, then ask Nmap for service/v
 ```bash
 python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap
 python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap --nmap-path /usr/bin/nmap
+python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap -o --json-output
 ```
 
-This does not replace Hylianscan's native TCP scan and does not save Nmap enrichment into TXT/JSON reports yet.
+This does not replace Hylianscan's native TCP scan. When report output is enabled, the saved TXT and JSON reports include the optional Nmap enrichment evidence.
 
 ---
 

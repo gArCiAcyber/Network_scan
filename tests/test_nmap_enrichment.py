@@ -1,6 +1,9 @@
 """Tests for optional live Nmap enrichment orchestration."""
 
 import io
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -214,6 +217,210 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
         self.assertIn("Nmap enrichment skipped:", output.getvalue())
         self.assertIn("requires exactly one up host", output.getvalue())
+
+    def test_main_saves_nmap_enrichment_in_tcp_txt_report(self) -> None:
+        scan_result = make_scan_result((make_open_port(),))
+        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            txt_output_path = Path(temporary_dir) / "tcp_report.txt"
+
+            with (
+                patch(
+                    "sys.argv",
+                    ["hylianscan", "example.com", "-p", "80", "--nmap", "-o", "--quiet"],
+                ),
+                patch("sys.stdout", io.StringIO()),
+                patch("hylianscan.resolve_target", return_value=make_target()),
+                patch("hylianscan.run_port_scan", return_value=scan_result),
+                patch("hylianscan.resolve_output_path", return_value=txt_output_path),
+                patch("hylianscan.resolve_json_output_path", return_value=None),
+                patch(
+                    "hylianscan.run_nmap_service_version_scan",
+                    return_value=import_result,
+                ),
+            ):
+                hylianscan.main()
+
+            saved_report = txt_output_path.read_text(encoding="utf-8")
+            self.assertIn("Target: example.com", saved_report)
+            self.assertIn("Nmap Enrichment", saved_report)
+            self.assertIn("Status: completed", saved_report)
+            self.assertIn("80/tcp", saved_report)
+            self.assertNotIn("\x1b[", saved_report)
+
+    def test_main_saves_nmap_enrichment_in_tcp_json_report(self) -> None:
+        scan_result = make_scan_result((make_open_port(),))
+        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            json_output_path = Path(temporary_dir) / "tcp_results.json"
+
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "hylianscan",
+                        "example.com",
+                        "-p",
+                        "80",
+                        "--nmap",
+                        "--json-output",
+                        "--quiet",
+                    ],
+                ),
+                patch("sys.stdout", io.StringIO()),
+                patch("hylianscan.resolve_target", return_value=make_target()),
+                patch("hylianscan.run_port_scan", return_value=scan_result),
+                patch("hylianscan.resolve_output_path", return_value=None),
+                patch("hylianscan.resolve_json_output_path", return_value=json_output_path),
+                patch(
+                    "hylianscan.run_nmap_service_version_scan",
+                    return_value=import_result,
+                ),
+            ):
+                hylianscan.main()
+
+            document = json.loads(json_output_path.read_text(encoding="utf-8"))
+            nmap = document["enrichment"]["nmap"]
+            self.assertEqual(nmap["status"], "completed")
+            self.assertEqual(nmap["target"], "127.0.0.1")
+            self.assertEqual(nmap["ports_requested"], [80])
+            self.assertEqual(nmap["ports_returned"], [80])
+            self.assertEqual(nmap["results"][0]["service"]["name"], "http")
+
+    def test_main_saves_nmap_enrichment_in_both_reports(self) -> None:
+        scan_result = make_scan_result((make_open_port(),))
+        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            txt_output_path = Path(temporary_dir) / "tcp_report.txt"
+            json_output_path = Path(temporary_dir) / "tcp_results.json"
+
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "hylianscan",
+                        "example.com",
+                        "-p",
+                        "80",
+                        "--nmap",
+                        "-o",
+                        "--json-output",
+                        "--quiet",
+                    ],
+                ),
+                patch("sys.stdout", io.StringIO()),
+                patch("hylianscan.resolve_target", return_value=make_target()),
+                patch("hylianscan.run_port_scan", return_value=scan_result),
+                patch("hylianscan.resolve_output_path", return_value=txt_output_path),
+                patch("hylianscan.resolve_json_output_path", return_value=json_output_path),
+                patch(
+                    "hylianscan.run_nmap_service_version_scan",
+                    return_value=import_result,
+                ),
+            ):
+                hylianscan.main()
+
+            self.assertTrue(txt_output_path.exists())
+            self.assertTrue(json_output_path.exists())
+            self.assertIn(
+                "Nmap Enrichment",
+                txt_output_path.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "enrichment",
+                json.loads(json_output_path.read_text(encoding="utf-8")),
+            )
+
+    def test_main_saves_skipped_nmap_enrichment_when_no_ports_are_open(self) -> None:
+        scan_result = make_scan_result(())
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            txt_output_path = Path(temporary_dir) / "tcp_report.txt"
+            json_output_path = Path(temporary_dir) / "tcp_results.json"
+
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "hylianscan",
+                        "example.com",
+                        "-p",
+                        "80",
+                        "--nmap",
+                        "-o",
+                        "--json-output",
+                        "--quiet",
+                    ],
+                ),
+                patch("sys.stdout", io.StringIO()),
+                patch("hylianscan.resolve_target", return_value=make_target()),
+                patch("hylianscan.run_port_scan", return_value=scan_result),
+                patch("hylianscan.resolve_output_path", return_value=txt_output_path),
+                patch("hylianscan.resolve_json_output_path", return_value=json_output_path),
+                patch("hylianscan.run_nmap_service_version_scan") as nmap_runner,
+            ):
+                hylianscan.main()
+
+            nmap_runner.assert_not_called()
+            saved_report = txt_output_path.read_text(encoding="utf-8")
+            self.assertIn(
+                "Nmap enrichment skipped: no open TCP ports found.",
+                saved_report,
+            )
+            nmap = json.loads(
+                json_output_path.read_text(encoding="utf-8")
+            )["enrichment"]["nmap"]
+            self.assertEqual(nmap["status"], "skipped")
+            self.assertEqual(nmap["reason"], "no open TCP ports found.")
+            self.assertEqual(nmap["ports_requested"], [])
+
+    def test_main_saves_skipped_nmap_enrichment_when_runner_fails(self) -> None:
+        scan_result = make_scan_result((make_open_port(),))
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            txt_output_path = Path(temporary_dir) / "tcp_report.txt"
+            json_output_path = Path(temporary_dir) / "tcp_results.json"
+
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "hylianscan",
+                        "example.com",
+                        "-p",
+                        "80",
+                        "--nmap",
+                        "-o",
+                        "--json-output",
+                        "--quiet",
+                    ],
+                ),
+                patch("sys.stdout", io.StringIO()),
+                patch("hylianscan.resolve_target", return_value=make_target()),
+                patch("hylianscan.run_port_scan", return_value=scan_result),
+                patch("hylianscan.resolve_output_path", return_value=txt_output_path),
+                patch("hylianscan.resolve_json_output_path", return_value=json_output_path),
+                patch(
+                    "hylianscan.run_nmap_service_version_scan",
+                    side_effect=RuntimeError("Nmap binary not found: nmap."),
+                ),
+            ):
+                hylianscan.main()
+
+            saved_report = txt_output_path.read_text(encoding="utf-8")
+            self.assertIn(
+                "Nmap enrichment skipped: Nmap binary not found: nmap.",
+                saved_report,
+            )
+            nmap = json.loads(
+                json_output_path.read_text(encoding="utf-8")
+            )["enrichment"]["nmap"]
+            self.assertEqual(nmap["status"], "skipped")
+            self.assertEqual(nmap["reason"], "Nmap binary not found: nmap.")
+            self.assertEqual(nmap["ports_requested"], [80])
 
 
 if __name__ == "__main__":

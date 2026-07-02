@@ -10,6 +10,7 @@ from modules.http_metadata import (
     parse_http_headers,
     parse_http_response_head,
 )
+from modules.nmap_enrichment import NmapEnrichmentResult
 from modules.nmap_xml import (
     NmapAddress,
     NmapPort,
@@ -349,6 +350,7 @@ def build_port_document(
 def build_tcp_scan_document(
     scan_result: ScanResultExportView,
     report_filters: Mapping[str, Any] | None = None,
+    nmap_enrichment: NmapEnrichmentResult | None = None,
 ) -> dict[str, Any]:
     """Build a future-ready JSON document for TCP scan results."""
     scan_document: dict[str, Any] = {
@@ -371,7 +373,7 @@ def build_tcp_scan_document(
     if report_filters:
         scan_document["report_filters"] = dict(report_filters)
 
-    return {
+    document = {
         "schema": {
             "name": "hylianscan_tcp_scan",
             "version": 1,
@@ -385,15 +387,27 @@ def build_tcp_scan_document(
         },
     }
 
+    if nmap_enrichment is not None:
+        document["enrichment"] = {
+            "nmap": build_nmap_enrichment_document(nmap_enrichment)
+        }
+
+    return document
+
 
 def write_tcp_json_report(
     scan_result: ScanResultExportView,
     output_path: Path,
     report_filters: Mapping[str, Any] | None = None,
+    nmap_enrichment: NmapEnrichmentResult | None = None,
 ) -> None:
     """Write TCP scan results as pretty JSON."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    document = build_tcp_scan_document(scan_result, report_filters=report_filters)
+    document = build_tcp_scan_document(
+        scan_result,
+        report_filters=report_filters,
+        nmap_enrichment=nmap_enrichment,
+    )
     output_path.write_text(
         json.dumps(document, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -517,6 +531,37 @@ def build_nmap_port_document(port: NmapPort) -> dict[str, Any]:
             "cpe": list(service.cpes),
         },
     }
+
+
+def build_nmap_enrichment_document(
+    enrichment: NmapEnrichmentResult,
+) -> dict[str, Any]:
+    """Build the optional live Nmap enrichment JSON section."""
+    document: dict[str, Any] = {
+        "enabled": True,
+        "status": enrichment.status,
+        "target": enrichment.target,
+        "ports_requested": list(enrichment.ports_requested),
+    }
+
+    if enrichment.status == "skipped":
+        document["reason"] = enrichment.reason or "unknown"
+        return document
+
+    if enrichment.import_result is None:
+        document["status"] = "skipped"
+        document["reason"] = "Nmap enrichment did not return import data."
+        return document
+
+    host = require_single_up_host(enrichment.import_result)
+    document["ports_returned"] = [
+        port.port for port in host.open_tcp_ports
+    ]
+    document["results"] = [
+        build_nmap_port_document(port) for port in host.open_tcp_ports
+    ]
+
+    return document
 
 
 def build_nmap_xml_import_document(
