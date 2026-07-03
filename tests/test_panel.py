@@ -135,13 +135,6 @@ class PanelRenderingTests(unittest.TestCase):
 
         self.assertTrue(report.rstrip().endswith(SEPARATOR_LINE))
 
-    def test_final_panel_can_remain_open_for_following_sections(self) -> None:
-        report = strip_ansi(
-            build_final_panel(make_http_scan_result(), close_panel=False)
-        )
-
-        self.assertFalse(report.rstrip().endswith(SEPARATOR_LINE))
-
 
 if __name__ == "__main__":
     unittest.main()

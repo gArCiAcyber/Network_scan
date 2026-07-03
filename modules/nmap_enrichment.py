@@ -48,6 +48,7 @@ def format_nmap_enrichment_summary(
             + f" {version}"
         )
 
+    lines.append(NMAP_SERVICE_SCAN_SEPARATOR)
     return "\n".join(lines).rstrip()
 
 
@@ -63,6 +64,7 @@ def format_nmap_enrichment_skipped(
         status="skipped",
     )
     lines.append(f"Reason          : {reason}")
+    lines.append(NMAP_SERVICE_SCAN_SEPARATOR)
     return "\n".join(lines)
 
 
@@ -74,6 +76,10 @@ def format_enriched_ports(ports: Sequence[int]) -> str:
 
     return ",".join(str(port) for port in sorted_ports)
 
+
+NMAP_SERVICE_SCAN_SEPARATOR = "-" * 72
+
+
 def build_nmap_service_scan_header(
     target: str,
     ports: Sequence[int],
@@ -81,6 +87,7 @@ def build_nmap_service_scan_header(
 ) -> list[str]:
     """Build the standard Nmap Service Scan block header."""
     return [
+        NMAP_SERVICE_SCAN_SEPARATOR,
         "[+] NMAP SERVICE SCAN",
         f"Target          : {target}",
         f"Ports scanned   : {format_enriched_ports(ports)}",
