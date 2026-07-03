@@ -160,7 +160,38 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         self.assertIn("80/tcp", output.getvalue())
         self.assertNotIn("method=", output.getvalue())
         self.assertNotIn("confidence=", output.getvalue())
+        self.assertNotIn("Starting Nmap Service Scan", output.getvalue())
+        self.assertNotIn("Running Nmap service/version detection", output.getvalue())
         self.assertNotIn("Nmap Enrichment", output.getvalue())
+
+    def test_main_shows_live_nmap_progress_before_final_block(self) -> None:
+        scan_result = make_scan_result((make_open_port(),))
+        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        output = io.StringIO()
+
+        with (
+            patch("sys.argv", ["hylianscan", "example.com", "-p", "80", "--nmap"]),
+            patch("sys.stdout", output),
+            patch("hylianscan.clear_screen"),
+            patch("hylianscan.show_banner"),
+            patch("hylianscan.resolve_target", return_value=make_target()),
+            patch("hylianscan.run_port_scan", return_value=scan_result),
+            patch(
+                "hylianscan.run_nmap_service_version_scan",
+                return_value=import_result,
+            ) as nmap_runner,
+        ):
+            hylianscan.main()
+
+        terminal_output = output.getvalue()
+        nmap_runner.assert_called_once_with("127.0.0.1", [80])
+        self.assertIn("Starting Nmap Service Scan", terminal_output)
+        self.assertIn("Target : 127.0.0.1", terminal_output)
+        self.assertIn("Ports  : 80", terminal_output)
+        self.assertIn("Running Nmap service/version detection", terminal_output)
+        self.assertEqual(terminal_output.count("[+] NMAP SERVICE SCAN"), 1)
+        self.assertNotIn("method=", terminal_output)
+        self.assertNotIn("confidence=", terminal_output)
 
     def test_main_passes_custom_nmap_path_to_runner(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
@@ -285,6 +316,8 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             self.assertIn("80/tcp", saved_report)
             self.assertNotIn("method=", saved_report)
             self.assertNotIn("confidence=", saved_report)
+            self.assertNotIn("Starting Nmap Service Scan", saved_report)
+            self.assertNotIn("Running Nmap service/version detection", saved_report)
             self.assertNotIn("Nmap Enrichment", saved_report)
             self.assertNotIn("\x1b[", saved_report)
 

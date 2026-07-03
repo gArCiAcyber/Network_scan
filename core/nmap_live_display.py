@@ -1,0 +1,60 @@
+"""Live terminal feedback for optional Nmap Service Scan."""
+
+import threading
+import time
+from collections.abc import Sequence
+
+from core.colors import HACKER_GREEN, RESET
+from core.terminal import clear_dynamic_line, print_safe, write_dynamic_line
+from modules.nmap_enrichment import format_enriched_ports
+
+
+NMAP_SPINNER_FRAMES = ("|", "/", "-", "\\")
+NMAP_SPINNER_INTERVAL_SECONDS = 0.12
+
+
+class NmapServiceScanDisplay:
+    """Render lightweight progress while Nmap service detection runs."""
+
+    def __init__(self, target: str, ports: Sequence[int]) -> None:
+        self.target = target
+        self.ports = tuple(sorted(set(ports)))
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._frame_index = 0
+
+    def start(self) -> None:
+        """Print the phase start message and start the spinner."""
+        print_safe(
+            f"{HACKER_GREEN}[+]{RESET} "
+            "Starting Nmap Service Scan against discovered open ports..."
+        )
+        print_safe(f"    Target : {self.target}")
+        print_safe(f"    Ports  : {format_enriched_ports(self.ports)}")
+        self._write_spinner_frame()
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stop the spinner and clear the dynamic line."""
+        self._stop_event.set()
+
+        if self._thread is not None:
+            self._thread.join()
+
+        clear_dynamic_line()
+
+    def _spin(self) -> None:
+        """Update the spinner line until Nmap finishes."""
+        while not self._stop_event.is_set():
+            self._write_spinner_frame()
+            time.sleep(NMAP_SPINNER_INTERVAL_SECONDS)
+
+    def _write_spinner_frame(self) -> None:
+        """Write one dynamic spinner frame."""
+        frame = NMAP_SPINNER_FRAMES[self._frame_index % len(NMAP_SPINNER_FRAMES)]
+        self._frame_index += 1
+        write_dynamic_line(
+            f"{HACKER_GREEN}[*]{RESET} "
+            f"Running Nmap service/version detection... {frame}"
+        )

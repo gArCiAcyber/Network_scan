@@ -28,6 +28,7 @@ from core.colors import (
     TRIFORCE_RED,
 )
 from core.info_commands import build_information_command_output
+from core.nmap_live_display import NmapServiceScanDisplay
 from core.output import (
     resolve_output_workspace,
     resolve_json_output_path,
@@ -495,11 +496,27 @@ def main() -> None:
             nmap_enrichment = None
 
             if getattr(args, "nmap", False):
-                nmap_enrichment = run_live_nmap_enrichment(
-                    target,
-                    native_scan_result,
-                    getattr(args, "nmap_path", None),
+                nmap_display = (
+                    None
+                    if quiet or not native_scan_result.open_ports
+                    else NmapServiceScanDisplay(
+                        target.resolved_ip,
+                        [finding.port for finding in native_scan_result.open_ports],
+                    )
                 )
+
+                if nmap_display is not None:
+                    nmap_display.start()
+
+                try:
+                    nmap_enrichment = run_live_nmap_enrichment(
+                        target,
+                        native_scan_result,
+                        getattr(args, "nmap_path", None),
+                    )
+                finally:
+                    if nmap_display is not None:
+                        nmap_display.stop()
 
             saved_report = build_saved_text_report(
                 scan_result,
