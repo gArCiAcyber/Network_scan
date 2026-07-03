@@ -143,6 +143,7 @@
 - [X] Extract reusable localhost mock-service and TLS certificate test fixtures.
 - [X] Split HTTP Set-Cookie analysis into `modules/http_cookies.py`.
 - [X] Split HTTP security-header observations into `modules/http_security.py`.
+- [X] Split protocol probe implementation out of `modules/banner_grabber.py` into `modules/probes/`.
 
 ## Future Work
 

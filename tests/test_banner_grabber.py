@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from modules import banner_grabber
+from modules.probes import starttls as starttls_probe
 
 
 class BannerGrabberHelperTests(unittest.TestCase):
@@ -401,9 +402,9 @@ class BannerGrabberHelperTests(unittest.TestCase):
         client = Mock()
 
         with (
-            patch.object(banner_grabber, "grab_banner", return_value="* OK IMAP ready"),
+            patch.object(starttls_probe, "grab_banner", return_value="* OK IMAP ready"),
             patch.object(
-                banner_grabber,
+                starttls_probe,
                 "send_probe_and_grab_banner",
                 return_value="* CAPABILITY IMAP4rev1 a001 OK",
             ) as probe_mock,
@@ -433,9 +434,9 @@ class BannerGrabberHelperTests(unittest.TestCase):
         client = Mock()
 
         with (
-            patch.object(banner_grabber, "grab_banner", return_value="+OK POP3 ready"),
+            patch.object(starttls_probe, "grab_banner", return_value="+OK POP3 ready"),
             patch.object(
-                banner_grabber,
+                starttls_probe,
                 "send_probe_and_grab_banner",
                 side_effect=("+OK Capability list follows STLS .", "-ERR TLS unavailable"),
             ),
@@ -467,9 +468,9 @@ class BannerGrabberHelperTests(unittest.TestCase):
         client = Mock()
 
         with (
-            patch.object(banner_grabber, "grab_banner", return_value="220 FTP ready"),
+            patch.object(starttls_probe, "grab_banner", return_value="220 FTP ready"),
             patch.object(
-                banner_grabber,
+                starttls_probe,
                 "send_probe_and_grab_banner",
                 side_effect=("534 TLS unavailable", "215 UNIX Type: L8"),
             ),
