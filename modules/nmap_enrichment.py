@@ -87,7 +87,6 @@ def build_nmap_service_scan_header(
 ) -> list[str]:
     """Build the standard Nmap Service Scan block header."""
     return [
-        NMAP_SERVICE_SCAN_SEPARATOR,
         "[+] NMAP SERVICE SCAN",
         f"Target          : {target}",
         f"Ports scanned   : {format_enriched_ports(ports)}",

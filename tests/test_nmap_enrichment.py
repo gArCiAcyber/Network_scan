@@ -108,7 +108,7 @@ class NmapEnrichmentFormattingTests(unittest.TestCase):
         self.assertIn("tcpwrapped", summary)
         self.assertNotIn("method=", summary)
         self.assertNotIn("confidence=", summary)
-        self.assertTrue(summary.startswith(SEPARATOR_LINE))
+        self.assertFalse(summary.startswith(SEPARATOR_LINE))
         self.assertTrue(summary.rstrip().endswith(SEPARATOR_LINE))
         self.assertNotIn("Nmap Enrichment", summary)
 
@@ -136,7 +136,7 @@ class NmapEnrichmentFormattingTests(unittest.TestCase):
         self.assertIn("Reason          : no open TCP ports found.", summary)
         self.assertNotIn("method=", summary)
         self.assertNotIn("confidence=", summary)
-        self.assertTrue(summary.startswith(SEPARATOR_LINE))
+        self.assertFalse(summary.startswith(SEPARATOR_LINE))
         self.assertTrue(summary.rstrip().endswith(SEPARATOR_LINE))
         self.assertNotIn("Nmap Enrichment", summary)
 
@@ -248,7 +248,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         self.assertEqual(terminal_output.count("[+] NMAP SERVICE SCAN"), 1)
         self.assertGreaterEqual(clean_lines.count(SEPARATOR_LINE), 4)
         nmap_index = clean_lines.index("[+] NMAP SERVICE SCAN")
-        self.assertEqual(clean_lines[nmap_index - 1], SEPARATOR_LINE)
+        self.assertNotEqual(clean_lines[nmap_index - 1], SEPARATOR_LINE)
         self.assertEqual(clean_lines[-1], SEPARATOR_LINE)
         self.assertNotIn("method=", terminal_output)
         self.assertNotIn("confidence=", terminal_output)
