@@ -1,83 +1,17 @@
 """Localhost-only integration tests for mock TCP services."""
 
 import socket
-import threading
 import unittest
-from collections.abc import Callable
 from unittest.mock import patch
 
 from modules import banner_grabber
 from modules.tcp_scanner import scan_single_port, scan_tcp_ports
-
-
-LOCALHOST = "127.0.0.1"
-TEST_TIMEOUT = 1.0
-
-
-class LocalMockServer:
-    """Tiny localhost server for scanner integration tests."""
-
-    def __init__(
-        self,
-        handler: Callable[[socket.socket], None],
-        max_connections: int = 1,
-    ) -> None:
-        self.handler = handler
-        self.max_connections = max_connections
-        self.port: int | None = None
-        self.received_data: list[bytes] = []
-        self._ready = threading.Event()
-        self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._server.bind((LOCALHOST, 0))
-        self._server.listen(max_connections)
-        self._server.settimeout(TEST_TIMEOUT)
-        self.port = self._server.getsockname()[1]
-        self._thread = threading.Thread(target=self._serve, daemon=True)
-
-    def __enter__(self) -> "LocalMockServer":
-        self._thread.start()
-        self._ready.wait(TEST_TIMEOUT)
-        return self
-
-    def __exit__(self, *_args: object) -> None:
-        self.close()
-
-    def close(self) -> None:
-        """Close the listening socket and wait briefly for the server thread."""
-        try:
-            self._server.close()
-        except OSError:
-            pass
-
-        self._thread.join(TEST_TIMEOUT)
-
-    def _serve(self) -> None:
-        """Accept a fixed number of local connections."""
-        self._ready.set()
-
-        try:
-            for _ in range(self.max_connections):
-                try:
-                    client, _address = self._server.accept()
-                except OSError:
-                    break
-
-                with client:
-                    client.settimeout(TEST_TIMEOUT)
-                    self.handler(client)
-        finally:
-            try:
-                self._server.close()
-            except OSError:
-                pass
-
-
-def get_closed_ephemeral_port() -> int:
-    """Allocate and close an ephemeral localhost port."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
-        server.bind((LOCALHOST, 0))
-        return server.getsockname()[1]
+from tests.fixtures.mock_servers import (
+    DEFAULT_TEST_TIMEOUT as TEST_TIMEOUT,
+    LOCALHOST,
+    LocalMockServer,
+    get_closed_ephemeral_port,
+)
 
 
 class MockServiceScanTests(unittest.TestCase):
