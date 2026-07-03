@@ -346,7 +346,7 @@ def build_nmap_enrichment_document(
 
     if enrichment.import_result is None:
         document["status"] = "skipped"
-        document["reason"] = "Nmap enrichment did not return import data."
+        document["reason"] = "Nmap Service Scan did not return import data."
         return document
 
     host = require_single_up_host(enrichment.import_result)

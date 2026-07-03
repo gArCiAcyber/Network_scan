@@ -1,4 +1,4 @@
-"""Tests for optional live Nmap enrichment orchestration."""
+"""Tests for optional live Nmap service scan orchestration."""
 
 import io
 import json
@@ -66,27 +66,51 @@ def make_open_port(port: int = 80) -> PortScanResult:
 
 
 class NmapEnrichmentFormattingTests(unittest.TestCase):
-    """Validate terminal formatting for live Nmap enrichment."""
+    """Validate terminal formatting for live Nmap service scan output."""
 
     def test_summary_includes_status_target_ports_and_service_details(self) -> None:
         import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
         summary = format_nmap_enrichment_summary(import_result, "127.0.0.1", [80])
 
-        self.assertIn("Nmap Enrichment", summary)
-        self.assertIn("Status: completed", summary)
-        self.assertIn("Target: 127.0.0.1", summary)
-        self.assertIn("Ports enriched: 80", summary)
+        self.assertIn("[ NMAP SERVICE SCAN ]", summary)
+        self.assertIn("Status          : completed", summary)
+        self.assertIn("Target          : 127.0.0.1", summary)
+        self.assertIn("Ports scanned   : 80", summary)
+        self.assertIn("PORT", summary)
+        self.assertIn("STATE", summary)
+        self.assertIn("SERVICE", summary)
+        self.assertIn("VERSION", summary)
         self.assertIn("80/tcp", summary)
+        self.assertIn("open", summary)
         self.assertIn("http", summary)
         self.assertIn("nginx 1.24", summary)
         self.assertIn("method=probed", summary)
-        self.assertIn("confidence=high", summary)
+        self.assertIn("confidence=10", summary)
+        self.assertNotIn("Nmap Enrichment", summary)
+
+    def test_summary_sorts_and_deduplicates_requested_ports(self) -> None:
+        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        summary = format_nmap_enrichment_summary(
+            import_result,
+            "127.0.0.1",
+            [443, 80, 80],
+        )
+
+        self.assertIn("Ports scanned   : 80,443", summary)
 
     def test_skipped_message_uses_standard_prefix(self) -> None:
-        self.assertEqual(
-            format_nmap_enrichment_skipped("no open TCP ports found."),
-            "Nmap enrichment skipped: no open TCP ports found.",
+        summary = format_nmap_enrichment_skipped(
+            "no open TCP ports found.",
+            "127.0.0.1",
+            [],
         )
+
+        self.assertIn("[ NMAP SERVICE SCAN ]", summary)
+        self.assertIn("Target          : 127.0.0.1", summary)
+        self.assertIn("Ports scanned   : none", summary)
+        self.assertIn("Status          : skipped", summary)
+        self.assertIn("Reason          : no open TCP ports found.", summary)
+        self.assertNotIn("Nmap Enrichment", summary)
 
 
 class NmapEnrichmentMainTests(unittest.TestCase):
@@ -124,8 +148,9 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             hylianscan.main()
 
         nmap_runner.assert_called_once_with("127.0.0.1", [80])
-        self.assertIn("Nmap Enrichment", output.getvalue())
+        self.assertIn("[ NMAP SERVICE SCAN ]", output.getvalue())
         self.assertIn("80/tcp", output.getvalue())
+        self.assertNotIn("Nmap Enrichment", output.getvalue())
 
     def test_main_passes_custom_nmap_path_to_runner(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
@@ -176,7 +201,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
         nmap_runner.assert_not_called()
         self.assertIn(
-            "Nmap enrichment skipped: no open TCP ports found.",
+            "Reason          : no open TCP ports found.",
             output.getvalue(),
         )
 
@@ -197,7 +222,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             hylianscan.main()
 
         self.assertIn(
-            "Nmap enrichment skipped: Nmap binary not found: nmap.",
+            "Reason          : Nmap binary not found: nmap.",
             output.getvalue(),
         )
 
@@ -215,7 +240,8 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         ):
             hylianscan.main()
 
-        self.assertIn("Nmap enrichment skipped:", output.getvalue())
+        self.assertIn("[ NMAP SERVICE SCAN ]", output.getvalue())
+        self.assertIn("Status          : skipped", output.getvalue())
         self.assertIn("requires exactly one up host", output.getvalue())
 
     def test_main_saves_nmap_enrichment_in_tcp_txt_report(self) -> None:
@@ -244,9 +270,10 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
             saved_report = txt_output_path.read_text(encoding="utf-8")
             self.assertIn("Target: example.com", saved_report)
-            self.assertIn("Nmap Enrichment", saved_report)
-            self.assertIn("Status: completed", saved_report)
+            self.assertIn("[ NMAP SERVICE SCAN ]", saved_report)
+            self.assertIn("Status          : completed", saved_report)
             self.assertIn("80/tcp", saved_report)
+            self.assertNotIn("Nmap Enrichment", saved_report)
             self.assertNotIn("\x1b[", saved_report)
 
     def test_main_saves_nmap_enrichment_in_tcp_json_report(self) -> None:
@@ -326,7 +353,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             self.assertTrue(txt_output_path.exists())
             self.assertTrue(json_output_path.exists())
             self.assertIn(
-                "Nmap Enrichment",
+                "[ NMAP SERVICE SCAN ]",
                 txt_output_path.read_text(encoding="utf-8"),
             )
             self.assertIn(
@@ -367,7 +394,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             nmap_runner.assert_not_called()
             saved_report = txt_output_path.read_text(encoding="utf-8")
             self.assertIn(
-                "Nmap enrichment skipped: no open TCP ports found.",
+                "Reason          : no open TCP ports found.",
                 saved_report,
             )
             nmap = json.loads(
@@ -412,7 +439,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
             saved_report = txt_output_path.read_text(encoding="utf-8")
             self.assertIn(
-                "Nmap enrichment skipped: Nmap binary not found: nmap.",
+                "Reason          : Nmap binary not found: nmap.",
                 saved_report,
             )
             nmap = json.loads(
