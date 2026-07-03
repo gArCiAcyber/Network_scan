@@ -47,10 +47,6 @@ def format_nmap_enrichment_summary(
             + f" {service.name or 'unknown':<9}"
             + f" {version}"
         )
-        lines.append(
-            f"|_method={service.method or 'unknown'} "
-            f"confidence={format_service_confidence(service)}"
-        )
 
     lines.append(NMAP_SERVICE_SCAN_SEPARATOR)
     return "\n".join(lines).rstrip()
@@ -92,21 +88,11 @@ def build_nmap_service_scan_header(
     """Build the standard Nmap Service Scan block header."""
     return [
         NMAP_SERVICE_SCAN_SEPARATOR,
-        "[ NMAP SERVICE SCAN ]",
+        "[+] NMAP SERVICE SCAN",
         f"Target          : {target}",
         f"Ports scanned   : {format_enriched_ports(ports)}",
         f"Status          : {status}",
     ]
-
-
-def format_service_confidence(service: object) -> str:
-    """Return Nmap's raw service confidence when available."""
-    raw_confidence = getattr(service, "confidence_raw", None)
-    if raw_confidence is not None:
-        return str(raw_confidence)
-
-    confidence = getattr(service, "confidence", None)
-    return str(confidence or "unknown")
 
 
 def build_completed_nmap_enrichment(

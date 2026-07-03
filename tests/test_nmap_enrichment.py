@@ -18,7 +18,7 @@ from modules.tcp_scanner import PortScanResult, ScanResult
 
 
 NMAP_ENRICHMENT_XML = """<?xml version="1.0"?>
-<nmaprun scanner="nmap" args="nmap -sT -sV -Pn -n -p 80 -oX - 127.0.0.1"
+<nmaprun scanner="nmap" args="nmap -sT -sV -Pn -n -p 80,31337 -oX - 127.0.0.1"
          start="1710000000" version="7.94" xmloutputversion="1.05">
   <host>
     <status state="up"/>
@@ -27,6 +27,10 @@ NMAP_ENRICHMENT_XML = """<?xml version="1.0"?>
       <port protocol="tcp" portid="80">
         <state state="open"/>
         <service name="http" product="nginx" version="1.24" method="probed" conf="10"/>
+      </port>
+      <port protocol="tcp" portid="31337">
+        <state state="open"/>
+        <service name="tcpwrapped" method="probed" conf="8"/>
       </port>
     </ports>
   </host>
@@ -72,7 +76,7 @@ class NmapEnrichmentFormattingTests(unittest.TestCase):
         import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
         summary = format_nmap_enrichment_summary(import_result, "127.0.0.1", [80])
 
-        self.assertIn("[ NMAP SERVICE SCAN ]", summary)
+        self.assertIn("[+] NMAP SERVICE SCAN", summary)
         self.assertIn("Status          : completed", summary)
         self.assertIn("Target          : 127.0.0.1", summary)
         self.assertIn("Ports scanned   : 80", summary)
@@ -84,8 +88,10 @@ class NmapEnrichmentFormattingTests(unittest.TestCase):
         self.assertIn("open", summary)
         self.assertIn("http", summary)
         self.assertIn("nginx 1.24", summary)
-        self.assertIn("method=probed", summary)
-        self.assertIn("confidence=10", summary)
+        self.assertIn("31337/tcp", summary)
+        self.assertIn("tcpwrapped", summary)
+        self.assertNotIn("method=", summary)
+        self.assertNotIn("confidence=", summary)
         self.assertNotIn("Nmap Enrichment", summary)
 
     def test_summary_sorts_and_deduplicates_requested_ports(self) -> None:
@@ -105,11 +111,13 @@ class NmapEnrichmentFormattingTests(unittest.TestCase):
             [],
         )
 
-        self.assertIn("[ NMAP SERVICE SCAN ]", summary)
+        self.assertIn("[+] NMAP SERVICE SCAN", summary)
         self.assertIn("Target          : 127.0.0.1", summary)
         self.assertIn("Ports scanned   : none", summary)
         self.assertIn("Status          : skipped", summary)
         self.assertIn("Reason          : no open TCP ports found.", summary)
+        self.assertNotIn("method=", summary)
+        self.assertNotIn("confidence=", summary)
         self.assertNotIn("Nmap Enrichment", summary)
 
 
@@ -148,8 +156,10 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             hylianscan.main()
 
         nmap_runner.assert_called_once_with("127.0.0.1", [80])
-        self.assertIn("[ NMAP SERVICE SCAN ]", output.getvalue())
+        self.assertIn("[+] NMAP SERVICE SCAN", output.getvalue())
         self.assertIn("80/tcp", output.getvalue())
+        self.assertNotIn("method=", output.getvalue())
+        self.assertNotIn("confidence=", output.getvalue())
         self.assertNotIn("Nmap Enrichment", output.getvalue())
 
     def test_main_passes_custom_nmap_path_to_runner(self) -> None:
@@ -240,7 +250,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         ):
             hylianscan.main()
 
-        self.assertIn("[ NMAP SERVICE SCAN ]", output.getvalue())
+        self.assertIn("[+] NMAP SERVICE SCAN", output.getvalue())
         self.assertIn("Status          : skipped", output.getvalue())
         self.assertIn("requires exactly one up host", output.getvalue())
 
@@ -270,9 +280,11 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
             saved_report = txt_output_path.read_text(encoding="utf-8")
             self.assertIn("Target: example.com", saved_report)
-            self.assertIn("[ NMAP SERVICE SCAN ]", saved_report)
+            self.assertIn("[+] NMAP SERVICE SCAN", saved_report)
             self.assertIn("Status          : completed", saved_report)
             self.assertIn("80/tcp", saved_report)
+            self.assertNotIn("method=", saved_report)
+            self.assertNotIn("confidence=", saved_report)
             self.assertNotIn("Nmap Enrichment", saved_report)
             self.assertNotIn("\x1b[", saved_report)
 
@@ -313,8 +325,11 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             self.assertEqual(nmap["status"], "completed")
             self.assertEqual(nmap["target"], "127.0.0.1")
             self.assertEqual(nmap["ports_requested"], [80])
-            self.assertEqual(nmap["ports_returned"], [80])
+            self.assertEqual(nmap["ports_returned"], [80, 31337])
             self.assertEqual(nmap["results"][0]["service"]["name"], "http")
+            self.assertEqual(nmap["results"][1]["service"]["name"], "tcpwrapped")
+            self.assertEqual(nmap["results"][1]["service"]["method"], "probed")
+            self.assertEqual(nmap["results"][1]["service"]["conf"], 8)
 
     def test_main_saves_nmap_enrichment_in_both_reports(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
@@ -353,7 +368,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             self.assertTrue(txt_output_path.exists())
             self.assertTrue(json_output_path.exists())
             self.assertIn(
-                "[ NMAP SERVICE SCAN ]",
+                "[+] NMAP SERVICE SCAN",
                 txt_output_path.read_text(encoding="utf-8"),
             )
             self.assertIn(
