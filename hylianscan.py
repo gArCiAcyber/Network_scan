@@ -43,6 +43,7 @@ from core.output import (
     should_create_tcp_output_workspace,
 )
 from core.panel import (
+    PANEL_SEPARATOR,
     build_final_panel,
     build_quiet_final_panel,
     build_saved_text_report,
@@ -490,6 +491,7 @@ def main() -> None:
                     scan_result,
                     scan_scope=scan_scope,
                     scan_stance=format_scan_stance_label(scan_stance),
+                    close_panel=not getattr(args, "nmap", False),
                 )
 
             print(final_panel)
@@ -527,8 +529,13 @@ def main() -> None:
             )
 
             if nmap_enrichment is not None:
+                nmap_report = nmap_enrichment.terminal_text
+
+                if not quiet:
+                    nmap_report = "\n".join([nmap_report, PANEL_SEPARATOR])
+
                 saved_report = "\n\n".join(
-                    [saved_report, nmap_enrichment.terminal_text]
+                    [saved_report, nmap_report]
                 )
 
             save_report(saved_report, output_path)
@@ -546,7 +553,7 @@ def main() -> None:
 
             if nmap_enrichment is not None:
                 print()
-                print(nmap_enrichment.terminal_text)
+                print(nmap_report)
 
     except ValueError as error:
         if quiet:

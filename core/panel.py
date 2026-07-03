@@ -312,6 +312,7 @@ def build_final_panel(
     summary: ScanSummaryView,
     scan_scope: str = "Default Target List",
     scan_stance: str | None = None,
+    close_panel: bool = True,
 ) -> str:
     """Build the final static TCP scan report."""
     lines = [
@@ -338,7 +339,8 @@ def build_final_panel(
         lines.append(
             f"{WARNING_YELLOW}No open ports found in the {scan_scope.lower()}.{RESET}"
         )
-        lines.append(PANEL_SEPARATOR)
+        if close_panel:
+            lines.append(PANEL_SEPARATOR)
         return "\n".join(lines)
 
     lines.append(f"{INFO_BLUE}{'PORT':<10} {'STATE':<6} {'SERVICE':<8} VERSION{RESET}")
@@ -371,7 +373,8 @@ def build_final_panel(
         ]
         lines.extend(format_detail_lines(detail_lines))
 
-    lines.append(PANEL_SEPARATOR)
+    if close_panel:
+        lines.append(PANEL_SEPARATOR)
     return "\n".join(lines)
 
 

@@ -5,12 +5,21 @@ import time
 import sys
 from collections.abc import Sequence
 
-from core.colors import HACKER_GREEN, RESET
-from core.terminal import clear_dynamic_line, print_safe, write_dynamic_line
-from modules.nmap_enrichment import format_enriched_ports
+from core.terminal import clear_dynamic_line, write_dynamic_line
 
 
-NMAP_BRAILLE_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+NMAP_BRAILLE_SPINNER_FRAMES = (
+    "\u280b",
+    "\u2819",
+    "\u2839",
+    "\u2838",
+    "\u283c",
+    "\u2834",
+    "\u2826",
+    "\u2827",
+    "\u2807",
+    "\u280f",
+)
 NMAP_ASCII_SPINNER_FRAMES = ("|", "/", "-", "\\")
 NMAP_SPINNER_INTERVAL_SECONDS = 0.12
 
@@ -27,13 +36,7 @@ class NmapServiceScanDisplay:
         self._spinner_frames = select_spinner_frames()
 
     def start(self) -> None:
-        """Print the phase start message and start the spinner."""
-        print_safe(
-            f"{HACKER_GREEN}[+]{RESET} "
-            "Starting Nmap Service Scan against discovered open ports..."
-        )
-        print_safe(f"    Target : {self.target}")
-        print_safe(f"    Ports  : {format_enriched_ports(self.ports)}")
+        """Start the live Nmap Service Scan spinner."""
         self._write_spinner_frame()
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
@@ -58,8 +61,7 @@ class NmapServiceScanDisplay:
         frame = self._spinner_frames[self._frame_index % len(self._spinner_frames)]
         self._frame_index += 1
         write_dynamic_line(
-            f"{HACKER_GREEN}{frame}{RESET} "
-            "Running Nmap service/version detection..."
+            f"{frame} Running Nmap service/version detection..."
         )
 
 

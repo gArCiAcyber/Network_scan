@@ -3,6 +3,7 @@
 import io
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -21,6 +22,10 @@ from modules.nmap_enrichment import (
 from modules.nmap_xml import parse_nmap_xml_text
 from modules.target import TargetInfo
 from modules.tcp_scanner import PortScanResult, ScanResult
+
+
+ANSI_PATTERN = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+SEPARATOR_LINE = "-" * 72
 
 
 NMAP_ENRICHMENT_XML = """<?xml version="1.0"?>
@@ -42,6 +47,11 @@ NMAP_ENRICHMENT_XML = """<?xml version="1.0"?>
   </host>
 </nmaprun>
 """
+
+
+def strip_ansi(value: str) -> str:
+    """Remove ANSI escape codes from captured terminal output."""
+    return ANSI_PATTERN.sub("", value)
 
 
 def make_target() -> TargetInfo:
@@ -98,6 +108,8 @@ class NmapEnrichmentFormattingTests(unittest.TestCase):
         self.assertIn("tcpwrapped", summary)
         self.assertNotIn("method=", summary)
         self.assertNotIn("confidence=", summary)
+        self.assertFalse(summary.startswith(SEPARATOR_LINE))
+        self.assertFalse(summary.rstrip().endswith(SEPARATOR_LINE))
         self.assertNotIn("Nmap Enrichment", summary)
 
     def test_summary_sorts_and_deduplicates_requested_ports(self) -> None:
@@ -124,6 +136,8 @@ class NmapEnrichmentFormattingTests(unittest.TestCase):
         self.assertIn("Reason          : no open TCP ports found.", summary)
         self.assertNotIn("method=", summary)
         self.assertNotIn("confidence=", summary)
+        self.assertFalse(summary.startswith(SEPARATOR_LINE))
+        self.assertFalse(summary.rstrip().endswith(SEPARATOR_LINE))
         self.assertNotIn("Nmap Enrichment", summary)
 
 
@@ -204,6 +218,10 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             patch("sys.stdout", output),
             patch("hylianscan.clear_screen"),
             patch("hylianscan.show_banner"),
+            patch(
+                "core.nmap_live_display.select_spinner_frames",
+                return_value=NMAP_BRAILLE_SPINNER_FRAMES,
+            ),
             patch("hylianscan.resolve_target", return_value=make_target()),
             patch("hylianscan.run_port_scan", return_value=scan_result),
             patch(
@@ -214,13 +232,24 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             hylianscan.main()
 
         terminal_output = output.getvalue()
+        clean_output = strip_ansi(terminal_output)
+        clean_lines = [
+            line.strip()
+            for line in clean_output.replace("\r", "\n").splitlines()
+            if line.strip()
+        ]
         nmap_runner.assert_called_once_with("127.0.0.1", [80])
-        self.assertIn("Starting Nmap Service Scan", terminal_output)
-        self.assertIn("Target : 127.0.0.1", terminal_output)
-        self.assertIn("Ports  : 80", terminal_output)
+        self.assertNotIn("Starting Nmap Service Scan", terminal_output)
+        self.assertNotIn("Target : 127.0.0.1", terminal_output)
+        self.assertNotIn("Ports  : 80", terminal_output)
         self.assertIn("Running Nmap service/version detection", terminal_output)
+        self.assertIn("⠋ Running Nmap service/version detection", terminal_output)
         self.assertNotIn("Running Nmap service/version detection... |", terminal_output)
         self.assertEqual(terminal_output.count("[+] NMAP SERVICE SCAN"), 1)
+        self.assertEqual(clean_lines.count(SEPARATOR_LINE), 3)
+        nmap_index = clean_lines.index("[+] NMAP SERVICE SCAN")
+        self.assertNotEqual(clean_lines[nmap_index - 1], SEPARATOR_LINE)
+        self.assertEqual(clean_lines[-1], SEPARATOR_LINE)
         self.assertNotIn("method=", terminal_output)
         self.assertNotIn("confidence=", terminal_output)
 
@@ -348,6 +377,8 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             self.assertNotIn("method=", saved_report)
             self.assertNotIn("confidence=", saved_report)
             self.assertNotIn("Starting Nmap Service Scan", saved_report)
+            self.assertNotIn("Target : 127.0.0.1", saved_report)
+            self.assertNotIn("Ports  : 80", saved_report)
             self.assertNotIn("Running Nmap service/version detection", saved_report)
             self.assertNotIn("Nmap Enrichment", saved_report)
             self.assertNotIn("\x1b[", saved_report)
