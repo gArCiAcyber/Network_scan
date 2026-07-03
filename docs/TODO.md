@@ -125,19 +125,18 @@
 - [X] Add optional live Nmap enrichment after native TCP scanning.
 - [X] Add saved TXT/JSON report merging for optional live Nmap enrichment.
 
-## v1.0 Release Validation Completed
+## v1.0.0 Release Validation Completed
 
 - [X] Run `scripts/validate_release.py` from a clean checkout.
 - [X] Verify GitHub Actions `tests` and `pipx install` workflows pass on the final main branch.
 - [X] Confirm local `pipx install .` works before tagging.
-- [X] Complete the final v1.0 release checklist.
+- [X] Complete the final v1.0.0 release checklist.
 - [X] Confirm documented TCP, passive discovery, match-code, output workspace, and Nmap XML examples are validated by tests or release checks.
 - [X] Perform README consistency checks against `python hylianscan.py --help`.
 - [X] Tag the release as annotated tag `v1.0.0` after validation and documentation checks pass.
 
-## v1.0 Stability Hardening Completed
+## v1.0.1 Stability Hardening Completed
 
-- [X] Remove private workspace path references from public version documentation.
 - [X] Extract passive discovery terminal rendering into `core/passive_display.py`.
 - [X] Move information-only CLI command rendering into `core/info_commands.py`.
 - [X] Extract reusable localhost mock-service and TLS certificate test fixtures.
