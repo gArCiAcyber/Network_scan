@@ -140,6 +140,9 @@
 - [X] Remove private workspace path references from public version documentation.
 - [X] Extract passive discovery terminal rendering into `core/passive_display.py`.
 - [X] Move information-only CLI command rendering into `core/info_commands.py`.
+- [X] Extract reusable localhost mock-service and TLS certificate test fixtures.
+- [X] Split HTTP Set-Cookie analysis into `modules/http_cookies.py`.
+- [X] Split HTTP security-header observations into `modules/http_security.py`.
 
 ## Future Work
 
