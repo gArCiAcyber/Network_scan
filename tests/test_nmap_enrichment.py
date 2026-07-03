@@ -8,6 +8,12 @@ import unittest
 from unittest.mock import patch
 
 import hylianscan
+from core.nmap_live_display import (
+    NMAP_ASCII_SPINNER_FRAMES,
+    NMAP_BRAILLE_SPINNER_FRAMES,
+    NmapServiceScanDisplay,
+    select_spinner_frames,
+)
 from modules.nmap_enrichment import (
     format_nmap_enrichment_skipped,
     format_nmap_enrichment_summary,
@@ -164,6 +170,30 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         self.assertNotIn("Running Nmap service/version detection", output.getvalue())
         self.assertNotIn("Nmap Enrichment", output.getvalue())
 
+    def test_nmap_display_uses_braille_spinner_when_encoding_supports_it(self) -> None:
+        self.assertEqual(select_spinner_frames("utf-8"), NMAP_BRAILLE_SPINNER_FRAMES)
+
+    def test_nmap_display_falls_back_to_ascii_when_braille_is_not_supported(self) -> None:
+        self.assertEqual(select_spinner_frames("ascii"), NMAP_ASCII_SPINNER_FRAMES)
+
+    def test_nmap_dynamic_line_starts_with_spinner_frame(self) -> None:
+        with patch(
+            "core.nmap_live_display.select_spinner_frames",
+            return_value=NMAP_BRAILLE_SPINNER_FRAMES,
+        ):
+            display = NmapServiceScanDisplay("127.0.0.1", [80])
+
+        with patch("core.nmap_live_display.write_dynamic_line") as write_dynamic_line:
+            display._write_spinner_frame()
+
+        dynamic_line = write_dynamic_line.call_args.args[0]
+        self.assertIn("⠋", dynamic_line)
+        self.assertLess(
+            dynamic_line.index("⠋"),
+            dynamic_line.index("Running Nmap service/version detection"),
+        )
+        self.assertNotIn("Running Nmap service/version detection... |", dynamic_line)
+
     def test_main_shows_live_nmap_progress_before_final_block(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
         import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
@@ -189,6 +219,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         self.assertIn("Target : 127.0.0.1", terminal_output)
         self.assertIn("Ports  : 80", terminal_output)
         self.assertIn("Running Nmap service/version detection", terminal_output)
+        self.assertNotIn("Running Nmap service/version detection... |", terminal_output)
         self.assertEqual(terminal_output.count("[+] NMAP SERVICE SCAN"), 1)
         self.assertNotIn("method=", terminal_output)
         self.assertNotIn("confidence=", terminal_output)

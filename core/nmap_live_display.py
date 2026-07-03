@@ -2,6 +2,7 @@
 
 import threading
 import time
+import sys
 from collections.abc import Sequence
 
 from core.colors import HACKER_GREEN, RESET
@@ -9,7 +10,8 @@ from core.terminal import clear_dynamic_line, print_safe, write_dynamic_line
 from modules.nmap_enrichment import format_enriched_ports
 
 
-NMAP_SPINNER_FRAMES = ("|", "/", "-", "\\")
+NMAP_BRAILLE_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+NMAP_ASCII_SPINNER_FRAMES = ("|", "/", "-", "\\")
 NMAP_SPINNER_INTERVAL_SECONDS = 0.12
 
 
@@ -22,6 +24,7 @@ class NmapServiceScanDisplay:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._frame_index = 0
+        self._spinner_frames = select_spinner_frames()
 
     def start(self) -> None:
         """Print the phase start message and start the spinner."""
@@ -52,9 +55,21 @@ class NmapServiceScanDisplay:
 
     def _write_spinner_frame(self) -> None:
         """Write one dynamic spinner frame."""
-        frame = NMAP_SPINNER_FRAMES[self._frame_index % len(NMAP_SPINNER_FRAMES)]
+        frame = self._spinner_frames[self._frame_index % len(self._spinner_frames)]
         self._frame_index += 1
         write_dynamic_line(
-            f"{HACKER_GREEN}[*]{RESET} "
-            f"Running Nmap service/version detection... {frame}"
+            f"{HACKER_GREEN}{frame}{RESET} "
+            "Running Nmap service/version detection..."
         )
+
+
+def select_spinner_frames(encoding: str | None = None) -> tuple[str, ...]:
+    """Return Braille spinner frames when the active output encoding supports them."""
+    output_encoding = encoding or sys.stdout.encoding or ""
+
+    try:
+        "".join(NMAP_BRAILLE_SPINNER_FRAMES).encode(output_encoding)
+    except (LookupError, UnicodeEncodeError):
+        return NMAP_ASCII_SPINNER_FRAMES
+
+    return NMAP_BRAILLE_SPINNER_FRAMES
