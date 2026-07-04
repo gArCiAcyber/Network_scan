@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 import hylianscan
+from core.colors import ALERT_RED, RESET
 from core.nmap_live_display import (
     NMAP_ASCII_SPINNER_FRAMES,
     NMAP_BRAILLE_SPINNER_FRAMES,
@@ -243,7 +244,10 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         self.assertNotIn("Target : 127.0.0.1", terminal_output)
         self.assertNotIn("Ports  : 80", terminal_output)
         self.assertIn("Running Nmap service/version detection", terminal_output)
-        self.assertIn("⠋ Running Nmap service/version detection", terminal_output)
+        self.assertIn(
+            f"{ALERT_RED}⠋{RESET} Running Nmap service/version detection",
+            terminal_output,
+        )
         self.assertNotIn("Running Nmap service/version detection... |", terminal_output)
         self.assertEqual(terminal_output.count("[+] NMAP SERVICE SCAN"), 1)
         self.assertGreaterEqual(clean_lines.count(SEPARATOR_LINE), 4)

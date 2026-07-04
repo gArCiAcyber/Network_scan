@@ -5,6 +5,7 @@ import time
 import sys
 from collections.abc import Sequence
 
+from core.colors import ALERT_RED, RESET
 from core.terminal import clear_dynamic_line, write_dynamic_line
 
 
@@ -61,7 +62,7 @@ class NmapServiceScanDisplay:
         frame = self._spinner_frames[self._frame_index % len(self._spinner_frames)]
         self._frame_index += 1
         write_dynamic_line(
-            f"{frame} Running Nmap service/version detection..."
+            f"{ALERT_RED}{frame}{RESET} Running Nmap service/version detection..."
         )
 
 
