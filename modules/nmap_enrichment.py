@@ -1,4 +1,4 @@
-"""Terminal formatting helpers for optional live Nmap enrichment."""
+"""Terminal formatting helpers for optional live Nmap service scans."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from modules.nmap_xml import NmapXmlImport, format_service_version, require_sing
 
 @dataclass(frozen=True)
 class NmapEnrichmentResult:
-    """Structured result for optional live Nmap enrichment."""
+    """Structured result for optional live Nmap service scan evidence."""
 
     status: str
     target: str
@@ -25,40 +25,73 @@ def format_nmap_enrichment_summary(
     target: str,
     ports: Sequence[int],
 ) -> str:
-    """Return a concise terminal summary for live Nmap enrichment."""
+    """Return a concise terminal summary for a live Nmap service scan."""
     host = require_single_up_host(import_result)
+    lines = build_nmap_service_scan_header(
+        target=target,
+        ports=ports,
+        status="completed",
+    )
     lines = [
-        "Nmap Enrichment",
-        "Status: completed",
-        f"Target: {target}",
-        f"Ports enriched: {format_enriched_ports(ports)}",
+        *lines,
         "",
+        f"{'PORT':<10} {'STATE':<6} {'SERVICE':<9} VERSION",
     ]
 
     for port in host.open_tcp_ports:
         service = port.service
+        version = format_service_version(service)
         lines.append(
-            f"{port.port}/tcp".ljust(8)
-            + " "
-            + f"{service.name or 'unknown':<8}"
-            + " "
-            + f"{format_service_version(service):<24}"
-            + " "
-            + f"method={service.method or 'unknown'} "
-            + f"confidence={service.confidence}"
+            f"{port.port}/tcp".ljust(10)
+            + f" {port.state:<6}"
+            + f" {service.name or 'unknown':<9}"
+            + f" {version}"
         )
 
+    lines.append(NMAP_SERVICE_SCAN_SEPARATOR)
     return "\n".join(lines).rstrip()
 
 
-def format_nmap_enrichment_skipped(reason: str) -> str:
-    """Return the standard skipped enrichment message."""
-    return f"Nmap enrichment skipped: {reason}"
+def format_nmap_enrichment_skipped(
+    reason: str,
+    target: str = "unknown",
+    ports: Sequence[int] = (),
+) -> str:
+    """Return the standard skipped Nmap service scan block."""
+    lines = build_nmap_service_scan_header(
+        target=target,
+        ports=ports,
+        status="skipped",
+    )
+    lines.append(f"Reason          : {reason}")
+    lines.append(NMAP_SERVICE_SCAN_SEPARATOR)
+    return "\n".join(lines)
 
 
 def format_enriched_ports(ports: Sequence[int]) -> str:
     """Return a compact sorted port list for display."""
-    return ",".join(str(port) for port in sorted(set(ports)))
+    sorted_ports = sorted(set(ports))
+    if not sorted_ports:
+        return "none"
+
+    return ",".join(str(port) for port in sorted_ports)
+
+
+NMAP_SERVICE_SCAN_SEPARATOR = "-" * 72
+
+
+def build_nmap_service_scan_header(
+    target: str,
+    ports: Sequence[int],
+    status: str,
+) -> list[str]:
+    """Build the standard Nmap Service Scan block header."""
+    return [
+        "[+] NMAP SERVICE SCAN",
+        f"Target          : {target}",
+        f"Ports scanned   : {format_enriched_ports(ports)}",
+        f"Status          : {status}",
+    ]
 
 
 def build_completed_nmap_enrichment(
@@ -91,6 +124,6 @@ def build_skipped_nmap_enrichment(
         status="skipped",
         target=target,
         ports_requested=tuple(sorted(set(ports))),
-        terminal_text=format_nmap_enrichment_skipped(reason),
+        terminal_text=format_nmap_enrichment_skipped(reason, target, ports),
         reason=reason,
     )

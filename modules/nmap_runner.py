@@ -17,16 +17,16 @@ STDERR_PREVIEW_LIMIT = 500
 def normalize_nmap_ports(ports: Sequence[int]) -> list[int]:
     """Validate, deduplicate, and sort TCP ports for an Nmap run."""
     if not ports:
-        raise ValueError("Nmap enrichment requires at least one TCP port.")
+        raise ValueError("Nmap Service Scan requires at least one TCP port.")
 
     normalized_ports: set[int] = set()
 
     for port in ports:
         if isinstance(port, bool) or not isinstance(port, int):
-            raise ValueError(f"Invalid TCP port for Nmap enrichment: {port!r}.")
+            raise ValueError(f"Invalid TCP port for Nmap Service Scan: {port!r}.")
 
         if not 1 <= port <= MAX_PORT:
-            raise ValueError(f"Invalid TCP port for Nmap enrichment: {port}.")
+            raise ValueError(f"Invalid TCP port for Nmap Service Scan: {port}.")
 
         normalized_ports.add(port)
 
@@ -44,10 +44,10 @@ def build_nmap_service_version_command(
     clean_nmap_binary = nmap_binary.strip()
 
     if not clean_target:
-        raise ValueError("Nmap enrichment requires a target host.")
+        raise ValueError("Nmap Service Scan requires a target host.")
 
     if not clean_nmap_binary:
-        raise ValueError("Nmap enrichment requires an Nmap binary name or path.")
+        raise ValueError("Nmap Service Scan requires an Nmap binary name or path.")
 
     return [
         clean_nmap_binary,

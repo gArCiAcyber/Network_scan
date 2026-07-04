@@ -8,6 +8,7 @@ from core.panel import build_final_panel, build_saved_text_report
 
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+SEPARATOR_LINE = "-" * 72
 
 EXPIRED_TLS_METADATA = {
     "status": "collected",
@@ -128,6 +129,11 @@ class PanelRenderingTests(unittest.TestCase):
         )
         self.assertIn("http-server-header: cloudflare", report)
         self.assertIn("http-content-type: text/html", report)
+
+    def test_final_panel_keeps_closing_separator_by_default(self) -> None:
+        report = strip_ansi(build_final_panel(make_http_scan_result()))
+
+        self.assertTrue(report.rstrip().endswith(SEPARATOR_LINE))
 
 
 if __name__ == "__main__":
