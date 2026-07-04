@@ -12,6 +12,10 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 NMAP_XML_FIXTURE = Path("docs") / "examples" / "nmap_single_host.xml"
 
+sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from core.version import APP_NAME, APP_VERSION
+
 
 @dataclass(frozen=True)
 class SmokeCheck:
@@ -30,7 +34,7 @@ def build_checks() -> tuple[SmokeCheck, ...]:
         SmokeCheck(
             name="Version command",
             command=(python, "hylianscan.py", "--version"),
-            expected_snippets=("hylianscan 1.0.0",),
+            expected_snippets=(f"{APP_NAME} {APP_VERSION}",),
         ),
         SmokeCheck(
             name="Help command",
