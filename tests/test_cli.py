@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from core.cli import (
     get_passive_providers,
+    has_explicit_stance,
     is_information_command,
     is_nmap_xml_import_command,
     is_quiet_mode,
@@ -16,6 +17,7 @@ from core.cli import (
     parse_ports_list,
     resolve_port_profile_label,
     resolve_scan_scope_label,
+    resolve_scan_stance,
     resolve_target_argument,
     validate_max_rate,
     validate_mode,
@@ -47,6 +49,7 @@ def build_args(
     nmap_path: str | None = None,
     subfinder_path: str | None = None,
     amass_path: str | None = None,
+    stance: str | None = None,
 ) -> argparse.Namespace:
     """Build a minimal argparse namespace for CLI helper tests."""
     return argparse.Namespace(
@@ -65,6 +68,7 @@ def build_args(
         nmap_path=nmap_path,
         subfinder_path=subfinder_path,
         amass_path=amass_path,
+        stance=stance,
     )
 
 
@@ -186,6 +190,19 @@ class CLIHelperTests(unittest.TestCase):
             with self.subTest(max_rate=max_rate):
                 with self.assertRaises(ValueError):
                     validate_max_rate(max_rate)
+
+    def test_resolve_scan_stance_uses_balanced_when_omitted(self) -> None:
+        stance = resolve_scan_stance(build_args())
+
+        self.assertEqual(stance.name, "balanced")
+        self.assertEqual(stance.lore_alias, "Nayru")
+        self.assertFalse(has_explicit_stance(build_args()))
+
+    def test_has_explicit_stance_detects_user_supplied_stance(self) -> None:
+        args = build_args(stance="balanced")
+
+        self.assertTrue(has_explicit_stance(args))
+        self.assertEqual(resolve_scan_stance(args).name, "balanced")
 
     def test_resolve_scan_scope_label_returns_expected_labels(self) -> None:
         self.assertEqual(resolve_scan_scope_label(build_args()), "Default Target List")
@@ -311,6 +328,15 @@ class CLIHelperTests(unittest.TestCase):
 
         self.assertEqual(args.target, "example.com")
         self.assertTrue(args.quiet)
+        self.assertIsNone(args.stance)
+
+    def test_parse_arguments_preserves_explicit_stance(self) -> None:
+        with patch("sys.argv", ["hylianscan", "example.com", "--stance", "nayru"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.target, "example.com")
+        self.assertEqual(args.stance, "nayru")
+        self.assertTrue(has_explicit_stance(args))
 
     def test_parse_arguments_preserves_positional_target(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com"]):

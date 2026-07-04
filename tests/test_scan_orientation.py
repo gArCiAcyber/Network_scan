@@ -28,7 +28,7 @@ class ScanOrientationTests(unittest.TestCase):
         self.assertFalse(hylianscan.has_scan_config_overrides(args))
         self.assertEqual(
             hylianscan.format_scan_config_source(False),
-            "Default Stance Values",
+            "Default Scan Values",
         )
 
     def test_manual_threads_timeout_or_max_rate_are_custom_overrides(self) -> None:
@@ -74,6 +74,7 @@ class ScanOrientationTests(unittest.TestCase):
                 port_count=1000,
                 max_rate=100.0,
                 has_overrides=True,
+                show_stance=True,
                 port_profile_label="web / sheikah",
                 match_codes=[200, 301, 302],
             )
@@ -89,6 +90,71 @@ class ScanOrientationTests(unittest.TestCase):
         self.assertIn("Port Profile  : web / sheikah", rendered)
         self.assertIn("HTTP Filter   : Status codes 200, 301, 302", rendered)
         self.assertIn("Port Scope    : 1000 ports", rendered)
+
+    def test_target_orientation_hides_implicit_stance_but_keeps_controls(self) -> None:
+        target = TargetInfo(
+            raw_input="example.com",
+            target_host="example.com",
+            resolved_ip="93.184.216.34",
+            is_ip_address=False,
+        )
+        stance = ScanStance(
+            name="balanced",
+            lore_alias="Nayru",
+            workers=50,
+            timeout=1.0,
+        )
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            hylianscan.show_target_orientation(
+                target=target,
+                stance=stance,
+                port_count=400,
+                max_rate=None,
+                has_overrides=False,
+                show_stance=False,
+            )
+
+        rendered = strip_ansi(output.getvalue())
+
+        self.assertNotIn("Stance", rendered)
+        self.assertIn("Workers       : 50", rendered)
+        self.assertIn("Timeout       : 1.00s", rendered)
+        self.assertIn("Max Rate      : Unlimited", rendered)
+        self.assertIn("Config Source : Default Scan Values", rendered)
+        self.assertIn("Scan Phase    : Hylian TCP Connect Scan", rendered)
+        self.assertIn("Port Scope    : 400 ports", rendered)
+        self.assertNotIn("Nmap Enrichment", rendered)
+
+    def test_target_orientation_shows_nmap_intent_only_when_enabled(self) -> None:
+        target = TargetInfo(
+            raw_input="example.com",
+            target_host="example.com",
+            resolved_ip="93.184.216.34",
+            is_ip_address=False,
+        )
+        stance = ScanStance(
+            name="balanced",
+            lore_alias="Nayru",
+            workers=50,
+            timeout=1.0,
+        )
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            hylianscan.show_target_orientation(
+                target=target,
+                stance=stance,
+                port_count=400,
+                show_stance=False,
+                nmap_enabled=True,
+            )
+
+        rendered = strip_ansi(output.getvalue())
+
+        self.assertIn("Nmap Enrichment : Enabled (post-scan)", rendered)
+        self.assertIn("Scan Phase    : Hylian TCP Connect Scan", rendered)
 
 
 if __name__ == "__main__":
