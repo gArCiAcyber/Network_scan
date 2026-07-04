@@ -7,6 +7,7 @@ from pathlib import Path
 from core.banner import show_banner
 from core.cli import (
     get_passive_providers,
+    has_explicit_stance,
     is_quiet_mode,
     is_information_command,
     is_nmap_xml_import_command,
@@ -111,7 +112,7 @@ def format_scan_config_source(has_overrides: bool) -> str:
     if has_overrides:
         return "User Overrides"
 
-    return "Default Stance Values"
+    return "Default Scan Values"
 
 
 def format_max_rate_label(max_rate: float | None) -> str:
@@ -145,10 +146,12 @@ def show_target_orientation(
     port_count: int,
     max_rate: float | None = None,
     has_overrides: bool = False,
+    show_stance: bool = True,
+    nmap_enabled: bool = False,
     port_profile_label: str | None = None,
     match_codes: list[int] | None = None,
 ) -> None:
-    """Render the target orientation and active scan stance block."""
+    """Render the target orientation and effective scan configuration block."""
     alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
     label_width = 14
     lines = ["[*] Target Orientation:"]
@@ -157,10 +160,17 @@ def show_target_orientation(
         [
             f"{'Host':<{label_width}}: {target.target_host}",
             f"{'Resolved IP':<{label_width}}: {target.resolved_ip}",
-            (
-                f"{'Stance':<{label_width}}: {stance.name} "
-                f"({alias_color}{stance.lore_alias}{RESET}{INFO_BLUE})"
-            ),
+        ]
+    )
+
+    if show_stance:
+        lines.append(
+            f"{'Stance':<{label_width}}: {stance.name} "
+            f"({alias_color}{stance.lore_alias}{RESET}{INFO_BLUE})"
+        )
+
+    lines.extend(
+        [
             f"{'Workers':<{label_width}}: {stance.workers}",
             f"{'Timeout':<{label_width}}: {stance.timeout:.2f}s",
             f"{'Max Rate':<{label_width}}: {format_max_rate_label(max_rate)}",
@@ -168,23 +178,24 @@ def show_target_orientation(
                 f"{'Config Source':<{label_width}}: "
                 f"{format_scan_config_source(has_overrides)}"
             ),
-            f"{'Scan Phase':<{label_width}}: Hylian TCP Connect Scan",
-            *(
-                [f"{'Port Profile':<{label_width}}: {port_profile_label}"]
-                if port_profile_label
-                else []
-            ),
-            *(
-                [
-                    f"{'HTTP Filter':<{label_width}}: Status codes "
-                    f"{format_match_codes(match_codes)}"
-                ]
-                if match_codes is not None
-                else []
-            ),
-            f"{'Port Scope':<{label_width}}: {port_count} ports",
         ]
     )
+
+    if nmap_enabled:
+        lines.append("Nmap Enrichment : Enabled (post-scan)")
+
+    lines.append(f"{'Scan Phase':<{label_width}}: Hylian TCP Connect Scan")
+
+    if port_profile_label:
+        lines.append(f"{'Port Profile':<{label_width}}: {port_profile_label}")
+
+    if match_codes is not None:
+        lines.append(
+            f"{'HTTP Filter':<{label_width}}: Status codes "
+            f"{format_match_codes(match_codes)}"
+        )
+
+    lines.append(f"{'Port Scope':<{label_width}}: {port_count} ports")
 
     print()
     print(f"{INFO_BLUE}{chr(10).join(lines)}{RESET}")
@@ -460,6 +471,8 @@ def main() -> None:
                     len(ports_to_scan),
                     max_rate=max_rate,
                     has_overrides=has_overrides,
+                    show_stance=has_explicit_stance(args),
+                    nmap_enabled=getattr(args, "nmap", False),
                     port_profile_label=port_profile_label,
                     match_codes=match_codes,
                 )

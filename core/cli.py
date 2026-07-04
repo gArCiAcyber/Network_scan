@@ -129,7 +129,6 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--stance",
-        default=DEFAULT_STANCE,
         help=(
             "TCP scan stance. Supports fast/din, balanced/nayru, "
             "and stealthier/farore. Default: balanced."
@@ -382,10 +381,15 @@ def resolve_scan_stance(args: argparse.Namespace) -> ScanStance:
         explicit_timeout = validate_timeout(args.timeout)
 
     return resolve_stance(
-        stance_value=args.stance,
+        stance_value=getattr(args, "stance", None) or DEFAULT_STANCE,
         explicit_workers=explicit_threads,
         explicit_timeout=explicit_timeout,
     )
+
+
+def has_explicit_stance(args: argparse.Namespace) -> bool:
+    """Return True when the user explicitly selected a TCP scan stance."""
+    return getattr(args, "stance", None) is not None
 
 
 def get_passive_providers(args: argparse.Namespace) -> list[str]:

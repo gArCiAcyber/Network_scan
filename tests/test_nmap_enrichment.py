@@ -248,6 +248,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             f"{ALERT_RED}⠋{RESET} Running Nmap service/version detection",
             terminal_output,
         )
+        self.assertIn("Nmap Enrichment : Enabled (post-scan)", clean_output)
         self.assertNotIn("Running Nmap service/version detection... |", terminal_output)
         self.assertEqual(terminal_output.count("[+] NMAP SERVICE SCAN"), 1)
         self.assertGreaterEqual(clean_lines.count(SEPARATOR_LINE), 4)
