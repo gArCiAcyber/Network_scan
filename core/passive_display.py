@@ -125,6 +125,18 @@ def format_passive_provider_count_message(provider: str, candidate_count: int) -
     return f"[+] {label} returned {candidate_count} candidates"
 
 
+def format_passive_provider_sources_message(
+    provider: str,
+    observed_sources: list[str],
+) -> str | None:
+    """Return one provider source-attribution activity message when available."""
+    if not observed_sources:
+        return None
+
+    label = PASSIVE_PROVIDER_LABELS[provider][0]
+    return f"[+] {label} observed sources: {', '.join(observed_sources)}"
+
+
 def build_passive_subdomain_summary(
     domain: str,
     raw_discovery_count: int,

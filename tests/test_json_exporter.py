@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from modules.json_exporter import (
+    build_subdomain_discovery_document,
     build_nmap_xml_import_document,
     build_port_document,
     build_tcp_scan_document,
@@ -14,6 +15,7 @@ from modules.nmap_enrichment import (
     build_skipped_nmap_enrichment,
 )
 from modules.nmap_xml import parse_nmap_xml_text
+from modules.subdomain import PassiveProviderResult
 
 
 HTTP_BANNER = (
@@ -722,6 +724,82 @@ class JSONExporterTests(unittest.TestCase):
         self.assertIn("probe", open_ports[0])
         self.assertEqual(open_ports[0]["http"]["status_code"], 301)
         self.assertEqual(open_ports[0]["tls_analysis"]["severity"], "low")
+
+    def test_subdomain_json_includes_provider_metadata(self) -> None:
+        document = build_subdomain_discovery_document(
+            "example.com",
+            {
+                "subfinder": PassiveProviderResult(
+                    provider="subfinder",
+                    candidates=["www.example.com", "api.example.com"],
+                    observed_sources=["alienvault", "crtsh"],
+                    candidate_sources={
+                        "www.example.com": ["crtsh"],
+                        "api.example.com": ["alienvault"],
+                    },
+                    warnings=["rate limit warning"],
+                    errors=[],
+                    timed_out=False,
+                    exit_code=0,
+                    status="completed",
+                ),
+                "amass": PassiveProviderResult(
+                    provider="amass",
+                    candidates=["api.example.com"],
+                    observed_sources=[],
+                    candidate_sources={},
+                    warnings=[],
+                    errors=[],
+                    timed_out=False,
+                    exit_code=0,
+                    status="completed",
+                ),
+            },
+        )
+
+        self.assertEqual(document["discovery"]["summary"]["raw_discoveries"], 3)
+        self.assertEqual(document["discovery"]["summary"]["unique_subdomains"], 2)
+        self.assertEqual(
+            document["results"]["subdomains"],
+            ["api.example.com", "www.example.com"],
+        )
+        self.assertEqual(
+            document["results"]["sources"]["api.example.com"],
+            ["amass", "subfinder"],
+        )
+
+        subfinder = next(
+            provider
+            for provider in document["providers"]
+            if provider["name"] == "subfinder"
+        )
+        self.assertEqual(subfinder["candidate_count"], 2)
+        self.assertEqual(
+            subfinder["metadata"]["observed_sources"],
+            ["alienvault", "crtsh"],
+        )
+        self.assertEqual(
+            subfinder["metadata"]["candidate_sources"],
+            {
+                "api.example.com": ["alienvault"],
+                "www.example.com": ["crtsh"],
+            },
+        )
+        self.assertEqual(subfinder["metadata"]["warnings"], ["rate limit warning"])
+
+    def test_subdomain_json_preserves_list_provider_compatibility(self) -> None:
+        document = build_subdomain_discovery_document(
+            "example.com",
+            {
+                "subfinder": ["www.example.com"],
+            },
+        )
+
+        provider = document["providers"][0]
+        self.assertEqual(provider["count"], 1)
+        self.assertEqual(provider["candidate_count"], 1)
+        self.assertEqual(provider["subdomains"], ["www.example.com"])
+        self.assertEqual(provider["metadata"]["observed_sources"], [])
 
 
 if __name__ == "__main__":

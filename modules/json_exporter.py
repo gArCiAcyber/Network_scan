@@ -18,6 +18,7 @@ from modules.nmap_xml import (
     NmapXmlImport,
     require_single_up_host,
 )
+from modules.subdomain import PassiveProviderResult
 from modules.tls_analysis import build_tls_analysis
 
 
@@ -220,19 +221,53 @@ def normalize_subdomain_results(subdomains: Sequence[str]) -> list[str]:
     return sorted(normalized)
 
 
+def coerce_subdomain_provider_result(
+    provider_name: str,
+    provider_result: Sequence[str] | PassiveProviderResult,
+) -> PassiveProviderResult:
+    """Return a structured provider result without breaking older list inputs."""
+    if isinstance(provider_result, PassiveProviderResult):
+        return provider_result
+
+    return PassiveProviderResult(
+        provider=provider_name,
+        candidates=list(provider_result),
+    )
+
+
 def build_subdomain_provider_documents(
-    provider_results: Mapping[str, Sequence[str]],
+    provider_results: Mapping[str, Sequence[str] | PassiveProviderResult],
 ) -> list[dict[str, Any]]:
     """Build provider-specific subdomain result documents."""
     provider_documents: list[dict[str, Any]] = []
 
     for provider_name in sorted(provider_results):
-        subdomains = normalize_subdomain_results(provider_results[provider_name])
+        provider_result = coerce_subdomain_provider_result(
+            provider_name,
+            provider_results[provider_name],
+        )
+        subdomains = normalize_subdomain_results(provider_result.candidates)
+        normalized_candidate_sources = {
+            subdomain: sorted(set(sources))
+            for subdomain, sources in provider_result.candidate_sources.items()
+            if subdomain in subdomains and sources
+        }
+
         provider_documents.append(
             {
                 "name": provider_name,
                 "count": len(subdomains),
+                "candidate_count": len(subdomains),
                 "subdomains": subdomains,
+                "metadata": {
+                    "status": provider_result.status,
+                    "exit_code": provider_result.exit_code,
+                    "timed_out": provider_result.timed_out,
+                    "observed_sources": list(provider_result.observed_sources),
+                    "warnings": list(provider_result.warnings),
+                    "errors": list(provider_result.errors),
+                    "candidate_sources": normalized_candidate_sources,
+                },
             }
         )
 
@@ -241,7 +276,7 @@ def build_subdomain_provider_documents(
 
 def build_subdomain_discovery_document(
     target_domain: str,
-    provider_results: Mapping[str, Sequence[str]],
+    provider_results: Mapping[str, Sequence[str] | PassiveProviderResult],
 ) -> dict[str, Any]:
     """Build a provider-aware JSON document for passive subdomain discovery."""
     provider_documents = build_subdomain_provider_documents(provider_results)
@@ -273,7 +308,12 @@ def build_subdomain_discovery_document(
             },
             "summary": {
                 "providers": len(provider_documents),
+                "raw_discoveries": sum(
+                    provider_document["candidate_count"]
+                    for provider_document in provider_documents
+                ),
                 "deduplicated_subdomains": len(final_subdomains),
+                "unique_subdomains": len(final_subdomains),
             },
         },
         "providers": provider_documents,
@@ -286,7 +326,7 @@ def build_subdomain_discovery_document(
 
 def write_subdomain_json_report(
     target_domain: str,
-    provider_results: Mapping[str, Sequence[str]],
+    provider_results: Mapping[str, Sequence[str] | PassiveProviderResult],
     output_path: Path,
 ) -> None:
     """Write passive subdomain discovery results as provider-aware JSON."""

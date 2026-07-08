@@ -23,7 +23,6 @@ THREAT_INTEL_KEYWORDS = (
 AMASS_GRAPH_KEYWORDS = ("amass", "graph", "networkdb", "enum")
 WARNING_KEYWORDS = ("warning", "error", "unable", "failed", "rate")
 PROVIDER_STARTED_KEYWORDS = ("provider started",)
-FIRST_RESULT_KEYWORDS = ("first result observed",)
 PROVIDER_COMPLETED_KEYWORDS = ("provider completed",)
 MERGE_STARTED_KEYWORDS = ("merge/deduplication started",)
 
@@ -83,12 +82,6 @@ def build_activity_message(provider: str, output: str) -> str | None:
 
     if contains_any(output, PROVIDER_STARTED_KEYWORDS):
         return build_lifecycle_activity_message(normalized_provider, "provider started")
-
-    if contains_any(output, FIRST_RESULT_KEYWORDS):
-        return build_lifecycle_activity_message(
-            normalized_provider,
-            "first result observed",
-        )
 
     if contains_any(output, PROVIDER_COMPLETED_KEYWORDS):
         return build_lifecycle_activity_message(
@@ -151,9 +144,6 @@ def build_lifecycle_activity_message(provider: str, event: str) -> str | None:
 
     if event == "provider started":
         return f"Running {label} passive enumeration..."
-
-    if event == "first result observed":
-        return f"{label} returned the first candidate..."
 
     if event == "provider completed":
         return None

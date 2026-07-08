@@ -1,5 +1,6 @@
 """Tests for passive subdomain provider execution helpers."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +8,9 @@ from unittest.mock import patch
 
 import hylianscan
 from modules.subdomain import (
+    PassiveProviderResult,
+    parse_plain_provider_line,
+    parse_subfinder_json_line,
     resolve_provider_executable,
     run_amass,
     run_subfinder,
@@ -86,7 +90,13 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                 "modules.subdomain.resolve_provider_executable",
                 return_value="/opt/tools/subfinder",
             ) as resolver,
-            patch("modules.subdomain.run_passive_provider", return_value=[]) as provider,
+            patch(
+                "modules.subdomain.run_passive_provider",
+                return_value=PassiveProviderResult(
+                    provider="subfinder",
+                    candidates=[],
+                ),
+            ) as provider,
         ):
             run_subfinder("example.com", executable_path="/opt/tools/subfinder")
 
@@ -98,7 +108,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         )
         self.assertEqual(
             provider.call_args.kwargs["command"],
-            ["/opt/tools/subfinder", "-d", "example.com", "-silent"],
+            ["/opt/tools/subfinder", "-d", "example.com", "-silent", "-oJ", "-cs"],
         )
 
     def test_run_amass_builds_command_with_resolved_executable(self) -> None:
@@ -107,7 +117,13 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                 "modules.subdomain.resolve_provider_executable",
                 return_value="/opt/tools/amass",
             ) as resolver,
-            patch("modules.subdomain.run_passive_provider", return_value=[]) as provider,
+            patch(
+                "modules.subdomain.run_passive_provider",
+                return_value=PassiveProviderResult(
+                    provider="amass",
+                    candidates=[],
+                ),
+            ) as provider,
         ):
             run_amass("example.com", executable_path="/opt/tools/amass")
 
@@ -120,6 +136,72 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         self.assertEqual(
             provider.call_args.kwargs["command"],
             ["/opt/tools/amass", "enum", "-passive", "-d", "example.com"],
+        )
+
+    def test_subfinder_jsonl_parser_extracts_sources_from_fixture(self) -> None:
+        fixture_path = Path(__file__).parent / "fixtures" / "subfinder_jsonl.txt"
+        parsed = [
+            parse_subfinder_json_line(line)
+            for line in fixture_path.read_text(encoding="utf-8").splitlines()
+        ]
+
+        self.assertEqual(parsed[0].subdomain, "www.example.com")
+        self.assertEqual(parsed[0].sources, ("crtsh",))
+        self.assertEqual(parsed[1].subdomain, "api.example.com")
+        self.assertEqual(parsed[1].sources, ("alienvault", "virustotal"))
+
+    def test_subfinder_jsonl_parser_falls_back_to_plain_subdomain(self) -> None:
+        parsed = parse_subfinder_json_line("www.example.com")
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.subdomain, "www.example.com")
+        self.assertEqual(parsed.sources, ())
+
+    def test_plain_provider_parser_does_not_claim_sources(self) -> None:
+        parsed = parse_plain_provider_line("mail.example.com")
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.subdomain, "mail.example.com")
+        self.assertEqual(parsed.sources, ())
+
+    def test_run_subfinder_falls_back_when_json_source_mode_fails(self) -> None:
+        failed_json_result = PassiveProviderResult(
+            provider="subfinder",
+            candidates=[],
+            status="failed",
+            exit_code=1,
+            errors=["unknown flag: -cs"],
+        )
+        plain_result = PassiveProviderResult(
+            provider="subfinder",
+            candidates=["www.example.com"],
+        )
+
+        with (
+            patch(
+                "modules.subdomain.resolve_provider_executable",
+                return_value="/opt/tools/subfinder",
+            ),
+            patch(
+                "modules.subdomain.run_passive_provider",
+                side_effect=[failed_json_result, plain_result],
+            ) as provider,
+        ):
+            result = run_subfinder("example.com")
+
+        self.assertEqual(result.candidates, ["www.example.com"])
+        self.assertEqual(provider.call_count, 2)
+        self.assertEqual(
+            provider.call_args_list[0].kwargs["command"],
+            ["/opt/tools/subfinder", "-d", "example.com", "-silent", "-oJ", "-cs"],
+        )
+        self.assertEqual(
+            provider.call_args_list[1].kwargs["command"],
+            ["/opt/tools/subfinder", "-d", "example.com", "-silent"],
+        )
+        self.assertIn(
+            "Subfinder JSON source mode fallback: unknown flag: -cs",
+            result.warnings,
         )
 
     def test_passive_discovery_forwards_provider_paths(self) -> None:
@@ -148,6 +230,45 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             "/opt/tools/subfinder",
         )
         self.assertEqual(amass.call_args.kwargs["executable_path"], "/opt/tools/amass")
+
+    def test_passive_discovery_saves_plain_txt_and_metadata_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            output_path = Path(temporary_dir) / "subdomains.txt"
+            json_output_path = Path(temporary_dir) / "subdomains.json"
+
+            with patch(
+                "hylianscan.run_subfinder",
+                return_value=PassiveProviderResult(
+                    provider="subfinder",
+                    candidates=["www.example.com", "api.example.com"],
+                    observed_sources=["crtsh"],
+                    candidate_sources={"www.example.com": ["crtsh"]},
+                    status="completed",
+                    exit_code=0,
+                ),
+            ):
+                hylianscan.run_passive_subdomain_discovery(
+                    domain="example.com",
+                    providers=["subfinder"],
+                    output_path=output_path,
+                    json_output_path=json_output_path,
+                    quiet=True,
+                )
+
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "api.example.com\nwww.example.com\n",
+            )
+
+            document = json.loads(json_output_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                document["providers"][0]["metadata"]["observed_sources"],
+                ["crtsh"],
+            )
+            self.assertEqual(
+                document["providers"][0]["metadata"]["candidate_sources"],
+                {"www.example.com": ["crtsh"]},
+            )
 
 
 if __name__ == "__main__":

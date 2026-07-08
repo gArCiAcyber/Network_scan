@@ -52,6 +52,7 @@ from core.passive_display import (
     PassiveDiscoveryDisplay,
     build_passive_subdomain_summary,
     format_passive_provider_count_message,
+    format_passive_provider_sources_message,
     show_passive_providers,
 )
 from core.passive_telemetry import PassiveActivityTelemetry
@@ -81,7 +82,7 @@ from modules.nmap_xml import (
     parse_single_host_nmap_xml_file,
 )
 from modules.scan_stance import ScanStance
-from modules.subdomain import run_amass, run_subfinder
+from modules.subdomain import PassiveProviderResult, run_amass, run_subfinder
 from modules.target import TargetInfo, TargetResolutionError, resolve_target
 from modules.tcp_scanner import ScanResult, scan_tcp_ports
 
@@ -128,13 +129,29 @@ def format_match_codes(match_codes: list[int]) -> str:
     return ", ".join(str(status_code) for status_code in match_codes)
 
 
-def merge_subdomain_results(provider_results: dict[str, list[str]]) -> list[str]:
+def coerce_passive_provider_result(
+    provider: str,
+    provider_result: list[str] | PassiveProviderResult,
+) -> PassiveProviderResult:
+    """Normalize older list-style provider results into structured results."""
+    if isinstance(provider_result, PassiveProviderResult):
+        return provider_result
+
+    return PassiveProviderResult(provider=provider, candidates=provider_result)
+
+
+def merge_subdomain_results(
+    provider_results: dict[str, list[str] | PassiveProviderResult],
+) -> list[str]:
     """Merge provider results into one deduplicated and sorted subdomain list."""
     return sorted(
         {
             subdomain.strip().lower().strip(".")
-            for subdomains in provider_results.values()
-            for subdomain in subdomains
+            for provider_result in provider_results.values()
+            for subdomain in coerce_passive_provider_result(
+                "provider",
+                provider_result,
+            ).candidates
             if subdomain.strip()
         }
     )
@@ -248,7 +265,7 @@ def run_passive_subdomain_discovery(
     """Run selected passive discovery providers and return a clean summary."""
     telemetry = None if quiet else PassiveActivityTelemetry()
     display = None if quiet else PassiveDiscoveryDisplay(domain)
-    provider_results: dict[str, list[str]] = {}
+    provider_results: dict[str, PassiveProviderResult] = {}
     subdomains: list[str] = []
     executable_paths = provider_paths or {}
 
@@ -265,23 +282,37 @@ def run_passive_subdomain_discovery(
                 )
 
             if provider == "subfinder":
-                provider_results[provider] = run_subfinder(
+                raw_provider_result = run_subfinder(
                     domain,
                     telemetry_callback=telemetry_callback,
                     executable_path=executable_paths.get("subfinder"),
                 )
             elif provider == "amass":
-                provider_results[provider] = run_amass(
+                raw_provider_result = run_amass(
                     domain,
                     telemetry_callback=telemetry_callback,
                     executable_path=executable_paths.get("amass"),
                 )
+            else:
+                continue
+
+            provider_results[provider] = coerce_passive_provider_result(
+                provider,
+                raw_provider_result,
+            )
 
             if display is not None:
                 display.add_activity(
                     format_passive_provider_count_message(
                         provider,
-                        len(provider_results[provider]),
+                        len(provider_results[provider].candidates),
+                    )
+                )
+
+                display.add_activity(
+                    format_passive_provider_sources_message(
+                        provider,
+                        provider_results[provider].observed_sources,
                     )
                 )
 
@@ -290,7 +321,9 @@ def run_passive_subdomain_discovery(
             display.add_activity("[*] Removing duplicate subdomains...")
 
         subdomains = merge_subdomain_results(provider_results)
-        raw_discovery_count = sum(len(results) for results in provider_results.values())
+        raw_discovery_count = sum(
+            len(result.candidates) for result in provider_results.values()
+        )
 
         if display is not None:
             display.add_activity("[*] Writing passive discovery output...")

@@ -34,7 +34,11 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
 
         messages = [
             telemetry.map_lifecycle_event("provider started", "subfinder"),
-            telemetry.map_provider_output("subfinder", "subfinder first result observed"),
+            passive_display.format_passive_provider_count_message("subfinder", 24),
+            passive_display.format_passive_provider_sources_message(
+                "subfinder",
+                ["alienvault", "crtsh", "virustotal"],
+            ),
             telemetry.map_lifecycle_event("provider timeout", "amass"),
             telemetry.map_merge_activity(),
         ]
@@ -42,7 +46,11 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
         rendered = "\n".join(message for message in messages if message)
 
         self.assertIn("Running Subfinder passive enumeration", rendered)
-        self.assertIn("Subfinder returned the first candidate", rendered)
+        self.assertIn("Subfinder returned 24 candidates", rendered)
+        self.assertIn(
+            "Subfinder observed sources: alienvault, crtsh, virustotal",
+            rendered,
+        )
         self.assertIn("Amass timed out; preserving partial results", rendered)
         self.assertIn("Normalizing provider results", rendered)
 
