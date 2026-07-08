@@ -205,7 +205,7 @@ class CLIHelperTests(unittest.TestCase):
         self.assertEqual(resolve_scan_stance(args).name, "balanced")
 
     def test_resolve_scan_scope_label_returns_expected_labels(self) -> None:
-        self.assertEqual(resolve_scan_scope_label(build_args()), "Default Target List")
+        self.assertEqual(resolve_scan_scope_label(build_args()), "Default TCP Port Set")
         self.assertEqual(
             resolve_scan_scope_label(build_args(ports="80")),
             "Custom Port List",

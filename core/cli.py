@@ -285,7 +285,7 @@ def resolve_scan_scope_label(args: argparse.Namespace) -> str:
     if args.top_ports:
         return "Selected Port List"
 
-    return "Default Target List"
+    return "Default TCP Port Set"
 
 
 def validate_timeout(timeout: float) -> float:

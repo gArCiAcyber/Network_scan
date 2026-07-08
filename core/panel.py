@@ -8,16 +8,16 @@ from core.colors import (
     BOLD_GOLD,
     BRIGHT_WHITE,
     HACKER_GREEN,
-    INFO_BLUE,
     MUTED_GRAY,
     RESET,
-    WARNING_YELLOW,
 )
 from modules.http_metadata import extract_http_header, parse_http_response_head
 from modules.tls_analysis import build_tls_analysis
 
 
-PANEL_SEPARATOR = f"{MUTED_GRAY}{'-' * 72}{RESET}"
+PANEL_SEPARATOR = f"{HACKER_GREEN}{'-' * 72}{RESET}"
+
+
 def get_triforce_symbol() -> str:
     """Return a terminal-safe Triforce symbol."""
     encoding = sys.stdout.encoding or "utf-8"
@@ -310,7 +310,7 @@ def format_detail_lines(details: Sequence[str]) -> list[str]:
 
 def build_final_panel(
     summary: ScanSummaryView,
-    scan_scope: str = "Default Target List",
+    scan_scope: str = "Default TCP Port Set",
     scan_stance: str | None = None,
 ) -> str:
     """Build the final static TCP scan report."""
@@ -336,12 +336,12 @@ def build_final_panel(
 
     if not summary.open_ports:
         lines.append(
-            f"{WARNING_YELLOW}No open ports found in the {scan_scope.lower()}.{RESET}"
+            f"{HACKER_GREEN}No open ports found in the {scan_scope.lower()}.{RESET}"
         )
         lines.append(PANEL_SEPARATOR)
         return "\n".join(lines)
 
-    lines.append(f"{INFO_BLUE}{'PORT':<10} {'STATE':<6} {'SERVICE':<8} VERSION{RESET}")
+    lines.append(f"{HACKER_GREEN}{'PORT':<10} {'STATE':<6} {'SERVICE':<8} VERSION{RESET}")
 
     for index, finding in enumerate(summary.open_ports):
         port_label = f"{finding.port}/tcp"
@@ -377,7 +377,7 @@ def build_final_panel(
 
 def build_saved_text_report(
     summary: ScanSummaryView,
-    scan_scope: str = "Default Target List",
+    scan_scope: str = "Default TCP Port Set",
     scan_stance: str | None = None,
     base_report: str | None = None,
     match_code_expression: str | None = None,
@@ -405,7 +405,7 @@ def build_saved_text_report(
 
 def build_quiet_final_panel(
     summary: ScanSummaryView,
-    scan_scope: str = "Default Target List",
+    scan_scope: str = "Default TCP Port Set",
 ) -> str:
     """Build a plain automation-friendly TCP scan report."""
     lines = [
