@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import hylianscan
 from modules.subdomain import (
@@ -13,6 +13,7 @@ from modules.subdomain import (
     parse_subfinder_json_line,
     resolve_provider_executable,
     run_amass,
+    run_passive_provider,
     run_subfinder,
 )
 
@@ -203,6 +204,60 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             "Subfinder JSON source mode fallback: unknown flag: -cs",
             result.warnings,
         )
+
+    def test_run_passive_provider_waits_without_timeout(self) -> None:
+        process = MagicMock()
+        process.stdout = ["www.example.com\n"]
+        process.stderr = []
+        process.wait.return_value = 0
+
+        with patch("modules.subdomain.subprocess.Popen", return_value=process):
+            result = run_passive_provider(
+                domain="example.com",
+                provider_name="Subfinder",
+                command=["subfinder", "-d", "example.com", "-silent"],
+            )
+
+        process.wait.assert_called_once_with()
+        self.assertFalse(result.timed_out)
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.candidates, ["www.example.com"])
+
+    def test_run_passive_provider_records_non_zero_exit_metadata(self) -> None:
+        process = MagicMock()
+        process.stdout = []
+        process.stderr = ["error: provider failed\n"]
+        process.wait.return_value = 2
+
+        with patch("modules.subdomain.subprocess.Popen", return_value=process):
+            result = run_passive_provider(
+                domain="example.com",
+                provider_name="Amass",
+                command=["amass", "enum", "-passive", "-d", "example.com"],
+            )
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.exit_code, 2)
+        self.assertFalse(result.timed_out)
+        self.assertIn("Amass exited with status code 2.", result.errors)
+
+    def test_run_passive_provider_terminates_process_on_keyboard_interrupt(self) -> None:
+        process = MagicMock()
+        process.stdout = []
+        process.stderr = []
+        process.wait.side_effect = [KeyboardInterrupt(), 0]
+
+        with patch("modules.subdomain.subprocess.Popen", return_value=process):
+            with self.assertRaises(KeyboardInterrupt):
+                run_passive_provider(
+                    domain="example.com",
+                    provider_name="Amass",
+                    command=["amass", "enum", "-passive", "-d", "example.com"],
+                )
+
+        process.terminate.assert_called_once_with()
+        self.assertEqual(process.wait.call_args_list[0].args, ())
+        self.assertEqual(process.wait.call_args_list[1].kwargs["timeout"], 5.0)
 
     def test_passive_discovery_forwards_provider_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:

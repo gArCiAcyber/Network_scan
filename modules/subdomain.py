@@ -16,7 +16,6 @@ from typing import TextIO
 TelemetryCallback = Callable[[str], None]
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
-DEFAULT_PROVIDER_TIMEOUT_SECONDS = 180.0
 PROVIDER_SHUTDOWN_GRACE_SECONDS = 5.0
 
 
@@ -207,7 +206,6 @@ def run_passive_provider(
     provider_name: str,
     command: list[str],
     telemetry_callback: TelemetryCallback | None = None,
-    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     stdout_parser: ProviderLineParser = parse_plain_provider_line,
 ) -> PassiveProviderResult:
     """Run one passive discovery provider and return structured results."""
@@ -217,7 +215,6 @@ def run_passive_provider(
     candidate_sources: dict[str, list[str]] = {}
     warnings: list[str] = []
     errors: list[str] = []
-    timed_out = False
     line_parser = stdout_parser
 
     if telemetry_callback is not None:
@@ -283,13 +280,8 @@ def run_passive_provider(
     stderr_thread.start()
 
     try:
-        return_code = process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-
-        if telemetry_callback is not None:
-            telemetry_callback(f"{provider_name} provider timeout")
-
+        return_code = process.wait()
+    except KeyboardInterrupt:
         process.terminate()
 
         try:
@@ -298,9 +290,6 @@ def run_passive_provider(
             process.kill()
             process.wait()
 
-        return_code = None
-    except KeyboardInterrupt:
-        process.terminate()
         raise
     finally:
         stdout_thread.join(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
@@ -308,10 +297,7 @@ def run_passive_provider(
 
     status = "completed"
 
-    if timed_out:
-        status = "timeout"
-        append_unique(errors, f"{provider_name} timed out after {timeout:g} seconds.")
-    elif return_code is not None and return_code != 0:
+    if return_code is not None and return_code != 0:
         status = "failed"
         append_unique(errors, f"{provider_name} exited with status code {return_code}.")
 
@@ -335,7 +321,7 @@ def run_passive_provider(
         candidate_sources=normalized_candidate_sources,
         warnings=warnings,
         errors=errors,
-        timed_out=timed_out,
+        timed_out=False,
         exit_code=return_code,
         status=status,
     )
@@ -344,7 +330,6 @@ def run_passive_provider(
 def run_subfinder(
     domain: str,
     telemetry_callback: TelemetryCallback | None = None,
-    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     executable_path: str | None = None,
 ) -> PassiveProviderResult:
     """Run Subfinder passive discovery and return structured results."""
@@ -360,11 +345,10 @@ def run_subfinder(
         provider_name="Subfinder",
         command=[executable, "-d", domain, "-silent", "-oJ", "-cs"],
         telemetry_callback=telemetry_callback,
-        timeout=timeout,
         stdout_parser=parse_subfinder_json_line,
     )
 
-    if json_result.status in {"completed", "timeout"} or json_result.candidates:
+    if json_result.status == "completed" or json_result.candidates:
         return json_result
 
     plain_result = run_passive_provider(
@@ -372,7 +356,6 @@ def run_subfinder(
         provider_name="Subfinder",
         command=[executable, "-d", domain, "-silent"],
         telemetry_callback=telemetry_callback,
-        timeout=timeout,
         stdout_parser=parse_plain_provider_line,
     )
 
@@ -388,7 +371,6 @@ def run_subfinder(
 def run_amass(
     domain: str,
     telemetry_callback: TelemetryCallback | None = None,
-    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     executable_path: str | None = None,
 ) -> PassiveProviderResult:
     """Run Amass passive discovery and return structured results."""
@@ -404,6 +386,5 @@ def run_amass(
         provider_name="Amass",
         command=[executable, "enum", "-passive", "-d", domain],
         telemetry_callback=telemetry_callback,
-        timeout=timeout,
         stdout_parser=parse_plain_provider_line,
     )

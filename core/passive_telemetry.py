@@ -3,7 +3,6 @@
 from dataclasses import dataclass, field
 
 
-TIMEOUT_KEYWORDS = ("timeout", "timed out", "deadline")
 DISCOVERY_KEYWORDS = ("discovered subdomain", "found subdomain", "subdomain")
 CERTIFICATE_KEYWORDS = ("cert", "certificate", "crtsh", "crt.sh", "transparency")
 PASSIVE_DNS_KEYWORDS = ("dns", "passive", "resolver", "resolve")
@@ -95,9 +94,6 @@ def build_activity_message(provider: str, output: str) -> str | None:
             "merge/deduplication started",
         )
 
-    if contains_any(output, TIMEOUT_KEYWORDS):
-        return build_lifecycle_activity_message(normalized_provider, "provider timeout")
-
     if contains_any(output, DISCOVERY_KEYWORDS):
         return f"Reading {provider_label(normalized_provider)} passive DNS results..."
 
@@ -150,8 +146,5 @@ def build_lifecycle_activity_message(provider: str, event: str) -> str | None:
 
     if event == "merge/deduplication started":
         return "Normalizing provider results..."
-
-    if event == "provider timeout":
-        return f"{label} timed out; preserving partial results..."
 
     return "Reading passive discovery provider output..."

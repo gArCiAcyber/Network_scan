@@ -39,7 +39,7 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
                 "subfinder",
                 ["alienvault", "crtsh", "virustotal"],
             ),
-            telemetry.map_lifecycle_event("provider timeout", "amass"),
+            telemetry.map_provider_output("amass", "warning: rate limit observed"),
             telemetry.map_merge_activity(),
         ]
 
@@ -51,7 +51,7 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
             "Subfinder observed sources: alienvault, crtsh, virustotal",
             rendered,
         )
-        self.assertIn("Amass timed out; preserving partial results", rendered)
+        self.assertIn("Reviewing Amass provider warnings", rendered)
         self.assertIn("Normalizing provider results", rendered)
 
         for character_name in FORBIDDEN_CHARACTER_NAMES:
