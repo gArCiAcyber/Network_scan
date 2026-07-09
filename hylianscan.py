@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Main CLI orchestrator for the hylianscan v1.0.0 release."""
 
-from collections.abc import Mapping
+import threading
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from core.banner import show_banner
@@ -82,7 +84,12 @@ from modules.nmap_xml import (
     parse_single_host_nmap_xml_file,
 )
 from modules.scan_stance import ScanStance
-from modules.subdomain import PassiveProviderResult, run_amass, run_subfinder
+from modules.subdomain import (
+    PassiveProviderResult,
+    run_amass,
+    run_subfinder,
+    terminate_active_provider_processes,
+)
 from modules.target import TargetInfo, TargetResolutionError, resolve_target
 from modules.tcp_scanner import ScanResult, scan_tcp_ports
 
@@ -254,6 +261,30 @@ def run_port_scan(
     return result
 
 
+def run_selected_passive_provider(
+    provider: str,
+    domain: str,
+    telemetry_callback: Callable[[str], None] | None = None,
+    executable_path: str | None = None,
+) -> PassiveProviderResult:
+    """Run one selected passive discovery provider."""
+    if provider == "subfinder":
+        return run_subfinder(
+            domain,
+            telemetry_callback=telemetry_callback,
+            executable_path=executable_path,
+        )
+
+    if provider == "amass":
+        return run_amass(
+            domain,
+            telemetry_callback=telemetry_callback,
+            executable_path=executable_path,
+        )
+
+    raise ValueError(f"Unsupported passive discovery provider: {provider}")
+
+
 def run_passive_subdomain_discovery(
     domain: str,
     providers: list[str],
@@ -268,53 +299,66 @@ def run_passive_subdomain_discovery(
     provider_results: dict[str, PassiveProviderResult] = {}
     subdomains: list[str] = []
     executable_paths = provider_paths or {}
+    telemetry_lock = threading.Lock()
 
     if display is not None:
         display.start()
 
+    def build_telemetry_callback(provider: str) -> Callable[[str], None] | None:
+        if display is None or telemetry is None:
+            return None
+
+        def handle_telemetry(output: str) -> None:
+            with telemetry_lock:
+                activity = telemetry.map_provider_output(provider, output)
+
+            display.add_activity(activity)
+
+        return handle_telemetry
+
     try:
-        for provider in providers:
-            telemetry_callback = None
+        if providers:
+            executor = ThreadPoolExecutor(max_workers=len(providers))
 
-            if display is not None and telemetry is not None:
-                telemetry_callback = lambda output, provider=provider: display.add_activity(
-                    telemetry.map_provider_output(provider, output)
-                )
-
-            if provider == "subfinder":
-                raw_provider_result = run_subfinder(
-                    domain,
-                    telemetry_callback=telemetry_callback,
-                    executable_path=executable_paths.get("subfinder"),
-                )
-            elif provider == "amass":
-                raw_provider_result = run_amass(
-                    domain,
-                    telemetry_callback=telemetry_callback,
-                    executable_path=executable_paths.get("amass"),
-                )
-            else:
-                continue
-
-            provider_results[provider] = coerce_passive_provider_result(
-                provider,
-                raw_provider_result,
-            )
-
-            if display is not None:
-                display.add_activity(
-                    format_passive_provider_count_message(
+            try:
+                provider_futures = {
+                    executor.submit(
+                        run_selected_passive_provider,
                         provider,
-                        len(provider_results[provider].candidates),
-                    )
-                )
+                        domain,
+                        build_telemetry_callback(provider),
+                        executable_paths.get(provider),
+                    ): provider
+                    for provider in providers
+                }
 
-                display.add_activity(
-                    format_passive_provider_sources_message(
+                for future in as_completed(provider_futures):
+                    provider = provider_futures[future]
+                    raw_provider_result = future.result()
+                    provider_results[provider] = coerce_passive_provider_result(
                         provider,
-                        provider_results[provider].observed_sources,
+                        raw_provider_result,
                     )
-                )
+
+                    if display is not None:
+                        display.add_activity(
+                            format_passive_provider_count_message(
+                                provider,
+                                len(provider_results[provider].candidates),
+                            )
+                        )
+
+                        display.add_activity(
+                            format_passive_provider_sources_message(
+                                provider,
+                                provider_results[provider].observed_sources,
+                            )
+                        )
+            except KeyboardInterrupt:
+                terminate_active_provider_processes()
+                raise
+            finally:
+                executor.shutdown(wait=True, cancel_futures=True)
 
         if display is not None and telemetry is not None:
             display.add_activity(telemetry.map_merge_activity())

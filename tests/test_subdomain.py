@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -245,6 +246,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         process = MagicMock()
         process.stdout = []
         process.stderr = []
+        process.poll.return_value = None
         process.wait.side_effect = [KeyboardInterrupt(), 0]
 
         with patch("modules.subdomain.subprocess.Popen", return_value=process):
@@ -285,6 +287,108 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             "/opt/tools/subfinder",
         )
         self.assertEqual(amass.call_args.kwargs["executable_path"], "/opt/tools/amass")
+
+    def test_passive_discovery_starts_selected_providers_concurrently(self) -> None:
+        subfinder_started = threading.Event()
+        amass_started = threading.Event()
+
+        def fake_provider_runner(
+            provider: str,
+            domain: str,
+            telemetry_callback=None,
+            executable_path=None,
+        ) -> PassiveProviderResult:
+            if provider == "subfinder":
+                subfinder_started.set()
+                if not amass_started.wait(2.0):
+                    raise AssertionError("Amass did not start concurrently.")
+                return PassiveProviderResult(
+                    provider="subfinder",
+                    candidates=["www.example.com"],
+                )
+
+            if provider == "amass":
+                amass_started.set()
+                if not subfinder_started.wait(2.0):
+                    raise AssertionError("Subfinder did not start concurrently.")
+                return PassiveProviderResult(
+                    provider="amass",
+                    candidates=["api.example.com"],
+                )
+
+            raise AssertionError(f"Unexpected provider: {provider}")
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            output_path = Path(temporary_dir) / "subdomains.txt"
+
+            with patch(
+                "hylianscan.run_selected_passive_provider",
+                side_effect=fake_provider_runner,
+            ):
+                summary = hylianscan.run_passive_subdomain_discovery(
+                    domain="example.com",
+                    providers=["subfinder", "amass"],
+                    output_path=output_path,
+                    quiet=True,
+                )
+
+            self.assertIn("Raw Discoveries: 2", summary)
+            self.assertIn("Unique Subdomains: 2", summary)
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "api.example.com\nwww.example.com\n",
+            )
+
+    def test_passive_discovery_preserves_success_when_one_provider_fails(self) -> None:
+        def fake_provider_runner(
+            provider: str,
+            domain: str,
+            telemetry_callback=None,
+            executable_path=None,
+        ) -> PassiveProviderResult:
+            if provider == "subfinder":
+                return PassiveProviderResult(
+                    provider="subfinder",
+                    candidates=[],
+                    errors=["Subfinder exited with status code 1."],
+                    exit_code=1,
+                    status="failed",
+                )
+
+            return PassiveProviderResult(
+                provider="amass",
+                candidates=["api.example.com"],
+                exit_code=0,
+                status="completed",
+            )
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            output_path = Path(temporary_dir) / "subdomains.txt"
+            json_output_path = Path(temporary_dir) / "subdomains.json"
+
+            with patch(
+                "hylianscan.run_selected_passive_provider",
+                side_effect=fake_provider_runner,
+            ):
+                summary = hylianscan.run_passive_subdomain_discovery(
+                    domain="example.com",
+                    providers=["subfinder", "amass"],
+                    output_path=output_path,
+                    json_output_path=json_output_path,
+                    quiet=True,
+                )
+
+            self.assertIn("Raw Discoveries: 1", summary)
+            self.assertIn("Unique Subdomains: 1", summary)
+            self.assertEqual(output_path.read_text(encoding="utf-8"), "api.example.com\n")
+
+            document = json.loads(json_output_path.read_text(encoding="utf-8"))
+            provider_statuses = {
+                provider["name"]: provider["metadata"]["status"]
+                for provider in document["providers"]
+            }
+            self.assertEqual(provider_statuses["subfinder"], "failed")
+            self.assertEqual(provider_statuses["amass"], "completed")
 
     def test_passive_discovery_saves_plain_txt_and_metadata_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:

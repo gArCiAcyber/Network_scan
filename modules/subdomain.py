@@ -17,6 +17,8 @@ TelemetryCallback = Callable[[str], None]
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 PROVIDER_SHUTDOWN_GRACE_SECONDS = 5.0
+ACTIVE_PROVIDER_PROCESSES: set[subprocess.Popen[str]] = set()
+ACTIVE_PROVIDER_PROCESS_LOCK = threading.Lock()
 
 
 @dataclass
@@ -189,6 +191,41 @@ def append_unique(values: list[str], value: str) -> None:
         values.append(value)
 
 
+def register_provider_process(process: subprocess.Popen[str]) -> None:
+    """Track one active passive provider process for interrupt cleanup."""
+    with ACTIVE_PROVIDER_PROCESS_LOCK:
+        ACTIVE_PROVIDER_PROCESSES.add(process)
+
+
+def unregister_provider_process(process: subprocess.Popen[str]) -> None:
+    """Remove one passive provider process from interrupt cleanup tracking."""
+    with ACTIVE_PROVIDER_PROCESS_LOCK:
+        ACTIVE_PROVIDER_PROCESSES.discard(process)
+
+
+def terminate_process(process: subprocess.Popen[str]) -> None:
+    """Terminate one passive provider process and escalate if it does not exit."""
+    if process.poll() is not None:
+        return
+
+    process.terminate()
+
+    try:
+        process.wait(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def terminate_active_provider_processes() -> None:
+    """Terminate active passive provider processes during interruption cleanup."""
+    with ACTIVE_PROVIDER_PROCESS_LOCK:
+        processes = list(ACTIVE_PROVIDER_PROCESSES)
+
+    for process in processes:
+        terminate_process(process)
+
+
 def stream_lines(stream: TextIO | None, line_handler: Callable[[str], None]) -> None:
     """Read a subprocess stream line by line and send clean text to a handler."""
     if stream is None:
@@ -265,6 +302,8 @@ def run_passive_provider(
     except OSError as error:
         raise ValueError(f"Unable to start {provider_name}: {error}") from error
 
+    register_provider_process(process)
+
     stdout_thread = threading.Thread(
         target=stream_lines,
         args=(process.stdout, handle_stdout),
@@ -282,16 +321,10 @@ def run_passive_provider(
     try:
         return_code = process.wait()
     except KeyboardInterrupt:
-        process.terminate()
-
-        try:
-            process.wait(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-
+        terminate_process(process)
         raise
     finally:
+        unregister_provider_process(process)
         stdout_thread.join(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
         stderr_thread.join(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
 
