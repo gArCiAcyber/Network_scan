@@ -4,6 +4,8 @@ import tomllib
 import unittest
 from pathlib import Path
 
+from core.version import APP_VERSION
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
@@ -21,7 +23,7 @@ class PackagingMetadataTests(unittest.TestCase):
         project = self.pyproject["project"]
 
         self.assertEqual(project["name"], "hylianscan")
-        self.assertTrue(project["version"])
+        self.assertEqual(project["version"], APP_VERSION)
         self.assertTrue(project["requires-python"])
         self.assertEqual(project["readme"], "README.md")
         self.assertEqual(project["dependencies"], [])

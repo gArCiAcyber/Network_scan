@@ -89,6 +89,7 @@ class PanelRenderingTests(unittest.TestCase):
         report = strip_ansi(build_final_panel(make_tls_scan_result()))
 
         self.assertIn("tls-risk: high", report)
+        self.assertIn("tls-trust: not evaluated", report)
         self.assertNotIn("TLS Risk Explanations", report)
         self.assertNotIn("certificate_expired", report)
         self.assertNotIn("Certificate expired", report)
@@ -134,6 +135,14 @@ class PanelRenderingTests(unittest.TestCase):
         report = strip_ansi(build_final_panel(make_http_scan_result()))
 
         self.assertTrue(report.rstrip().endswith(SEPARATOR_LINE))
+
+    def test_final_panel_does_not_claim_an_unproven_host_status(self) -> None:
+        scan_result = make_http_scan_result()
+        scan_result.open_ports = ()
+
+        report = strip_ansi(build_final_panel(scan_result))
+
+        self.assertNotIn("Host is up.", report)
 
 
 if __name__ == "__main__":

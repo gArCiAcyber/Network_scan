@@ -4,6 +4,7 @@ import re
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -152,8 +153,11 @@ def run_passive_provider(
     try:
         return_code = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
+        warning = f"[-] {provider_name} timed out; returning partial results."
         if telemetry_callback is not None:
-            telemetry_callback(f"{provider_name} provider timeout")
+            telemetry_callback(warning)
+        else:
+            print(warning, file=sys.stderr)
 
         process.terminate()
 
@@ -171,8 +175,15 @@ def run_passive_provider(
         stdout_thread.join(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
         stderr_thread.join(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
 
-    if return_code is not None and return_code != 0 and telemetry_callback is not None:
-        telemetry_callback(f"[-] {provider_name} exited with status code {return_code}.")
+    if return_code is not None and return_code != 0:
+        warning = (
+            f"[-] Warning: {provider_name} exited with status code {return_code}; "
+            "returning partial results."
+        )
+        if telemetry_callback is not None:
+            telemetry_callback(warning)
+        else:
+            print(warning, file=sys.stderr)
 
     if return_code is not None and telemetry_callback is not None:
         telemetry_callback(f"{provider_name} provider completed")

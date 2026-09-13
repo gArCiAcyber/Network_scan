@@ -220,6 +220,9 @@ def build_tls_detail_lines(
     if certificate_identity:
         details.append(f"tls-cert: {truncate_display_value(certificate_identity)}")
 
+    if finding.tls.get("status") == "collected":
+        details.append("tls-trust: not evaluated")
+
     if isinstance(tls_severity, str) and tls_severity != "unknown":
         details.append(f"tls-risk: {tls_severity}")
 
@@ -301,9 +304,11 @@ def build_final_panel(
             f"{BRIGHT_WHITE}Hylianscan scan report for "
             f"{summary.target_host} ({summary.resolved_ip}){RESET}"
         ),
-        f"{HACKER_GREEN}Host is up.{RESET}",
         f"{BRIGHT_WHITE}Scan Scope      :{RESET} {scan_scope}",
     ]
+
+    if summary.open_ports:
+        lines.insert(4, f"{HACKER_GREEN}Host is up.{RESET}")
 
     lines.extend(
         [

@@ -49,6 +49,9 @@ def resolve_target(value: str) -> TargetInfo:
     target = validate_target(value)
 
     if is_ip_address(target):
+        if ipaddress.ip_address(target).version != 4:
+            raise TargetResolutionError("IPv6 targets are not supported yet.")
+
         return TargetInfo(
             raw_input=value,
             target_host=target,
