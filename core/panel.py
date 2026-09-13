@@ -2,7 +2,7 @@
 
 import sys
 from collections.abc import Sequence
-from typing import Any, Protocol
+from typing import Any
 
 from core.colors import (
     BOLD_GOLD,
@@ -14,6 +14,7 @@ from core.colors import (
     WARNING_YELLOW,
 )
 from modules.http_metadata import extract_http_header, parse_http_response_head
+from modules.tcp_scanner import PortScanResult, ScanResult
 from modules.tls_analysis import build_tls_analysis
 
 
@@ -38,27 +39,6 @@ def format_panel_title() -> str:
         f"{BOLD_GOLD}TRIFORCE {get_triforce_symbol()}"
         f"{RESET}{HACKER_GREEN} ]{RESET}"
     )
-
-
-class PortFindingView(Protocol):
-    """Minimum fields required to render an open port."""
-
-    port: int
-    service: str
-    banner: str | None
-    response_time: float
-    web_url: str | None
-    tls: dict[str, Any] | None
-
-
-class ScanSummaryView(Protocol):
-    """Minimum fields required to render a scan summary."""
-
-    target_host: str
-    resolved_ip: str
-    scanned_ports: int
-    open_ports: Sequence[PortFindingView]
-    duration: float
 
 
 def get_nested_value(data: dict[str, Any] | None, *keys: str) -> Any:
@@ -181,7 +161,7 @@ def format_short_banner(banner: str | None) -> str | None:
     return truncate_display_value(" ".join(banner.split()), max_length=72)
 
 
-def format_final_version(finding: PortFindingView) -> str:
+def format_final_version(finding: PortScanResult) -> str:
     """Return the main VERSION column signal for the final report."""
     http_version = format_http_version_signal(finding.banner, include_reason=True)
 
@@ -201,7 +181,7 @@ def format_final_version(finding: PortFindingView) -> str:
     return "active, no banner"
 
 
-def build_http_detail_lines(finding: PortFindingView) -> list[str]:
+def build_http_detail_lines(finding: PortScanResult) -> list[str]:
     """Build useful HTTP detail lines for the final report."""
     if finding.banner is None or parse_http_status(finding.banner) is None:
         return []
@@ -220,7 +200,7 @@ def build_http_detail_lines(finding: PortFindingView) -> list[str]:
 
 
 def build_tls_detail_lines(
-    finding: PortFindingView,
+    finding: PortScanResult,
     target_host: str,
     include_protocol: bool,
 ) -> list[str]:
@@ -247,7 +227,7 @@ def build_tls_detail_lines(
 
 
 def build_tls_reason_text_lines(
-    finding: PortFindingView,
+    finding: PortScanResult,
     target_host: str,
 ) -> list[str]:
     """Build compact saved-report TLS reason lines for one finding."""
@@ -279,7 +259,7 @@ def build_tls_reason_text_lines(
     return lines if len(lines) > 1 else []
 
 
-def build_tls_reason_text_section(summary: ScanSummaryView) -> list[str]:
+def build_tls_reason_text_section(summary: ScanResult) -> list[str]:
     """Build the saved-report TLS explanation section."""
     lines: list[str] = []
 
@@ -309,9 +289,8 @@ def format_detail_lines(details: Sequence[str]) -> list[str]:
 
 
 def build_final_panel(
-    summary: ScanSummaryView,
+    summary: ScanResult,
     scan_scope: str = "Default Target List",
-    scan_stance: str | None = None,
 ) -> str:
     """Build the final static TCP scan report."""
     lines = [
@@ -376,9 +355,8 @@ def build_final_panel(
 
 
 def build_saved_text_report(
-    summary: ScanSummaryView,
+    summary: ScanResult,
     scan_scope: str = "Default Target List",
-    scan_stance: str | None = None,
     base_report: str | None = None,
     match_code_expression: str | None = None,
 ) -> str:
@@ -386,7 +364,6 @@ def build_saved_text_report(
     report = base_report or build_final_panel(
         summary,
         scan_scope=scan_scope,
-        scan_stance=scan_stance,
     )
     report_sections = [report]
 
@@ -404,7 +381,7 @@ def build_saved_text_report(
 
 
 def build_quiet_final_panel(
-    summary: ScanSummaryView,
+    summary: ScanResult,
     scan_scope: str = "Default Target List",
 ) -> str:
     """Build a plain automation-friendly TCP scan report."""

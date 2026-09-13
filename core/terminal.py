@@ -21,7 +21,6 @@ try:
 except ImportError:
     msvcrt = None
 
-from core.banner import build_footer
 from core.colors import CLEAR_LINE
 
 
@@ -158,8 +157,3 @@ def wait_for_enter_safely(message: str) -> None:
         flush_input_buffer()
         sys.stdout.write("\n")
         sys.stdout.flush()
-
-
-def build_exit_prompt() -> str:
-    """Return the final footer without the pause prompt."""
-    return f"\n{build_footer()}\n"

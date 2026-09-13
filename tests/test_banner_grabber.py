@@ -43,13 +43,6 @@ class BannerGrabberHelperTests(unittest.TestCase):
         self.assertIn("Connection: close\r\n", request)
         self.assertTrue(request.endswith("\r\n\r\n"))
 
-    def test_should_collect_tls_metadata_identifies_tls_ports(self) -> None:
-        self.assertTrue(banner_grabber.should_collect_tls_metadata(443))
-        self.assertTrue(banner_grabber.should_collect_tls_metadata(465))
-        self.assertTrue(banner_grabber.should_collect_tls_metadata(993))
-        self.assertFalse(banner_grabber.should_collect_tls_metadata(80))
-        self.assertFalse(banner_grabber.should_collect_tls_metadata(22))
-
     def test_smtp_starttls_helpers_detect_capability_and_ready_response(self) -> None:
         self.assertTrue(
             banner_grabber.smtp_advertises_starttls(

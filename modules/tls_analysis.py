@@ -1,11 +1,12 @@
 """TLS risk analysis helpers for scan evidence."""
 
-import ipaddress
 import math
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
+
+from modules.target import is_ip_address
 
 
 TLS_EXPIRY_SOON_DAYS = 30
@@ -52,16 +53,6 @@ def calculate_days_until_expiry(expires_at: datetime, now: datetime) -> int:
         return math.ceil(total_seconds / SECONDS_PER_DAY)
 
     return math.floor(total_seconds / SECONDS_PER_DAY)
-
-
-def is_ip_address(value: str) -> bool:
-    """Return True when a target value is an IP address."""
-    try:
-        ipaddress.ip_address(value)
-    except ValueError:
-        return False
-
-    return True
 
 
 def normalize_hostname(value: str) -> str:

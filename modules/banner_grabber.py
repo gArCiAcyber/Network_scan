@@ -88,11 +88,6 @@ from modules.probes.tls import (
 )
 
 
-def should_collect_tls_metadata(port: int) -> bool:
-    """Return True when a TCP port is expected to expose TLS metadata."""
-    return port in TLS_METADATA_PORTS
-
-
 def find_probe_definition(port: int) -> ProtocolProbe | None:
     """Return the first registered protocol probe for a TCP port."""
     for probe in PROTOCOL_PROBE_REGISTRY:
