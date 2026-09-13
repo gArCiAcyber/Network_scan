@@ -1,7 +1,10 @@
 """Tests for passive subdomain provider execution helpers."""
 
+import io
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,6 +12,7 @@ import hylianscan
 from modules.subdomain import (
     resolve_provider_executable,
     run_amass,
+    run_passive_provider,
     run_subfinder,
 )
 
@@ -148,6 +152,21 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             "/opt/tools/subfinder",
         )
         self.assertEqual(amass.call_args.kwargs["executable_path"], "/opt/tools/amass")
+
+    def test_nonzero_provider_exit_warns_and_keeps_partial_results(self) -> None:
+        errors = io.StringIO()
+        command = [
+            sys.executable,
+            "-c",
+            "print('api.example.com'); raise SystemExit(7)",
+        ]
+
+        with redirect_stderr(errors):
+            results = run_passive_provider("example.com", "Fake", command)
+
+        self.assertEqual(results, ["api.example.com"])
+        self.assertIn("exited with status code 7", errors.getvalue())
+        self.assertIn("partial results", errors.getvalue())
 
 
 if __name__ == "__main__":

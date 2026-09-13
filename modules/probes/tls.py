@@ -12,6 +12,14 @@ from modules.probes.generic import (
 )
 
 
+def build_tls_trust_metadata() -> dict[str, Any]:
+    """Describe the intentionally unverified certificate trust state."""
+    return {
+        "verified": False,
+        "reason": "Certificate chain trust was not evaluated.",
+    }
+
+
 def build_tls_context() -> ssl.SSLContext:
     """Create a TLS context for metadata collection without trust enforcement."""
     context = ssl.create_default_context()
@@ -32,6 +40,7 @@ def collect_tls_metadata(tls_client: ssl.SSLSocket) -> dict[str, Any]:
                 "cipher": build_cipher_metadata(tls_client.cipher()),
             },
             "certificate": {},
+            "trust": build_tls_trust_metadata(),
             "error": None,
         }
 
@@ -42,6 +51,7 @@ def collect_tls_metadata(tls_client: ssl.SSLSocket) -> dict[str, Any]:
             "cipher": build_cipher_metadata(tls_client.cipher()),
         },
         "certificate": build_certificate_metadata(der_certificate),
+        "trust": build_tls_trust_metadata(),
         "error": None,
     }
 
@@ -64,6 +74,7 @@ def grab_tls_metadata(
             "status": "failed",
             "handshake": {},
             "certificate": {},
+            "trust": build_tls_trust_metadata(),
             "error": str(error),
         }
 
@@ -86,13 +97,18 @@ def grab_tls_protocol_banner(
             if probe_payload is None:
                 return None, tls_metadata
 
-            banner = send_probe_and_grab_banner(tls_client, probe_payload)
+            banner = send_probe_and_grab_banner(
+                tls_client,
+                probe_payload,
+                end_marker=b"\r\n\r\n",
+            )
             return banner, tls_metadata
     except (OSError, ValueError, ssl.SSLError) as error:
         return None, {
             "status": "failed",
             "handshake": {},
             "certificate": {},
+            "trust": build_tls_trust_metadata(),
             "error": str(error),
         }
 
@@ -120,5 +136,6 @@ def grab_tls_text_service_banner(
             "status": "failed",
             "handshake": {},
             "certificate": {},
+            "trust": build_tls_trust_metadata(),
             "error": str(error),
         }

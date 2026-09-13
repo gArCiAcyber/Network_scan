@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main CLI orchestrator for the hylianscan v1.0.0 release."""
+"""Main CLI orchestrator for hylianscan."""
 
 from collections.abc import Mapping
 from pathlib import Path
@@ -82,7 +82,7 @@ from modules.nmap_xml import (
 )
 from modules.scan_stance import ScanStance
 from modules.subdomain import run_amass, run_subfinder
-from modules.target import TargetInfo, TargetResolutionError, resolve_target
+from modules.target import TargetInfo, resolve_target
 from modules.tcp_scanner import ScanResult, scan_tcp_ports
 
 
@@ -558,19 +558,15 @@ def main() -> None:
             print(f"Error: {error}")
         else:
             print(f"\n{ALERT_RED}[-] {error}{RESET}")
-        
-    except TargetResolutionError as error:
-        if quiet:
-            print(f"Error: {error}")
-        else:
-            print(f"\n{ALERT_RED}[-] {error}{RESET}")
-        
+        raise SystemExit(1) from error
+
     except KeyboardInterrupt:
         if quiet:
             print("Scan aborted. Exiting safely.")
         else:
             clear_dynamic_line()
             print(f"\n{INFO_BLUE}[-] Scan aborted by {ALERT_RED}Ganondorf{INFO_BLUE}. Exiting safely.{RESET}")
+        raise SystemExit(130)
 
 
 if __name__ == "__main__":

@@ -430,7 +430,7 @@ class CLIHelperTests(unittest.TestCase):
             parse_arguments()
 
         self.assertEqual(exit_context.exception.code, 0)
-        self.assertEqual(output.getvalue(), "hylianscan 1.0.0\n")
+        self.assertEqual(output.getvalue(), "hylianscan 1.0.1\n")
 
     def test_list_port_profiles_does_not_require_target(self) -> None:
         with patch("sys.argv", ["hylianscan", "--list-port-profiles"]):

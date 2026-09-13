@@ -4,6 +4,7 @@ import unittest
 
 from modules.ports import (
     COMMON_PORTS,
+    TOP_400_TCP_PORTS,
     build_web_url,
     get_service_name,
     normalize_ports,
@@ -37,6 +38,27 @@ class PortHelperTests(unittest.TestCase):
 
     def test_build_web_url_returns_none_for_non_web_ports(self) -> None:
         self.assertIsNone(build_web_url("192.0.2.10", 22))
+
+    def test_top_400_ports_are_unique_and_rank_common_services_first(self) -> None:
+        self.assertEqual(len(TOP_400_TCP_PORTS), 400)
+        self.assertEqual(len(set(TOP_400_TCP_PORTS)), 400)
+        self.assertEqual(TOP_400_TCP_PORTS[:5], [80, 23, 443, 21, 22])
+
+    def test_probe_ports_share_service_and_web_metadata(self) -> None:
+        expected_services = {
+            465: "SMTPS",
+            587: "SMTP",
+            990: "FTPS",
+            2121: "FTP",
+            8008: "HTTP",
+            8888: "HTTP",
+        }
+        for port, service in expected_services.items():
+            with self.subTest(port=port):
+                self.assertEqual(get_service_name(port), service)
+
+        self.assertEqual(build_web_url("192.0.2.10", 8008), "http://192.0.2.10:8008")
+        self.assertEqual(build_web_url("192.0.2.10", 8888), "http://192.0.2.10:8888")
 
 
 if __name__ == "__main__":

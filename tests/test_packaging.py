@@ -1,8 +1,9 @@
 """Tests for Python packaging metadata."""
 
-import tomllib
 import unittest
 from pathlib import Path
+
+from core.version import APP_VERSION
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -14,27 +15,20 @@ class PackagingMetadataTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        with PYPROJECT_PATH.open("rb") as pyproject_file:
-            cls.pyproject = tomllib.load(pyproject_file)
+        cls.pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     def test_project_metadata(self) -> None:
-        project = self.pyproject["project"]
-
-        self.assertEqual(project["name"], "hylianscan")
-        self.assertTrue(project["version"])
-        self.assertTrue(project["requires-python"])
-        self.assertEqual(project["readme"], "README.md")
-        self.assertEqual(project["dependencies"], [])
+        self.assertIn('name = "hylianscan"', self.pyproject)
+        self.assertIn(f'version = "{APP_VERSION}"', self.pyproject)
+        self.assertIn('requires-python = ">=3.10"', self.pyproject)
+        self.assertIn('readme = "README.md"', self.pyproject)
+        self.assertIn("dependencies = []", self.pyproject)
 
     def test_console_script_entrypoint(self) -> None:
-        scripts = self.pyproject["project"]["scripts"]
-
-        self.assertEqual(scripts["hylianscan"], "hylianscan:main")
+        self.assertIn('hylianscan = "hylianscan:main"', self.pyproject)
 
     def test_build_backend(self) -> None:
-        build_system = self.pyproject["build-system"]
-
-        self.assertEqual(build_system["build-backend"], "setuptools.build_meta")
+        self.assertIn('build-backend = "setuptools.build_meta"', self.pyproject)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,19 @@ class BannerGrabberHelperTests(unittest.TestCase):
         self.assertIn("world", banner)
         self.assertIn("\ufffd", banner)
 
+    def test_grab_banner_reads_fragmented_http_headers(self) -> None:
+        client = Mock()
+        client.recv.side_effect = [
+            b"HTTP/1.1 200 OK\r\nServer: test\r\n",
+            b"Content-Type: text/plain\r\n\r\n",
+        ]
+
+        banner = banner_grabber.grab_banner(client, end_marker=b"\r\n\r\n")
+
+        self.assertIn("Server: test", banner)
+        self.assertIn("Content-Type: text/plain", banner)
+        self.assertEqual(client.recv.call_count, 2)
+
     def test_merge_banner_parts_joins_unique_non_empty_parts(self) -> None:
         self.assertEqual(
             banner_grabber.merge_banner_parts(None, "", "220 FTP", "220 FTP", "SYST OK"),
@@ -210,6 +223,8 @@ class BannerGrabberHelperTests(unittest.TestCase):
             },
         )
         self.assertEqual(metadata["certificate"], {})
+        self.assertFalse(metadata["trust"]["verified"])
+        self.assertIn("not evaluated", metadata["trust"]["reason"])
         self.assertIsNone(metadata["error"])
 
     def test_grab_service_banner_dispatches_http_ports(self) -> None:

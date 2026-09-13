@@ -147,10 +147,12 @@ class QuietModeTests(unittest.TestCase):
 
         output = io.StringIO()
         with patch("hylianscan.parse_arguments", return_value=args), redirect_stdout(output):
-            hylianscan.main()
+            with self.assertRaises(SystemExit) as exit_context:
+                hylianscan.main()
 
         rendered = output.getvalue()
 
+        self.assertEqual(exit_context.exception.code, 1)
         self.assertIsNone(ANSI_PATTERN.search(rendered))
         self.assertIn("Error: Use passive discovery provider flags", rendered)
 

@@ -99,6 +99,10 @@ def build_port_document(
         "status": "not_collected",
         "handshake": {},
         "certificate": {},
+        "trust": {
+            "verified": False,
+            "reason": "Certificate chain trust was not evaluated.",
+        },
         "error": None,
     }
 

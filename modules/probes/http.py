@@ -19,4 +19,8 @@ def build_http_head_request(target_host: str) -> bytes:
 
 def grab_http_banner(client: socket.socket, target_host: str) -> str | None:
     """Actively request HTTP headers from a web service."""
-    return send_probe_and_grab_banner(client, build_http_head_request(target_host))
+    return send_probe_and_grab_banner(
+        client,
+        build_http_head_request(target_host),
+        end_marker=b"\r\n\r\n",
+    )
