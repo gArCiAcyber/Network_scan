@@ -3,7 +3,7 @@
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from modules.http_cookies import parse_http_cookies, parse_set_cookie_header
 from modules.http_metadata import (
@@ -18,29 +18,8 @@ from modules.nmap_xml import (
     NmapXmlImport,
     require_single_up_host,
 )
+from modules.tcp_scanner import PortScanResult, ScanResult
 from modules.tls_analysis import build_tls_analysis
-
-
-class PortFindingExportView(Protocol):
-    """Minimum fields required to export an open TCP port."""
-
-    port: int
-    service: str
-    banner: str | None
-    response_time: float
-    web_url: str | None
-    tls: dict[str, Any] | None
-    probe: dict[str, Any] | None
-
-
-class ScanResultExportView(Protocol):
-    """Minimum fields required to export a TCP scan summary."""
-
-    target_host: str
-    resolved_ip: str
-    scanned_ports: int
-    open_ports: Sequence[PortFindingExportView]
-    duration: float
 
 
 def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
@@ -82,7 +61,7 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
     return metadata
 
 
-def build_probe_document(finding: PortFindingExportView) -> dict[str, Any]:
+def build_probe_document(finding: PortScanResult) -> dict[str, Any]:
     """Build structured probe metadata for one open port."""
     probe = getattr(finding, "probe", None)
 
@@ -112,7 +91,7 @@ def build_probe_document(finding: PortFindingExportView) -> dict[str, Any]:
 
 
 def build_port_document(
-    finding: PortFindingExportView,
+    finding: PortScanResult,
     target_host: str,
 ) -> dict[str, Any]:
     """Build one JSON-ready open-port document."""
@@ -144,7 +123,7 @@ def build_port_document(
 
 
 def build_tcp_scan_document(
-    scan_result: ScanResultExportView,
+    scan_result: ScanResult,
     report_filters: Mapping[str, Any] | None = None,
     nmap_enrichment: NmapEnrichmentResult | None = None,
 ) -> dict[str, Any]:
@@ -192,7 +171,7 @@ def build_tcp_scan_document(
 
 
 def write_tcp_json_report(
-    scan_result: ScanResultExportView,
+    scan_result: ScanResult,
     output_path: Path,
     report_filters: Mapping[str, Any] | None = None,
     nmap_enrichment: NmapEnrichmentResult | None = None,

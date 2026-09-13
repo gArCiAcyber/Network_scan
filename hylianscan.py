@@ -93,12 +93,6 @@ STANCE_ALIAS_COLORS = {
 }
 
 
-def format_scan_stance_label(stance: ScanStance) -> str:
-    """Return the display label for the active TCP scan stance."""
-    alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
-    return f"{stance.name} ({alias_color}{stance.lore_alias}{RESET})"
-
-
 def has_scan_config_overrides(args: object) -> bool:
     """Return True when explicit TCP scan controls override stance defaults."""
     return any(
@@ -502,7 +496,6 @@ def main() -> None:
                 final_panel = build_final_panel(
                     scan_result,
                     scan_scope=scan_scope,
-                    scan_stance=format_scan_stance_label(scan_stance),
                 )
 
             print(final_panel)
@@ -534,7 +527,6 @@ def main() -> None:
             saved_report = build_saved_text_report(
                 scan_result,
                 scan_scope=scan_scope,
-                scan_stance=None if quiet else format_scan_stance_label(scan_stance),
                 base_report=final_panel,
                 match_code_expression=match_code_expression,
             )

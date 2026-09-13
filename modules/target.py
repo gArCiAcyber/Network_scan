@@ -67,23 +67,3 @@ def resolve_target(value: str) -> TargetInfo:
         resolved_ip=resolved_ip,
         is_ip_address=False,
     )
-
-
-def format_target_orientation(target: TargetInfo) -> str:
-    """Build a clean Host/IP orientation block."""
-    if target.is_ip_address:
-        return "\n".join(
-            [
-                "[*] Target Orientation:",
-                f"    Direct IP : {target.resolved_ip}",
-            ]
-        )
-
-    return "\n".join(
-        [
-            "[*] Target Orientation:",
-            f"    Host        : {target.target_host}",
-            f"    Resolved IP : {target.resolved_ip}",
-        ]
-    )
-
