@@ -602,17 +602,16 @@ def validate_mode(args: argparse.Namespace) -> None:
             raise ValueError("Use --nmap with TCP scanning, not passive discovery.")
 
     if nmap_xml:
-
-      passive_flags = (
-        passive_providers or subfinder_path or amass_path or httpx or httpx_path
-    )
-    tcp_flags = ports or top_ports or port_profile or scan_profile or match_code
-    tcp_tuning_flags = (
-        threads is not None
-        or timeout is not None
-        or max_rate is not None
-        or http_probing is not None
-    )
+        passive_flags = (
+            passive_providers or subfinder_path or amass_path or httpx or httpx_path
+        )
+        tcp_flags = ports or top_ports or port_profile or scan_profile or match_code
+        tcp_tuning_flags = (
+            threads is not None
+            or timeout is not None
+            or max_rate is not None
+            or http_probing is not None
+        )
 
         if passive_flags:
             raise ValueError("Use --nmap-xml or passive discovery flags, not both.")
