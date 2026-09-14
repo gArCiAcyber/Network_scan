@@ -622,11 +622,14 @@ def get_passive_providers(args: argparse.Namespace) -> list[str]:
     """Return the selected passive discovery providers."""
     providers: list[str] = []
 
-    if args.subfinder:
+    if getattr(args, "subfinder", False):
         providers.append("subfinder")
 
-    if args.amass:
+    if getattr(args, "amass", False):
         providers.append("amass")
+
+    if getattr(args, "dnsx", False):
+        providers.append("dnsx")
 
     return providers
 
@@ -644,6 +647,16 @@ def validate_mode(args: argparse.Namespace) -> None:
     nmap_path = getattr(args, "nmap_path", None)
     subfinder_path = getattr(args, "subfinder_path", None)
     amass_path = getattr(args, "amass_path", None)
+    dnsx = getattr(args, "dnsx", False)
+    dnsx_path = getattr(args, "dnsx_path", None)
+    dnsx_resolver = getattr(args, "dnsx_resolver", None)
+    dnsx_threads = getattr(args, "dnsx_threads", None)
+    dnsx_rate_limit = getattr(args, "dnsx_rate_limit", None)
+    dnsx_timeout = getattr(args, "dnsx_timeout", None)
+    dnsx_retry = getattr(args, "dnsx_retry", None)
+    dnsx_auto_wildcard = getattr(args, "dnsx_auto_wildcard", False)
+    dnsx_json = getattr(args, "dnsx_json", False)
+    json_output = getattr(args, "json_output", None)
     httpx = getattr(args, "httpx", False)
     httpx_path = getattr(args, "httpx_path", None)
     host_discovery = getattr(args, "host_discovery", None)
@@ -665,6 +678,48 @@ def validate_mode(args: argparse.Namespace) -> None:
             "Use passive discovery provider flags or TCP scan/report flags, not both."
         )
 
+    if passive_providers and any(
+        value is not None for value in (threads, timeout, max_rate)
+    ):
+        raise ValueError(
+            "Use --threads, --timeout, and --max-rate only with TCP scanning; "
+            "use the --dnsx-* controls for DNSx."
+        )
+
+    if dnsx and not (
+        getattr(args, "subfinder", False) or getattr(args, "amass", False)
+    ):
+        raise ValueError("Use --dnsx together with --subfinder or --amass.")
+
+    dnsx_specific_options = (
+        ("--dnsx-path", dnsx_path is not None),
+        ("--dnsx-resolver", dnsx_resolver is not None),
+        ("--dnsx-threads", dnsx_threads is not None),
+        ("--dnsx-rate-limit", dnsx_rate_limit is not None),
+        ("--dnsx-timeout", dnsx_timeout is not None),
+        ("--dnsx-retry", dnsx_retry is not None),
+        ("--dnsx-auto-wildcard", dnsx_auto_wildcard),
+        ("--dnsx-json", dnsx_json),
+    )
+    for option, selected in dnsx_specific_options:
+        if selected and not dnsx:
+            raise ValueError(f"Use {option} only together with --dnsx.")
+
+    if dnsx_json and not json_output:
+        raise ValueError("Use --dnsx-json together with --json-output.")
+
+    if dnsx_resolver is not None and not dnsx_resolver.strip():
+        raise ValueError("--dnsx-resolver cannot be empty.")
+
+    for option, value in (
+        ("--dnsx-threads", dnsx_threads),
+        ("--dnsx-rate-limit", dnsx_rate_limit),
+        ("--dnsx-timeout", dnsx_timeout),
+        ("--dnsx-retry", dnsx_retry),
+    ):
+        if value is not None and value <= 0:
+            raise ValueError(f"{option} must be greater than zero.")
+
     if nmap_path and not nmap:
         raise ValueError("Use --nmap-path only together with --nmap.")
 
@@ -676,7 +731,12 @@ def validate_mode(args: argparse.Namespace) -> None:
 
     if nmap:
         passive_flags = (
-            passive_providers or subfinder_path or amass_path or httpx or httpx_path
+            passive_providers
+            or subfinder_path
+            or amass_path
+            or dnsx_path
+            or httpx
+            or httpx_path
         )
 
         if nmap_xml:
@@ -687,7 +747,12 @@ def validate_mode(args: argparse.Namespace) -> None:
 
     if nmap_xml:
         passive_flags = (
-            passive_providers or subfinder_path or amass_path or httpx or httpx_path
+            passive_providers
+            or subfinder_path
+            or amass_path
+            or dnsx_path
+            or httpx
+            or httpx_path
         )
         tcp_flags = ports or top_ports or port_profile or scan_profile or match_code
         tcp_tuning_flags = (
