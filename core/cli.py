@@ -5,6 +5,7 @@ import argparse
 from core.version import APP_NAME, APP_VERSION
 from modules.ports import TOP_400_TCP_PORTS
 from modules.port_profiles import format_port_profile_label, resolve_port_profile
+from modules.scan_profiles import ScanProfile, resolve_scan_profile
 from modules.scan_stance import ScanStance, resolve_stance
 
 
@@ -21,6 +22,13 @@ def parse_arguments() -> argparse.Namespace:
         "--version",
         action="version",
         version=f"{APP_NAME} {APP_VERSION}",
+    )
+    parser.add_argument(
+        "--list-scan-profiles",
+        "--list-profiles",
+        dest="list_scan_profiles",
+        action="store_true",
+        help="List complete built-in scan profiles and exit without scanning.",
     )
     parser.add_argument(
         "--list-port-profiles",
@@ -118,6 +126,12 @@ def parse_arguments() -> argparse.Namespace:
         help="Scan the top N built-in TCP ports. Example: --top-ports 400.",
     )
     parser.add_argument(
+        "--profile",
+        "--scan-profile",
+        dest="scan_profile",
+        help="Apply a complete scan profile: quick, web, or cautious.",
+    )
+    parser.add_argument(
         "--port-profile",
         help=(
             "Use a predefined TCP port profile. Supports quick/kokiri, "
@@ -170,6 +184,19 @@ def parse_arguments() -> argparse.Namespace:
         type=float,
         help="Limit how many new TCP connection attempts are started per second.",
     )
+    http_probing_group = parser.add_mutually_exclusive_group()
+    http_probing_group.add_argument(
+        "--http-probing",
+        dest="http_probing",
+        action="store_true",
+        help="Probe discovered HTTP/HTTPS services (overrides the profile default).",
+    )
+    http_probing_group.add_argument(
+        "--no-http-probing",
+        dest="http_probing",
+        action="store_false",
+        help="Skip HTTP/HTTPS probes after TCP discovery.",
+    )
     parser.add_argument(
         "-mc",
         "--match-code",
@@ -203,7 +230,11 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Reduce terminal output for scripting and automation.",
     )
-    parser.set_defaults(address_family="dual-stack", host_discovery=None)
+    parser.set_defaults(
+        address_family="dual-stack",
+        host_discovery=None,
+        http_probing=None,
+    )
     args = parser.parse_args()
 
     try:
@@ -226,6 +257,7 @@ def is_information_command(args: argparse.Namespace) -> bool:
     return bool(
         getattr(args, "list_port_profiles", False)
         or getattr(args, "list_stances", False)
+        or getattr(args, "list_scan_profiles", False)
     )
 
 
@@ -321,6 +353,11 @@ def parse_ports_list(args: argparse.Namespace) -> list[int]:
 
         return TOP_400_TCP_PORTS[: args.top_ports]
 
+    scan_profile = get_scan_profile(args)
+
+    if scan_profile:
+        return list(resolve_port_profile(scan_profile.port_profile).ports)
+
     return TOP_400_TCP_PORTS.copy()
 
 
@@ -336,6 +373,11 @@ def resolve_scan_scope_label(args: argparse.Namespace) -> str:
 
     if args.top_ports:
         return "Selected Port List"
+
+    scan_profile = get_scan_profile(args)
+
+    if scan_profile:
+        return f"Scan Profile: {scan_profile.name}"
 
     return "Default Target List"
 
@@ -423,8 +465,14 @@ def parse_match_codes(match_code: str | None) -> list[int] | None:
 
 def resolve_scan_stance(args: argparse.Namespace) -> ScanStance:
     """Resolve the selected scan stance and explicit CLI overrides."""
-    explicit_threads = None
-    explicit_timeout = None
+    scan_profile = get_scan_profile(args)
+    explicit_stance = getattr(args, "stance", None)
+    explicit_threads = (
+        scan_profile.workers if scan_profile and not explicit_stance else None
+    )
+    explicit_timeout = (
+        scan_profile.timeout if scan_profile and not explicit_stance else None
+    )
 
     if args.threads is not None:
         explicit_threads = validate_threads(args.threads)
@@ -433,10 +481,52 @@ def resolve_scan_stance(args: argparse.Namespace) -> ScanStance:
         explicit_timeout = validate_timeout(args.timeout)
 
     return resolve_stance(
-        stance_value=getattr(args, "stance", None) or DEFAULT_STANCE,
+        stance_value=(
+            explicit_stance
+            or (scan_profile.stance if scan_profile else DEFAULT_STANCE)
+        ),
         explicit_workers=explicit_threads,
         explicit_timeout=explicit_timeout,
     )
+
+
+def get_scan_profile(args: argparse.Namespace) -> ScanProfile | None:
+    """Return the selected complete scan profile, if any."""
+    profile_value = getattr(args, "scan_profile", None)
+    return resolve_scan_profile(profile_value) if profile_value else None
+
+
+def resolve_max_rate(args: argparse.Namespace) -> float | None:
+    """Return explicit pacing or the selected profile default."""
+    explicit_max_rate = getattr(args, "max_rate", None)
+
+    if explicit_max_rate is not None:
+        return validate_max_rate(explicit_max_rate)
+
+    scan_profile = get_scan_profile(args)
+    return scan_profile.max_rate if scan_profile else None
+
+
+def resolve_host_discovery(args: argparse.Namespace) -> str | None:
+    """Return explicit host discovery or the selected profile default."""
+    explicit_discovery = getattr(args, "host_discovery", None)
+
+    if explicit_discovery:
+        return explicit_discovery
+
+    scan_profile = get_scan_profile(args)
+    return scan_profile.host_discovery if scan_profile else None
+
+
+def resolve_http_probing(args: argparse.Namespace) -> bool:
+    """Return explicit HTTP probing or the selected profile/default behavior."""
+    explicit_http_probing = getattr(args, "http_probing", None)
+
+    if explicit_http_probing is not None:
+        return explicit_http_probing
+
+    scan_profile = get_scan_profile(args)
+    return scan_profile.http_probing if scan_profile else True
 
 
 def has_explicit_stance(args: argparse.Namespace) -> bool:
@@ -463,6 +553,7 @@ def validate_mode(args: argparse.Namespace) -> None:
     ports = getattr(args, "ports", None)
     top_ports = getattr(args, "top_ports", None)
     port_profile = getattr(args, "port_profile", None)
+    scan_profile = getattr(args, "scan_profile", None)
     match_code = getattr(args, "match_code", None)
     nmap_xml = getattr(args, "nmap_xml", None)
     nmap = getattr(args, "nmap", False)
@@ -475,9 +566,16 @@ def validate_mode(args: argparse.Namespace) -> None:
     threads = getattr(args, "threads", None)
     timeout = getattr(args, "timeout", None)
     max_rate = getattr(args, "max_rate", None)
+    http_probing = getattr(args, "http_probing", None)
 
     if passive_providers and (
-        ports or top_ports or port_profile or match_code or host_discovery
+        ports
+        or top_ports
+        or port_profile
+        or scan_profile
+        or match_code
+        or host_discovery
+        or http_probing is not None
     ):
         raise ValueError(
             "Use passive discovery provider flags or TCP scan/report flags, not both."
@@ -504,11 +602,17 @@ def validate_mode(args: argparse.Namespace) -> None:
             raise ValueError("Use --nmap with TCP scanning, not passive discovery.")
 
     if nmap_xml:
-        passive_flags = (
-            passive_providers or subfinder_path or amass_path or httpx or httpx_path
-        )
-        tcp_flags = ports or top_ports or port_profile or match_code
-        tcp_tuning_flags = threads is not None or timeout is not None or max_rate is not None
+
+      passive_flags = (
+        passive_providers or subfinder_path or amass_path or httpx or httpx_path
+    )
+    tcp_flags = ports or top_ports or port_profile or scan_profile or match_code
+    tcp_tuning_flags = (
+        threads is not None
+        or timeout is not None
+        or max_rate is not None
+        or http_probing is not None
+    )
 
         if passive_flags:
             raise ValueError("Use --nmap-xml or passive discovery flags, not both.")
@@ -518,6 +622,9 @@ def validate_mode(args: argparse.Namespace) -> None:
 
         if tcp_tuning_flags:
             raise ValueError("Use --nmap-xml or TCP scan tuning flags, not both.")
+
+    if match_code and not resolve_http_probing(args):
+        raise ValueError("Use --match-code only when HTTP probing is enabled.")
 
 
 def resolve_port_profile_label(args: argparse.Namespace) -> str | None:

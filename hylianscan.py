@@ -7,6 +7,7 @@ from pathlib import Path
 from core.banner import show_banner
 from core.cli import (
     get_passive_providers,
+    get_scan_profile,
     has_explicit_stance,
     is_quiet_mode,
     is_information_command,
@@ -15,9 +16,11 @@ from core.cli import (
     parse_match_codes,
     parse_ports_list,
     resolve_port_profile_label,
+    resolve_host_discovery,
+    resolve_http_probing,
+    resolve_max_rate,
     resolve_scan_scope_label,
     resolve_scan_stance,
-    validate_max_rate,
     validate_mode,
 )
 from core.colors import (
@@ -103,15 +106,34 @@ STANCE_ALIAS_COLORS = {
 
 
 def has_scan_config_overrides(args: object) -> bool:
-    """Return True when explicit TCP scan controls override stance defaults."""
+    """Return True when explicit TCP controls override scan defaults."""
     return any(
         getattr(args, attribute, None) is not None
-        for attribute in ("threads", "timeout", "max_rate")
+        for attribute in (
+            "ports",
+            "top_ports",
+            "port_profile",
+            "stance",
+            "threads",
+            "timeout",
+            "max_rate",
+            "host_discovery",
+            "http_probing",
+        )
     )
 
 
-def format_scan_config_source(has_overrides: bool) -> str:
+def format_scan_config_source(
+    has_overrides: bool,
+    scan_profile_name: str | None = None,
+) -> str:
     """Return a short label explaining how the effective scan config was chosen."""
+    if scan_profile_name and has_overrides:
+        return f"Scan Profile: {scan_profile_name} + User Overrides"
+
+    if scan_profile_name:
+        return f"Scan Profile: {scan_profile_name}"
+
     if has_overrides:
         return "User Overrides"
 
@@ -154,6 +176,8 @@ def show_target_orientation(
     port_profile_label: str | None = None,
     match_codes: list[int] | None = None,
     host_discovery: str | None = None,
+    scan_profile_name: str | None = None,
+    http_probing: bool = True,
 ) -> None:
     """Render the target orientation and effective scan configuration block."""
     alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
@@ -206,8 +230,9 @@ def show_target_orientation(
             f"{'Max Rate':<{label_width}}: {format_max_rate_label(max_rate)}",
             (
                 f"{'Config Source':<{label_width}}: "
-                f"{format_scan_config_source(has_overrides)}"
+                f"{format_scan_config_source(has_overrides, scan_profile_name)}"
             ),
+            f"{'HTTP Probing':<{label_width}}: {'Enabled' if http_probing else 'Disabled'}",
         ]
     )
 
@@ -239,6 +264,7 @@ def run_port_scan(
     max_workers: int,
     max_rate: float | None = None,
     quiet: bool = False,
+    http_probing: bool = True,
 ) -> ScanResult:
     """Run the threaded TCP scanner without embedding TCP logic in the CLI."""
     display = None if quiet else TCPScanDisplay(target, len(ports_to_scan))
@@ -253,6 +279,7 @@ def run_port_scan(
         "timeout": timeout,
         "max_workers": max_workers,
         "max_rate": max_rate,
+        "http_probing": http_probing,
         "progress_callback": None if display is None else display.handle_progress,
         "open_port_callback": None if display is None else display.handle_open_port,
         "service_probe_start_callback": (
@@ -565,7 +592,9 @@ def main() -> None:
                 match_codes,
             )
             scan_stance = resolve_scan_stance(args)
-            max_rate = validate_max_rate(args.max_rate)
+            scan_profile = get_scan_profile(args)
+            max_rate = resolve_max_rate(args)
+            http_probing = resolve_http_probing(args)
             has_overrides = has_scan_config_overrides(args)
             scan_scope = resolve_scan_scope_label(args)
             port_profile_label = resolve_port_profile_label(args)
@@ -573,7 +602,7 @@ def main() -> None:
                 args.target,
                 address_family=getattr(args, "address_family", "dual-stack"),
             )
-            host_discovery = getattr(args, "host_discovery", None)
+            host_discovery = resolve_host_discovery(args)
 
             if host_discovery:
                 target = run_host_discovery(
@@ -589,11 +618,13 @@ def main() -> None:
                     len(ports_to_scan),
                     max_rate=max_rate,
                     has_overrides=has_overrides,
-                    show_stance=has_explicit_stance(args),
+                    show_stance=has_explicit_stance(args) or scan_profile is not None,
                     nmap_enabled=getattr(args, "nmap", False),
                     port_profile_label=port_profile_label,
                     match_codes=match_codes,
                     host_discovery=host_discovery,
+                    scan_profile_name=(scan_profile.name if scan_profile else None),
+                    http_probing=http_probing,
                 )
 
             native_scan_result = run_port_scan(
@@ -603,6 +634,7 @@ def main() -> None:
                 max_workers=scan_stance.workers,
                 max_rate=max_rate,
                 quiet=quiet,
+                http_probing=http_probing,
             )
             scan_result = filter_scan_result_by_http_status(
                 native_scan_result,

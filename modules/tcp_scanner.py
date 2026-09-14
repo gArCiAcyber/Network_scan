@@ -141,8 +141,12 @@ def probe_open_service(
     pacer: MaxRatePacer | None = None,
     address_family: int | socket.AddressFamily | None = None,
     scope_id: int = 0,
+    http_probing: bool = True,
 ) -> PortScanResult:
     """Collect service evidence for one discovered open TCP port."""
+    if not http_probing and finding.web_url is not None:
+        return finding
+
     banner = None
     tls = None
     probe = None
@@ -190,6 +194,7 @@ def scan_single_port(
     timeout: float = DEFAULT_TIMEOUT,
     max_rate: float | None = None,
     address_family: int | socket.AddressFamily | None = None,
+    http_probing: bool = True,
 ) -> PortScanResult | None:
     """Scan and probe one TCP port for compatibility with direct callers."""
     pacer = MaxRatePacer(max_rate) if max_rate is not None else None
@@ -212,6 +217,7 @@ def scan_single_port(
         timeout,
         pacer,
         address_family,
+        http_probing=http_probing,
     )
 
 
@@ -235,6 +241,7 @@ def scan_tcp_ports(
     service_probe_start_callback: ServiceProbeStartCallback | None = None,
     service_probe_complete_callback: ServiceProbeCompleteCallback | None = None,
     addresses: Iterable[ResolvedAddress] | None = None,
+    http_probing: bool = True,
 ) -> ScanResult:
     """Run a threaded TCP scan and return a consolidated result."""
     started_at = time.perf_counter()
@@ -344,6 +351,7 @@ def scan_tcp_ports(
                         ),
                         0,
                     ),
+                    http_probing,
                 ): (
                     next(
                         (
