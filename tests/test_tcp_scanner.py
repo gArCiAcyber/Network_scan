@@ -1,9 +1,10 @@
 """Tests for TCP scanner orchestration helpers."""
 
+import socket
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from modules.tcp_scanner import PortScanResult, scan_tcp_ports
+from modules.tcp_scanner import PortScanResult, discover_open_port, scan_tcp_ports
 
 
 class TCPScannerFlowTests(unittest.TestCase):
@@ -76,6 +77,25 @@ class TCPScannerFlowTests(unittest.TestCase):
         self.assertEqual(result.scanned_ports, 1)
         self.assertEqual(result.open_ports, ())
         self.assertIsNone(discover.call_args.args[4])
+
+    def test_discover_open_port_uses_ipv6_socket_and_destination(self) -> None:
+        fake_socket = MagicMock()
+        fake_socket.__enter__.return_value = fake_socket
+        fake_socket.connect_ex.return_value = 0
+
+        with patch("modules.tcp_scanner.socket.socket", return_value=fake_socket) as factory:
+            finding = discover_open_port(
+                "example.com",
+                "2001:db8::10",
+                443,
+                timeout=0.1,
+                address_family=socket.AF_INET6,
+            )
+
+        factory.assert_called_once_with(socket.AF_INET6, socket.SOCK_STREAM)
+        fake_socket.connect_ex.assert_called_once_with(("2001:db8::10", 443, 0, 0))
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding.address_family, "ipv6")
 
 
 if __name__ == "__main__":

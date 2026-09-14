@@ -19,6 +19,7 @@ from modules.nmap_xml import (
     require_single_up_host,
 )
 from modules.tcp_scanner import PortScanResult, ScanResult
+from modules.target import ResolvedAddress, socket_family_for_address
 from modules.tls_analysis import build_tls_analysis
 
 
@@ -106,7 +107,7 @@ def build_port_document(
         "error": None,
     }
 
-    return {
+    document = {
         "port": finding.port,
         "transport": "tcp",
         "status": "open",
@@ -125,6 +126,65 @@ def build_port_document(
         },
     }
 
+    address = getattr(finding, "address", None)
+    if address:
+        document["address"] = address
+        document["address_family"] = getattr(finding, "address_family", None)
+
+    return document
+
+
+def _scan_addresses(scan_result: ScanResult) -> tuple[ResolvedAddress, ...]:
+    """Return scan addresses, retaining compatibility with old result objects."""
+    addresses = getattr(scan_result, "addresses", ())
+
+    if addresses:
+        return tuple(addresses)
+
+    resolved_ips = getattr(scan_result, "resolved_ips", ()) or (
+        scan_result.resolved_ip,
+    )
+    return tuple(
+        ResolvedAddress(
+            address=resolved_ip,
+            family=socket_family_for_address(resolved_ip),
+        )
+        for resolved_ip in resolved_ips
+    )
+
+
+def _build_scan_address_document(address: ResolvedAddress) -> dict[str, Any]:
+    """Build one resolved-address JSON document."""
+    return {
+        "address": address.address,
+        "family": address.family_name,
+        "reverse_dns": address.reverse_dns,
+    }
+
+
+def _scan_findings_by_family(
+    scan_result: ScanResult,
+) -> tuple[tuple[PortScanResult, ...], tuple[PortScanResult, ...]]:
+    """Split findings without requiring legacy result fixtures to be upgraded."""
+    ipv4 = getattr(scan_result, "ipv4_open_ports", None)
+    ipv6 = getattr(scan_result, "ipv6_open_ports", None)
+
+    if ipv4 is not None and ipv6 is not None:
+        return tuple(ipv4), tuple(ipv6)
+
+    return (
+        tuple(
+            finding
+            for finding in scan_result.open_ports
+            if getattr(finding, "address_family", None) != "ipv6"
+        ),
+        tuple(
+            finding
+            for finding in scan_result.open_ports
+            if getattr(finding, "address_family", None) == "ipv6"
+        ),
+    )
+
 
 def build_tcp_scan_document(
     scan_result: ScanResult,
@@ -132,17 +192,39 @@ def build_tcp_scan_document(
     nmap_enrichment: NmapEnrichmentResult | None = None,
 ) -> dict[str, Any]:
     """Build a future-ready JSON document for TCP scan results."""
+    addresses = _scan_addresses(scan_result)
+    ipv4_addresses = tuple(
+        address for address in addresses if address.family_name == "ipv4"
+    )
+    ipv6_addresses = tuple(
+        address for address in addresses if address.family_name == "ipv6"
+    )
+    ipv4_open_ports, ipv6_open_ports = _scan_findings_by_family(scan_result)
     scan_document: dict[str, Any] = {
         "type": "tcp",
         "target": {
             "host": scan_result.target_host,
             "resolved_ip": scan_result.resolved_ip,
+            "resolved_ips": [address.address for address in addresses],
+            "address_family": getattr(scan_result, "address_family", "ipv4"),
+            "addresses": {
+                "ipv4": [
+                    _build_scan_address_document(address)
+                    for address in ipv4_addresses
+                ],
+                "ipv6": [
+                    _build_scan_address_document(address)
+                    for address in ipv6_addresses
+                ],
+            },
         },
         "scope": {
             "ports_tested": scan_result.scanned_ports,
         },
         "summary": {
             "open_ports": len(scan_result.open_ports),
+            "ipv4_open_ports": len(ipv4_open_ports),
+            "ipv6_open_ports": len(ipv6_open_ports),
         },
         "timing": {
             "duration_seconds": round(scan_result.duration, 6),
@@ -152,6 +234,7 @@ def build_tcp_scan_document(
     if report_filters:
         scan_document["report_filters"] = dict(report_filters)
 
+    open_ports = list(scan_result.open_ports)
     document = {
         "schema": {
             "name": "hylianscan_tcp_scan",
@@ -161,7 +244,15 @@ def build_tcp_scan_document(
         "results": {
             "open_ports": [
                 build_port_document(finding, scan_result.target_host)
-                for finding in scan_result.open_ports
+                for finding in open_ports
+            ],
+            "ipv4": [
+                build_port_document(finding, scan_result.target_host)
+                for finding in ipv4_open_ports
+            ],
+            "ipv6": [
+                build_port_document(finding, scan_result.target_host)
+                for finding in ipv6_open_ports
             ],
         },
     }

@@ -36,6 +36,13 @@ class PortHelperTests(unittest.TestCase):
         self.assertEqual(build_web_url("192.0.2.10", 8443), "https://192.0.2.10:8443")
         self.assertEqual(build_web_url("192.0.2.10", 2053), "https://192.0.2.10:2053")
 
+    def test_build_web_url_brackets_ipv6_literals(self) -> None:
+        self.assertEqual(build_web_url("2001:db8::10", 80), "http://[2001:db8::10]")
+        self.assertEqual(
+            build_web_url("2001:db8::10", 8443),
+            "https://[2001:db8::10]:8443",
+        )
+
     def test_build_web_url_returns_none_for_non_web_ports(self) -> None:
         self.assertIsNone(build_web_url("192.0.2.10", 22))
 

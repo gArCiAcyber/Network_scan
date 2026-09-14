@@ -1,5 +1,6 @@
 """TCP port metadata and selection helpers for hylianscan."""
 
+import ipaddress
 from collections.abc import Iterable
 
 from modules.probes.registry import HTTP_PORTS, HTTPS_PORTS, PROTOCOL_PROBE_REGISTRY
@@ -118,7 +119,15 @@ def build_web_url(resolved_ip: str, port: int) -> str | None:
     if scheme is None:
         return None
 
-    if port in (80, 443):
-        return f"{scheme}://{resolved_ip}"
+    host = resolved_ip
 
-    return f"{scheme}://{resolved_ip}:{port}"
+    try:
+        if ipaddress.ip_address(resolved_ip).version == 6:
+            host = f"[{resolved_ip}]"
+    except ValueError:
+        pass
+
+    if port in (80, 443):
+        return f"{scheme}://{host}"
+
+    return f"{scheme}://{host}:{port}"

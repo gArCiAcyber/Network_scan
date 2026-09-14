@@ -147,7 +147,7 @@
 ## Future Work
 
 - [ ] Add TXT report export templates into `output/`.
-- [ ] Add IPv6 support with `socket.getaddrinfo()`.
+- [X] Add IPv4/IPv6 and dual-stack support with `socket.getaddrinfo()`.
 - [ ] Add structured scan profiles.
 - [ ] Add LDAP STARTTLS upgrade probing.
 - [ ] Add scan intensity profiles with rate limiting and jitter controls.

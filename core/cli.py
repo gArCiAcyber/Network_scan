@@ -47,6 +47,48 @@ def parse_arguments() -> argparse.Namespace:
         metavar="PATH",
         help="Path to the Nmap executable for optional live enrichment.",
     )
+    address_family_group = parser.add_mutually_exclusive_group()
+    address_family_group.add_argument(
+        "--ipv4",
+        dest="address_family",
+        action="store_const",
+        const="ipv4",
+        help="Resolve and scan IPv4 addresses only.",
+    )
+    address_family_group.add_argument(
+        "--ipv6",
+        dest="address_family",
+        action="store_const",
+        const="ipv6",
+        help="Resolve and scan IPv6 addresses only.",
+    )
+    address_family_group.add_argument(
+        "--dual-stack",
+        dest="address_family",
+        action="store_const",
+        const="dual-stack",
+        help="Resolve and scan both IPv4 and IPv6 addresses (default).",
+    )
+    discovery_group = parser.add_mutually_exclusive_group()
+    discovery_group.add_argument(
+        "--host-discovery",
+        choices=("tcp", "icmp"),
+        help="Run optional TCP or ICMP host discovery before port scanning.",
+    )
+    discovery_group.add_argument(
+        "--tcp-discovery",
+        dest="host_discovery",
+        action="store_const",
+        const="tcp",
+        help=argparse.SUPPRESS,
+    )
+    discovery_group.add_argument(
+        "--icmp-discovery",
+        dest="host_discovery",
+        action="store_const",
+        const="icmp",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument(
         "target",
         nargs="?",
@@ -152,6 +194,7 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Reduce terminal output for scripting and automation.",
     )
+    parser.set_defaults(address_family="dual-stack", host_discovery=None)
     args = parser.parse_args()
 
     try:
@@ -417,11 +460,14 @@ def validate_mode(args: argparse.Namespace) -> None:
     nmap_path = getattr(args, "nmap_path", None)
     subfinder_path = getattr(args, "subfinder_path", None)
     amass_path = getattr(args, "amass_path", None)
+    host_discovery = getattr(args, "host_discovery", None)
     threads = getattr(args, "threads", None)
     timeout = getattr(args, "timeout", None)
     max_rate = getattr(args, "max_rate", None)
 
-    if passive_providers and (ports or top_ports or port_profile or match_code):
+    if passive_providers and (
+        ports or top_ports or port_profile or match_code or host_discovery
+    ):
         raise ValueError(
             "Use passive discovery provider flags or TCP scan/report flags, not both."
         )
@@ -446,7 +492,7 @@ def validate_mode(args: argparse.Namespace) -> None:
         if passive_flags:
             raise ValueError("Use --nmap-xml or passive discovery flags, not both.")
 
-        if tcp_flags:
+        if tcp_flags or host_discovery:
             raise ValueError("Use --nmap-xml or TCP scan/report flags, not both.")
 
         if tcp_tuning_flags:
