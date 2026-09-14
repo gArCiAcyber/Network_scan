@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import ipaddress
 import subprocess
 
 from modules.nmap_xml import NmapXmlImport, parse_nmap_xml_text
@@ -49,12 +50,20 @@ def build_nmap_service_version_command(
     if not clean_nmap_binary:
         raise ValueError("Nmap Service Scan requires an Nmap binary name or path.")
 
+    family_flag = []
+    try:
+        if ipaddress.ip_address(clean_target).version == 6:
+            family_flag = ["-6"]
+    except ValueError:
+        pass
+
     return [
         clean_nmap_binary,
         "-sT",
         "-sV",
         "-Pn",
         "-n",
+        *family_flag,
         "-p",
         ",".join(str(port) for port in normalized_ports),
         "-oX",

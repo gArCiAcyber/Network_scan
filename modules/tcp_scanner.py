@@ -10,6 +10,7 @@ from typing import Any
 from modules.banner_grabber import grab_service_banner
 from modules.ports import build_web_url, get_service_name, normalize_ports
 from modules.rate_limiter import MaxRatePacer
+from modules.target import ResolvedAddress, address_family_name, socket_family_for_address
 
 
 DEFAULT_TIMEOUT = 1.0
@@ -32,6 +33,8 @@ class PortScanResult:
     web_url: str | None = None
     tls: dict[str, Any] | None = None
     probe: dict[str, Any] | None = None
+    address: str | None = None
+    address_family: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,41 @@ class ScanResult:
     scanned_ports: int
     open_ports: tuple[PortScanResult, ...]
     duration: float
+    resolved_ips: tuple[str, ...] = ()
+    address_family: str = "ipv4"
+    addresses: tuple[ResolvedAddress, ...] = ()
+
+    @property
+    def ipv4_open_ports(self) -> tuple[PortScanResult, ...]:
+        """Return only open-port findings discovered over IPv4."""
+        return tuple(
+            finding
+            for finding in self.open_ports
+            if (finding.address_family or "ipv4") == "ipv4"
+        )
+
+    @property
+    def ipv6_open_ports(self) -> tuple[PortScanResult, ...]:
+        """Return only open-port findings discovered over IPv6."""
+        return tuple(
+            finding
+            for finding in self.open_ports
+            if finding.address_family == "ipv6"
+        )
+
+
+def _address_record(
+    resolved_ip: str,
+    address_family: int | socket.AddressFamily | None,
+    scope_id: int = 0,
+) -> ResolvedAddress:
+    """Normalize legacy IP arguments into a resolved address record."""
+    family = (
+        socket_family_for_address(resolved_ip)
+        if address_family is None
+        else socket.AddressFamily(address_family)
+    )
+    return ResolvedAddress(address=resolved_ip, family=family, scope_id=scope_id)
 
 
 def discover_open_port(
@@ -51,6 +89,8 @@ def discover_open_port(
     port: int,
     timeout: float = DEFAULT_TIMEOUT,
     pacer: MaxRatePacer | None = None,
+    address_family: int | socket.AddressFamily | None = None,
+    scope_id: int = 0,
 ) -> PortScanResult | None:
     """Run TCP connect discovery for one port."""
     try:
@@ -59,9 +99,17 @@ def discover_open_port(
 
         started_at = time.perf_counter()
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+        family = (
+            socket_family_for_address(resolved_ip)
+            if address_family is None
+            else socket.AddressFamily(address_family)
+        )
+
+        with socket.socket(family, socket.SOCK_STREAM) as client:
             client.settimeout(timeout)
-            connect_code = client.connect_ex((resolved_ip, port))
+            connect_code = client.connect_ex(
+                _address_record(resolved_ip, family, scope_id).socket_address(port)
+            )
             response_time = time.perf_counter() - started_at
 
             if connect_code != 0:
@@ -80,6 +128,8 @@ def discover_open_port(
         web_url=web_url,
         tls=None,
         probe=None,
+        address=resolved_ip,
+        address_family=address_family_name(family),
     )
 
 
@@ -89,6 +139,8 @@ def probe_open_service(
     finding: PortScanResult,
     timeout: float = DEFAULT_TIMEOUT,
     pacer: MaxRatePacer | None = None,
+    address_family: int | socket.AddressFamily | None = None,
+    scope_id: int = 0,
 ) -> PortScanResult:
     """Collect service evidence for one discovered open TCP port."""
     banner = None
@@ -99,9 +151,17 @@ def probe_open_service(
         if pacer is not None:
             pacer.wait()
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+        family = (
+            socket_family_for_address(resolved_ip)
+            if address_family is None
+            else socket.AddressFamily(address_family)
+        )
+
+        with socket.socket(family, socket.SOCK_STREAM) as client:
             client.settimeout(timeout)
-            connect_code = client.connect_ex((resolved_ip, finding.port))
+            connect_code = client.connect_ex(
+                _address_record(resolved_ip, family, scope_id).socket_address(finding.port)
+            )
 
             if connect_code != 0:
                 return finding
@@ -118,6 +178,8 @@ def probe_open_service(
         web_url=finding.web_url,
         tls=tls,
         probe=probe,
+        address=finding.address or resolved_ip,
+        address_family=finding.address_family or address_family_name(family),
     )
 
 
@@ -127,15 +189,30 @@ def scan_single_port(
     port: int,
     timeout: float = DEFAULT_TIMEOUT,
     max_rate: float | None = None,
+    address_family: int | socket.AddressFamily | None = None,
 ) -> PortScanResult | None:
     """Scan and probe one TCP port for compatibility with direct callers."""
     pacer = MaxRatePacer(max_rate) if max_rate is not None else None
-    finding = discover_open_port(target_host, resolved_ip, port, timeout, pacer)
+    finding = discover_open_port(
+        target_host,
+        resolved_ip,
+        port,
+        timeout,
+        pacer,
+        address_family,
+    )
 
     if finding is None:
         return None
 
-    return probe_open_service(target_host, resolved_ip, finding, timeout, pacer)
+    return probe_open_service(
+        target_host,
+        resolved_ip,
+        finding,
+        timeout,
+        pacer,
+        address_family,
+    )
 
 
 def _build_worker_count(port_count: int, max_workers: int) -> int:
@@ -157,11 +234,24 @@ def scan_tcp_ports(
     open_port_callback: OpenPortCallback | None = None,
     service_probe_start_callback: ServiceProbeStartCallback | None = None,
     service_probe_complete_callback: ServiceProbeCompleteCallback | None = None,
+    addresses: Iterable[ResolvedAddress] | None = None,
 ) -> ScanResult:
     """Run a threaded TCP scan and return a consolidated result."""
     started_at = time.perf_counter()
     ports_to_scan = normalize_ports(ports)
-    worker_count = _build_worker_count(len(ports_to_scan), max_workers)
+    address_records = tuple(addresses) if addresses is not None else (
+        _address_record(resolved_ip, None),
+    )
+
+    if not address_records:
+        raise ValueError("TCP scan requires at least one resolved address.")
+
+    scan_targets = [
+        (address, port)
+        for address in address_records
+        for port in ports_to_scan
+    ]
+    worker_count = _build_worker_count(len(scan_targets), max_workers)
     pacer = MaxRatePacer(max_rate) if max_rate is not None else None
     discovered_ports: list[PortScanResult] = []
     open_ports: list[PortScanResult] = []
@@ -170,20 +260,22 @@ def scan_tcp_ports(
     cancelled = False
 
     try:
-        future_map: dict[Future[PortScanResult | None], int] = {
+        future_map: dict[Future[PortScanResult | None], tuple[ResolvedAddress, int]] = {
             executor.submit(
                 discover_open_port,
                 target_host,
-                resolved_ip,
+                address.address,
                 port,
                 timeout,
                 pacer,
-            ): port
-            for port in ports_to_scan
+                address.family,
+                address.scope_id,
+            ): (address, port)
+            for address, port in scan_targets
         }
 
         for future in as_completed(future_map):
-            port = future_map[future]
+            _address, port = future_map[future]
             completed_count += 1
             result = future.result()
 
@@ -194,7 +286,7 @@ def scan_tcp_ports(
                     open_port_callback(result)
 
             if progress_callback is not None:
-                progress_callback(completed_count, len(ports_to_scan), port)
+                progress_callback(completed_count, len(scan_targets), port)
 
     except KeyboardInterrupt:
         cancelled = True
@@ -205,7 +297,14 @@ def scan_tcp_ports(
             executor.shutdown(wait=True)
 
     ordered_discovered_ports = tuple(
-        sorted(discovered_ports, key=lambda finding: finding.port)
+        sorted(
+            discovered_ports,
+            key=lambda finding: (
+                finding.port,
+                finding.address_family or "ipv4",
+                finding.address or "",
+            ),
+        )
     )
     probe_started_at = time.perf_counter()
 
@@ -221,15 +320,41 @@ def scan_tcp_ports(
         probe_cancelled = False
 
         try:
-            future_map: dict[Future[PortScanResult], int] = {
+            future_map: dict[Future[PortScanResult], tuple[ResolvedAddress, int]] = {
                 probe_executor.submit(
                     probe_open_service,
                     target_host,
-                    resolved_ip,
+                    finding.address or resolved_ip,
                     finding,
                     timeout,
                     pacer,
-                ): finding.port
+                    next(
+                        (
+                            address.family
+                            for address in address_records
+                            if address.address == (finding.address or resolved_ip)
+                        ),
+                        None,
+                    ),
+                    next(
+                        (
+                            address.scope_id
+                            for address in address_records
+                            if address.address == (finding.address or resolved_ip)
+                        ),
+                        0,
+                    ),
+                ): (
+                    next(
+                        (
+                            address
+                            for address in address_records
+                            if address.address == (finding.address or resolved_ip)
+                        ),
+                        address_records[0],
+                    ),
+                    finding.port,
+                )
                 for finding in ordered_discovered_ports
             }
 
@@ -246,7 +371,16 @@ def scan_tcp_ports(
     if service_probe_complete_callback is not None:
         service_probe_complete_callback(time.perf_counter() - probe_started_at)
 
-    ordered_open_ports = tuple(sorted(open_ports, key=lambda finding: finding.port))
+    ordered_open_ports = tuple(
+        sorted(
+            open_ports,
+            key=lambda finding: (
+                finding.port,
+                finding.address_family or "ipv4",
+                finding.address or "",
+            ),
+        )
+    )
 
     return ScanResult(
         target_host=target_host,
@@ -254,4 +388,12 @@ def scan_tcp_ports(
         scanned_ports=len(ports_to_scan),
         open_ports=ordered_open_ports,
         duration=time.perf_counter() - started_at,
+        resolved_ips=tuple(address.address for address in address_records),
+        address_family=(
+            "dual-stack"
+            if {address.family_name for address in address_records}
+            == {"ipv4", "ipv6"}
+            else address_records[0].family_name
+        ),
+        addresses=address_records,
     )

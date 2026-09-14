@@ -123,7 +123,10 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 
 ### 🕵️ TCP Recon
 
-* Domain and IPv4 target support.
+* Domain, IPv4, IPv6, and dual-stack target support.
+* Explicit `--ipv4`, `--ipv6`, and `--dual-stack` resolution modes.
+* Resolver-provided IPv4/IPv6 separation and reverse-DNS metadata.
+* Optional TCP or ICMP host discovery with `--host-discovery tcp|icmp`.
 * Custom port lists, ranges, top-port presets, and full TCP range support.
 * Multi-threaded TCP scanning.
 * Optional pacing with `--max-rate`.
@@ -213,6 +216,13 @@ python3 hylianscan.py -u scanme.nmap.org -p 20-25,53,80,110,143,443,587,993,995,
 
 # Save TXT and JSON reports
 python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
+
+# IPv6-only or dual-stack scans
+python3 hylianscan.py -u 2001:db8::10 --ipv6 -p 80,443
+python3 hylianscan.py -u example.com --dual-stack -p 80,443
+
+# Optional host reachability preflight
+python3 hylianscan.py -u example.com --host-discovery tcp -p 80,443
 ```
 
 ### Optional Live Nmap Enrichment

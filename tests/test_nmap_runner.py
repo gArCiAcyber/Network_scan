@@ -50,6 +50,12 @@ class NmapRunnerTests(unittest.TestCase):
             ],
         )
 
+    def test_command_builder_enables_ipv6_for_ipv6_literal(self) -> None:
+        command = build_nmap_service_version_command("2001:db8::10", [443])
+
+        self.assertIn("-6", command)
+        self.assertEqual(command[-1], "2001:db8::10")
+
     def test_command_builder_sorts_and_deduplicates_ports(self) -> None:
         command = build_nmap_service_version_command("example.com", [443, 22, 80, 22])
 

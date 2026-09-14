@@ -291,6 +291,27 @@ def format_detail_lines(details: Sequence[str]) -> list[str]:
     return formatted_lines
 
 
+def format_resolved_target(summary: ScanResult) -> str:
+    """Format one or more resolved target addresses for terminal reports."""
+    addresses = getattr(summary, "addresses", ())
+
+    if not addresses:
+        return summary.resolved_ip
+
+    if len(addresses) == 1:
+        return addresses[0].address
+
+    grouped = {
+        "ipv4": [address.address for address in addresses if address.family_name == "ipv4"],
+        "ipv6": [address.address for address in addresses if address.family_name == "ipv6"],
+    }
+    return "; ".join(
+        f"{family.upper()}: {', '.join(values)}"
+        for family, values in grouped.items()
+        if values
+    )
+
+
 def build_final_panel(
     summary: ScanResult,
     scan_scope: str = "Default Target List",
@@ -302,7 +323,7 @@ def build_final_panel(
         format_panel_title(),
         (
             f"{BRIGHT_WHITE}Hylianscan scan report for "
-            f"{summary.target_host} ({summary.resolved_ip}){RESET}"
+            f"{summary.target_host} ({format_resolved_target(summary)}){RESET}"
         ),
         f"{BRIGHT_WHITE}Scan Scope      :{RESET} {scan_scope}",
     ]
@@ -390,9 +411,10 @@ def build_quiet_final_panel(
     scan_scope: str = "Default Target List",
 ) -> str:
     """Build a plain automation-friendly TCP scan report."""
+    resolved_label = format_resolved_target(summary)
     lines = [
         f"Target: {summary.target_host}",
-        f"Resolved IP: {summary.resolved_ip}",
+        f"Resolved IP{'s' if '; ' in resolved_label else ''}: {resolved_label}",
         f"Scan Scope: {scan_scope}",
         f"Total Scan Time: {summary.duration:.2f}s",
     ]

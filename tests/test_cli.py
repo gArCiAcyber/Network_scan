@@ -356,6 +356,41 @@ class CLIHelperTests(unittest.TestCase):
 
         self.assertEqual(args.target, "192.0.2.10")
 
+    def test_parse_arguments_supports_explicit_address_families(self) -> None:
+        for flag, expected in (
+            ("--ipv4", "ipv4"),
+            ("--ipv6", "ipv6"),
+            ("--dual-stack", "dual-stack"),
+        ):
+            with self.subTest(flag=flag), patch(
+                "sys.argv",
+                ["hylianscan", "example.com", flag],
+            ):
+                args = parse_arguments()
+
+            self.assertEqual(args.address_family, expected)
+
+    def test_parse_arguments_defaults_to_dual_stack(self) -> None:
+        with patch("sys.argv", ["hylianscan", "example.com"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.address_family, "dual-stack")
+
+    def test_parse_arguments_supports_optional_host_discovery(self) -> None:
+        for flag, expected in (
+            ("--host-discovery", "tcp"),
+            ("--tcp-discovery", "tcp"),
+            ("--icmp-discovery", "icmp"),
+        ):
+            argv = ["hylianscan", "example.com", flag]
+            if flag == "--host-discovery":
+                argv.insert(3, expected)
+
+            with self.subTest(flag=flag), patch("sys.argv", argv):
+                args = parse_arguments()
+
+            self.assertEqual(args.host_discovery, expected)
+
     def test_parse_arguments_accepts_flags_before_positional_target(self) -> None:
         with patch(
             "sys.argv",

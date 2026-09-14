@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hylianscan"
 version = "1.0.1"
-description = "Fantasy-inspired Python reconnaissance tool for authorized TCP scanning, passive discovery, and clean evidence reporting."
+description = "Fantasy-inspired Python reconnaissance tool for authorized IPv4/IPv6 TCP scanning, passive discovery, and clean evidence reporting."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [

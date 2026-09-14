@@ -1,5 +1,6 @@
 """Tests for TCP JSON export document builders."""
 
+import socket
 import unittest
 from types import SimpleNamespace
 
@@ -14,6 +15,8 @@ from modules.nmap_enrichment import (
     build_skipped_nmap_enrichment,
 )
 from modules.nmap_xml import parse_nmap_xml_text
+from modules.target import ResolvedAddress
+from modules.tcp_scanner import PortScanResult, ScanResult
 
 
 HTTP_BANNER = (
@@ -195,6 +198,50 @@ class JSONExporterTests(unittest.TestCase):
         self.assertIn("open_ports", document["results"])
         self.assertNotIn("report_filters", document["scan"])
         self.assertNotIn("enrichment", document)
+
+    def test_tcp_json_separates_dual_stack_addresses_and_findings(self) -> None:
+        scan_result = ScanResult(
+            target_host="example.com",
+            resolved_ip="192.0.2.10",
+            scanned_ports=1,
+            open_ports=(
+                PortScanResult(
+                    port=80,
+                    service="HTTP",
+                    banner=None,
+                    response_time=0.01,
+                    address="192.0.2.10",
+                    address_family="ipv4",
+                ),
+                PortScanResult(
+                    port=80,
+                    service="HTTP",
+                    banner=None,
+                    response_time=0.02,
+                    address="2001:db8::10",
+                    address_family="ipv6",
+                ),
+            ),
+            duration=0.02,
+            resolved_ips=("192.0.2.10", "2001:db8::10"),
+            address_family="dual-stack",
+            addresses=(
+                ResolvedAddress("192.0.2.10", socket.AF_INET, "v4.example.com"),
+                ResolvedAddress("2001:db8::10", socket.AF_INET6, "v6.example.com"),
+            ),
+        )
+
+        document = build_tcp_scan_document(scan_result)
+
+        self.assertEqual(document["scan"]["target"]["address_family"], "dual-stack")
+        self.assertEqual(
+            document["scan"]["target"]["addresses"]["ipv6"][0]["reverse_dns"],
+            "v6.example.com",
+        )
+        self.assertEqual(document["scan"]["summary"]["ipv4_open_ports"], 1)
+        self.assertEqual(document["scan"]["summary"]["ipv6_open_ports"], 1)
+        self.assertEqual(len(document["results"]["ipv4"]), 1)
+        self.assertEqual(len(document["results"]["ipv6"]), 1)
 
     def test_tcp_json_records_active_http_status_filter(self) -> None:
         document = build_tcp_scan_document(

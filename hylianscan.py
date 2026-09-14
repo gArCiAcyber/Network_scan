@@ -70,6 +70,7 @@ from modules.http_filter import (
     build_http_status_filter_metadata,
     filter_scan_result_by_http_status,
 )
+from modules.host_discovery import discover_hosts
 from modules.nmap_enrichment import (
     NmapEnrichmentResult,
     build_completed_nmap_enrichment,
@@ -144,6 +145,7 @@ def show_target_orientation(
     nmap_enabled: bool = False,
     port_profile_label: str | None = None,
     match_codes: list[int] | None = None,
+    host_discovery: str | None = None,
 ) -> None:
     """Render the target orientation and effective scan configuration block."""
     alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
@@ -156,6 +158,32 @@ def show_target_orientation(
             f"{'Resolved IP':<{label_width}}: {target.resolved_ip}",
         ]
     )
+
+    if target.addresses:
+        lines.append(f"{'Address Mode':<{label_width}}: {target.address_family}")
+
+        if target.ipv4_addresses:
+            lines.append(
+                f"{'IPv4 Addresses':<{label_width}}: "
+                f"{', '.join(address.address for address in target.ipv4_addresses)}"
+            )
+
+        if target.ipv6_addresses:
+            lines.append(
+                f"{'IPv6 Addresses':<{label_width}}: "
+                f"{', '.join(address.address for address in target.ipv6_addresses)}"
+            )
+
+        reverse_dns = [
+            f"{address.address} -> {address.reverse_dns}"
+            for address in target.address_records
+            if address.reverse_dns
+        ]
+        if reverse_dns:
+            lines.append(f"{'Reverse DNS':<{label_width}}: {'; '.join(reverse_dns)}")
+
+    if host_discovery:
+        lines.append(f"{'Host Discovery':<{label_width}}: {host_discovery}")
 
     if show_stance:
         lines.append(
@@ -210,25 +238,59 @@ def run_port_scan(
     if display is not None:
         display.start_connect_scan()
 
-    result = scan_tcp_ports(
-        target_host=target.target_host,
-        resolved_ip=target.resolved_ip,
-        ports=ports_to_scan,
-        timeout=timeout,
-        max_workers=max_workers,
-        max_rate=max_rate,
-        progress_callback=None if display is None else display.handle_progress,
-        open_port_callback=None if display is None else display.handle_open_port,
-        service_probe_start_callback=None if display is None else display.start_service_probe,
-        service_probe_complete_callback=(
+    scanner_arguments = {
+        "target_host": target.target_host,
+        "resolved_ip": target.resolved_ip,
+        "ports": ports_to_scan,
+        "timeout": timeout,
+        "max_workers": max_workers,
+        "max_rate": max_rate,
+        "progress_callback": None if display is None else display.handle_progress,
+        "open_port_callback": None if display is None else display.handle_open_port,
+        "service_probe_start_callback": (
+            None if display is None else display.start_service_probe
+        ),
+        "service_probe_complete_callback": (
             None if display is None else display.complete_service_probe
         ),
+    }
+
+    if target.addresses:
+        scanner_arguments["addresses"] = target.address_records
+
+    result = scan_tcp_ports(
+        **scanner_arguments,
     )
 
     if display is not None:
         clear_dynamic_line()
 
     return result
+
+
+def run_host_discovery(
+    target: TargetInfo,
+    method: str,
+    timeout: float,
+) -> TargetInfo:
+    """Run optional host discovery and retain only reachable addresses."""
+    discovery_results = discover_hosts(
+        target.address_records,
+        method,
+        timeout=timeout,
+    )
+    reachable_addresses = tuple(
+        result.address for result in discovery_results if result.is_up
+    )
+
+    if not reachable_addresses:
+        errors = "; ".join(
+            result.error or f"{result.address.address} did not respond"
+            for result in discovery_results
+        )
+        raise ValueError(f"Host discovery found no reachable addresses: {errors}")
+
+    return target.with_addresses(reachable_addresses)
 
 
 def run_passive_subdomain_discovery(
@@ -456,7 +518,18 @@ def main() -> None:
             has_overrides = has_scan_config_overrides(args)
             scan_scope = resolve_scan_scope_label(args)
             port_profile_label = resolve_port_profile_label(args)
-            target = resolve_target(args.target)
+            target = resolve_target(
+                args.target,
+                address_family=getattr(args, "address_family", "dual-stack"),
+            )
+            host_discovery = getattr(args, "host_discovery", None)
+
+            if host_discovery:
+                target = run_host_discovery(
+                    target,
+                    host_discovery,
+                    scan_stance.timeout,
+                )
 
             if not quiet:
                 show_target_orientation(
@@ -469,6 +542,7 @@ def main() -> None:
                     nmap_enabled=getattr(args, "nmap", False),
                     port_profile_label=port_profile_label,
                     match_codes=match_codes,
+                    host_discovery=host_discovery,
                 )
 
             native_scan_result = run_port_scan(
