@@ -54,6 +54,7 @@ from core.panel import (
 from core.passive_display import (
     PassiveDiscoveryDisplay,
     build_passive_subdomain_summary,
+    format_relative_output_path,
     format_passive_provider_count_message,
     show_passive_providers,
 )
@@ -74,6 +75,13 @@ from modules.http_filter import (
     filter_scan_result_by_http_status,
 )
 from modules.host_discovery import discover_hosts
+from modules.httpx_runner import (
+    HttpxResult,
+    build_skipped_httpx_result,
+    format_httpx_summary,
+    run_httpx,
+    write_httpx_jsonl,
+)
 from modules.nmap_enrichment import (
     NmapEnrichmentResult,
     build_completed_nmap_enrichment,
@@ -326,6 +334,8 @@ def run_passive_subdomain_discovery(
     output_path: Path,
     json_output_path: Path | None = None,
     provider_paths: Mapping[str, str | None] | None = None,
+    httpx_enabled: bool = False,
+    httpx_binary: str | None = None,
     quiet: bool = False,
 ) -> str:
     """Run selected passive discovery providers and return a clean summary."""
@@ -333,6 +343,8 @@ def run_passive_subdomain_discovery(
     display = None if quiet else PassiveDiscoveryDisplay(domain)
     provider_results: dict[str, list[str]] = {}
     subdomains: list[str] = []
+    httpx_result: HttpxResult | None = None
+    httpx_output_path: Path | None = None
     executable_paths = provider_paths or {}
 
     if display is not None:
@@ -380,11 +392,36 @@ def run_passive_subdomain_discovery(
 
         save_subdomain_results(subdomains, output_path)
 
+        if httpx_enabled:
+            httpx_targets = [domain, *subdomains]
+            if display is not None:
+                display.add_activity(
+                    f"[*] Probing {len(httpx_targets)} web targets with HTTPx..."
+                )
+
+            try:
+                httpx_arguments = {}
+                if httpx_binary:
+                    httpx_arguments["httpx_binary"] = httpx_binary
+                httpx_result = run_httpx(httpx_targets, **httpx_arguments)
+            except (RuntimeError, ValueError) as error:
+                httpx_result = build_skipped_httpx_result(httpx_targets, str(error))
+
+            if httpx_result.status == "completed":
+                httpx_output_path = output_path.with_name("httpx.jsonl")
+                write_httpx_jsonl(httpx_result, httpx_output_path)
+
+            if display is not None:
+                display.add_activity(
+                    f"[+] HTTPx returned {len(httpx_result.findings)} live services"
+                )
+
         if json_output_path is not None:
             write_subdomain_json_report(
                 target_domain=domain,
                 provider_results=provider_results,
                 output_path=json_output_path,
+                httpx_result=httpx_result,
             )
     finally:
         if display is not None:
@@ -395,13 +432,25 @@ def run_passive_subdomain_discovery(
             f"{ALERT_RED}[-] No passive subdomains were returned by selected providers.{RESET}"
         )
 
-    return build_passive_subdomain_summary(
+    summary = build_passive_subdomain_summary(
         domain,
         raw_discovery_count,
         len(subdomains),
         output_path,
         quiet,
     )
+
+    if httpx_result is not None:
+        display_path = (
+            format_relative_output_path(httpx_output_path)
+            if httpx_output_path is not None
+            else None
+        )
+        summary = "\n\n".join(
+            [summary, format_httpx_summary(httpx_result, display_path)]
+        )
+
+    return summary
 
 
 def run_nmap_xml_import(
@@ -519,6 +568,8 @@ def main() -> None:
                     "subfinder": args.subfinder_path,
                     "amass": args.amass_path,
                 },
+                httpx_enabled=getattr(args, "httpx", False),
+                httpx_binary=getattr(args, "httpx_path", None),
                 quiet=quiet,
             )
             print(final_panel)

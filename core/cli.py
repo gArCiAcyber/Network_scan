@@ -159,6 +159,15 @@ def parse_arguments() -> argparse.Namespace:
         help="Path to the Amass executable when it is not available in PATH.",
     )
     parser.add_argument(
+        "--httpx",
+        action="store_true",
+        help="Probe passive-discovery results with ProjectDiscovery HTTPx.",
+    )
+    parser.add_argument(
+        "--httpx-path",
+        help="Path to the HTTPx executable when it is not available in PATH.",
+    )
+    parser.add_argument(
         "-t",
         "--threads",
         type=int,
@@ -551,6 +560,8 @@ def validate_mode(args: argparse.Namespace) -> None:
     nmap_path = getattr(args, "nmap_path", None)
     subfinder_path = getattr(args, "subfinder_path", None)
     amass_path = getattr(args, "amass_path", None)
+    httpx = getattr(args, "httpx", False)
+    httpx_path = getattr(args, "httpx_path", None)
     host_discovery = getattr(args, "host_discovery", None)
     threads = getattr(args, "threads", None)
     timeout = getattr(args, "timeout", None)
@@ -573,8 +584,16 @@ def validate_mode(args: argparse.Namespace) -> None:
     if nmap_path and not nmap:
         raise ValueError("Use --nmap-path only together with --nmap.")
 
+    if httpx_path and not httpx:
+        raise ValueError("Use --httpx-path only together with --httpx.")
+
+    if httpx and not passive_providers:
+        raise ValueError("Use --httpx with --subfinder and/or --amass.")
+
     if nmap:
-        passive_flags = passive_providers or subfinder_path or amass_path
+        passive_flags = (
+            passive_providers or subfinder_path or amass_path or httpx or httpx_path
+        )
 
         if nmap_xml:
             raise ValueError("Use --nmap or --nmap-xml, not both.")
@@ -583,7 +602,9 @@ def validate_mode(args: argparse.Namespace) -> None:
             raise ValueError("Use --nmap with TCP scanning, not passive discovery.")
 
     if nmap_xml:
-        passive_flags = passive_providers or subfinder_path or amass_path
+        passive_flags = (
+            passive_providers or subfinder_path or amass_path or httpx or httpx_path
+        )
         tcp_flags = ports or top_ports or port_profile or scan_profile or match_code
         tcp_tuning_flags = (
             threads is not None

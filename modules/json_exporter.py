@@ -11,6 +11,7 @@ from modules.http_metadata import (
     parse_http_response_head,
 )
 from modules.http_security import build_http_security_observations
+from modules.httpx_runner import HttpxResult
 from modules.nmap_enrichment import NmapEnrichmentResult
 from modules.nmap_xml import (
     NmapAddress,
@@ -316,6 +317,7 @@ def build_subdomain_provider_documents(
 def build_subdomain_discovery_document(
     target_domain: str,
     provider_results: Mapping[str, Sequence[str]],
+    httpx_result: HttpxResult | None = None,
 ) -> dict[str, Any]:
     """Build a provider-aware JSON document for passive subdomain discovery."""
     provider_documents = build_subdomain_provider_documents(provider_results)
@@ -335,7 +337,7 @@ def build_subdomain_discovery_document(
         }
     )
 
-    return {
+    document = {
         "schema": {
             "name": "hylianscan_passive_subdomain_discovery",
             "version": 1,
@@ -357,15 +359,35 @@ def build_subdomain_discovery_document(
         },
     }
 
+    if httpx_result is not None:
+        httpx_document: dict[str, Any] = {
+            "enabled": True,
+            "status": httpx_result.status,
+            "targets_requested": list(httpx_result.targets_requested),
+            "live_services": len(httpx_result.findings),
+        }
+        if httpx_result.reason:
+            httpx_document["reason"] = httpx_result.reason
+        else:
+            httpx_document["results"] = list(httpx_result.findings)
+        document["enrichment"] = {"httpx": httpx_document}
+
+    return document
+
 
 def write_subdomain_json_report(
     target_domain: str,
     provider_results: Mapping[str, Sequence[str]],
     output_path: Path,
+    httpx_result: HttpxResult | None = None,
 ) -> None:
     """Write passive subdomain discovery results as provider-aware JSON."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    document = build_subdomain_discovery_document(target_domain, provider_results)
+    document = build_subdomain_discovery_document(
+        target_domain,
+        provider_results,
+        httpx_result=httpx_result,
+    )
     output_path.write_text(
         json.dumps(document, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
