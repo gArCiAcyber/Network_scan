@@ -127,6 +127,7 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Explicit `--ipv4`, `--ipv6`, and `--dual-stack` resolution modes.
 * Resolver-provided IPv4/IPv6 separation and reverse-DNS metadata.
 * Optional TCP or ICMP host discovery with `--host-discovery tcp|icmp`.
+* Complete `quick`, `web`, and `cautious` scan profiles.
 * Custom port lists, ranges, top-port presets, and full TCP range support.
 * Multi-threaded TCP scanning.
 * Optional pacing with `--max-rate`.
@@ -264,6 +265,27 @@ python3 hylianscan.py --nmap-xml docs/examples/nmap_single_host.xml -o --json-ou
 ```
 
 The import currently supports a single up host and open TCP ports from the XML file. When output is enabled, Hylianscan saves `nmap_import_report.txt` and `nmap_import_results.json`.
+
+---
+
+## Complete Scan Profiles
+
+Use one profile to select the port scope and operational defaults together.
+
+| Profile    | Ports                     | Workers | Timeout | Max rate  | Discovery           | HTTP probing |
+| ---------- | ------------------------- | ------- | ------- | --------- | ------------------- | ------------ |
+| `quick`    | Common (`quick`)          | 50      | 0.75s   | Unlimited | Disabled by default | Disabled     |
+| `web`      | Web (`web`)               | 50      | 1.00s   | Unlimited | Disabled by default | Enabled      |
+| `cautious` | Selected common (`quick`) | 10      | 2.00s   | 10/s      | Optional            | Enabled      |
+
+```bash
+python3 hylianscan.py --list-profiles
+python3 hylianscan.py scanme.nmap.org --profile quick
+python3 hylianscan.py scanme.nmap.org --profile web
+python3 hylianscan.py scanme.nmap.org --profile cautious --host-discovery tcp
+```
+
+Explicit port, stance, thread, timeout, rate, discovery, and HTTP-probing flags override the corresponding profile defaults.
 
 ---
 
