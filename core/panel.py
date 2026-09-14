@@ -312,11 +312,42 @@ def format_resolved_target(summary: ScanResult) -> str:
     )
 
 
+def has_multiple_scanned_addresses(summary: ScanResult) -> bool:
+    """Return whether findings need an address label to remain unambiguous."""
+    addresses = getattr(summary, "addresses", ())
+
+    if addresses:
+        return len(addresses) > 1
+
+    return len(getattr(summary, "resolved_ips", ())) > 1
+
+
+def format_finding_address(finding: PortScanResult) -> str | None:
+    """Return the concrete address and family for one finding."""
+    address = getattr(finding, "address", None)
+
+    if not address:
+        return None
+
+    family = getattr(finding, "address_family", None)
+    family_label = {"ipv4": "IPv4", "ipv6": "IPv6"}.get(family, family)
+    return f"{address} ({family_label})" if family_label else address
+
+
 def build_final_panel(
     summary: ScanResult,
     scan_scope: str = "Default Target List",
+    native_open_port_count: int | None = None,
+    http_status_filter: str | None = None,
 ) -> str:
     """Build the final static TCP scan report."""
+    native_count = (
+        len(summary.open_ports)
+        if native_open_port_count is None
+        else native_open_port_count
+    )
+    hidden_count = max(0, native_count - len(summary.open_ports))
+    show_finding_addresses = has_multiple_scanned_addresses(summary)
     lines = [
         "",
         PANEL_SEPARATOR,
@@ -328,8 +359,19 @@ def build_final_panel(
         f"{BRIGHT_WHITE}Scan Scope      :{RESET} {scan_scope}",
     ]
 
-    if summary.open_ports:
+    if native_count:
         lines.insert(4, f"{HACKER_GREEN}Host is up.{RESET}")
+
+    if http_status_filter is not None:
+        lines.append(
+            f"{BRIGHT_WHITE}HTTP Status Filter:{RESET} {http_status_filter}"
+        )
+
+        if hidden_count:
+            lines.append(
+                f"{BRIGHT_WHITE}Filtered Findings :{RESET} "
+                f"{len(summary.open_ports)} shown, {hidden_count} hidden"
+            )
 
     lines.extend(
         [
@@ -340,9 +382,12 @@ def build_final_panel(
     )
 
     if not summary.open_ports:
-        lines.append(
-            f"{WARNING_YELLOW}No open ports found in the {scan_scope.lower()}.{RESET}"
+        message = (
+            "No open-port findings matched the HTTP status filter."
+            if hidden_count
+            else f"No open ports found in the {scan_scope.lower()}."
         )
+        lines.append(f"{WARNING_YELLOW}{message}{RESET}")
         lines.append(PANEL_SEPARATOR)
         return "\n".join(lines)
 
@@ -364,6 +409,11 @@ def build_final_panel(
         )
 
         detail_lines = [
+            *(
+                [f"address: {format_finding_address(finding)}"]
+                if show_finding_addresses and format_finding_address(finding)
+                else []
+            ),
             *build_http_detail_lines(finding),
             *build_tls_detail_lines(
                 finding,
@@ -409,18 +459,41 @@ def build_saved_text_report(
 def build_quiet_final_panel(
     summary: ScanResult,
     scan_scope: str = "Default Target List",
+    native_open_port_count: int | None = None,
+    http_status_filter: str | None = None,
 ) -> str:
     """Build a plain automation-friendly TCP scan report."""
+    native_count = (
+        len(summary.open_ports)
+        if native_open_port_count is None
+        else native_open_port_count
+    )
+    hidden_count = max(0, native_count - len(summary.open_ports))
+    show_finding_addresses = has_multiple_scanned_addresses(summary)
     resolved_label = format_resolved_target(summary)
-    lines = [
+    lines = []
+
+    if http_status_filter is not None:
+        lines.append(f"HTTP Status Filter: {http_status_filter}")
+
+    lines.extend([
         f"Target: {summary.target_host}",
         f"Resolved IP{'s' if '; ' in resolved_label else ''}: {resolved_label}",
         f"Scan Scope: {scan_scope}",
         f"Total Scan Time: {summary.duration:.2f}s",
-    ]
+    ])
+
+    if hidden_count:
+        lines.append(
+            f"Filtered Findings: {len(summary.open_ports)} shown, {hidden_count} hidden"
+        )
 
     if not summary.open_ports:
-        lines.append("No open ports found.")
+        lines.append(
+            "No open-port findings matched the HTTP status filter."
+            if hidden_count
+            else "No open ports found."
+        )
         return "\n".join(lines)
 
     lines.append("Open Ports:")
@@ -429,6 +502,14 @@ def build_quiet_final_panel(
         port_label = f"{finding.port}/tcp"
         service_name = format_display_service_name(finding.service)
         version_signal = format_final_version(finding)
-        lines.append(f"- {port_label} open {service_name} {version_signal}")
+        address = format_finding_address(finding)
+        address_suffix = (
+            f" address={address}"
+            if show_finding_addresses and address
+            else ""
+        )
+        lines.append(
+            f"- {port_label} open {service_name} {version_signal}{address_suffix}"
+        )
 
     return "\n".join(lines)

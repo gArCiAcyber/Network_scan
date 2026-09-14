@@ -11,8 +11,10 @@ from modules.json_exporter import (
     build_tcp_scan_document,
     parse_set_cookie_header,
 )
+from modules.host_discovery import HostDiscoveryResult
 from modules.nmap_enrichment import (
     build_completed_nmap_enrichment,
+    build_multi_nmap_enrichment,
     build_skipped_nmap_enrichment,
 )
 from modules.subdomain import ProviderRunResult
@@ -199,6 +201,7 @@ class JSONExporterTests(unittest.TestCase):
         self.assertEqual(document["scan"]["timing"]["duration_seconds"], 1.234568)
         self.assertIn("open_ports", document["results"])
         self.assertNotIn("report_filters", document["scan"])
+        self.assertNotIn("host_discovery", document["scan"])
         self.assertNotIn("enrichment", document)
 
     def test_tcp_json_separates_dual_stack_addresses_and_findings(self) -> None:
@@ -254,6 +257,7 @@ class JSONExporterTests(unittest.TestCase):
                     "resolved_codes": [200, 301, 302, 303, 304],
                 }
             },
+            native_open_port_count=3,
         )
 
         self.assertEqual(
@@ -262,7 +266,56 @@ class JSONExporterTests(unittest.TestCase):
                 "http_status_codes": {
                     "expression": "200,301-304",
                     "resolved_codes": [200, 301, 302, 303, 304],
+                    "native_open_ports": 3,
+                    "shown_open_ports": 1,
+                    "hidden_open_ports": 2,
                 }
+            },
+        )
+
+    def test_tcp_json_records_host_discovery_evidence(self) -> None:
+        results = (
+            HostDiscoveryResult(
+                ResolvedAddress("192.0.2.10", socket.AF_INET),
+                "tcp",
+                True,
+                0.0032114,
+            ),
+            HostDiscoveryResult(
+                ResolvedAddress("2001:db8::10", socket.AF_INET6),
+                "tcp",
+                False,
+                1.0012454,
+                "No TCP discovery port responded.",
+            ),
+        )
+
+        document = build_tcp_scan_document(
+            make_scan_result([make_finding()]),
+            host_discovery_results=results,
+        )
+
+        self.assertEqual(document["schema"]["version"], 1)
+        self.assertEqual(
+            document["scan"]["host_discovery"],
+            {
+                "method": "tcp",
+                "results": [
+                    {
+                        "address": "192.0.2.10",
+                        "address_family": "ipv4",
+                        "reachable": True,
+                        "response_time_seconds": 0.003211,
+                        "error": None,
+                    },
+                    {
+                        "address": "2001:db8::10",
+                        "address_family": "ipv6",
+                        "reachable": False,
+                        "response_time_seconds": 1.001245,
+                        "error": "No TCP discovery port responded.",
+                    },
+                ],
             },
         )
 
@@ -288,6 +341,42 @@ class JSONExporterTests(unittest.TestCase):
         self.assertEqual(nmap["results"][0]["service"]["name"], "http")
         self.assertEqual(nmap["results"][0]["service"]["product"], "nginx")
         self.assertEqual(nmap["results"][0]["service"]["confidence"], "high")
+        self.assertNotIn("runs", nmap)
+
+    def test_tcp_json_adds_distinct_runs_for_multi_address_nmap(self) -> None:
+        import_result = parse_nmap_xml_text(NMAP_XML)
+        enrichment = build_multi_nmap_enrichment(
+            "example.com",
+            [
+                build_completed_nmap_enrichment(
+                    import_result,
+                    "192.0.2.10",
+                    [80],
+                ),
+                build_skipped_nmap_enrichment(
+                    "Nmap timed out.",
+                    "198.51.100.20",
+                    [443],
+                ),
+            ],
+        )
+
+        document = build_tcp_scan_document(
+            make_scan_result([make_finding()]),
+            nmap_enrichment=enrichment,
+        )
+
+        self.assertEqual(document["schema"]["version"], 1)
+        nmap = document["enrichment"]["nmap"]
+        self.assertEqual(nmap["status"], "partial")
+        self.assertEqual(nmap["target"], "example.com")
+        self.assertEqual(nmap["ports_requested"], [80, 443])
+        self.assertEqual(len(nmap["runs"]), 2)
+        self.assertEqual(nmap["runs"][0]["target"], "192.0.2.10")
+        self.assertEqual(nmap["runs"][0]["status"], "completed")
+        self.assertEqual(nmap["runs"][1]["target"], "198.51.100.20")
+        self.assertEqual(nmap["runs"][1]["status"], "skipped")
+        self.assertEqual(nmap["runs"][1]["reason"], "Nmap timed out.")
 
     def test_tcp_json_includes_skipped_nmap_enrichment(self) -> None:
         enrichment = build_skipped_nmap_enrichment(

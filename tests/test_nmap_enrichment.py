@@ -4,9 +4,10 @@ import io
 import json
 from pathlib import Path
 import re
+import socket
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import hylianscan
 from core.colors import ALERT_RED, RESET
@@ -21,7 +22,7 @@ from modules.nmap_enrichment import (
     format_nmap_enrichment_summary,
 )
 from modules.nmap_xml import parse_nmap_xml_text
-from modules.target import TargetInfo
+from modules.target import ResolvedAddress, TargetInfo
 from modules.tcp_scanner import PortScanResult, ScanResult
 
 
@@ -185,6 +186,124 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         self.assertNotIn("Running Nmap service/version detection", output.getvalue())
         self.assertNotIn("Nmap Enrichment", output.getvalue())
 
+    def test_main_runs_and_reports_nmap_once_per_concrete_address(self) -> None:
+        addresses = (
+            ResolvedAddress("192.0.2.10", socket.AF_INET),
+            ResolvedAddress("198.51.100.20", socket.AF_INET),
+        )
+        target = TargetInfo(
+            raw_input="example.com",
+            target_host="example.com",
+            resolved_ip=addresses[0].address,
+            is_ip_address=False,
+            addresses=addresses,
+        )
+        scan_result = ScanResult(
+            target_host="example.com",
+            resolved_ip=addresses[0].address,
+            scanned_ports=3,
+            open_ports=(
+                PortScanResult(
+                    port=80,
+                    service="http",
+                    banner=None,
+                    response_time=0.01,
+                    address=addresses[0].address,
+                    address_family="ipv4",
+                ),
+                PortScanResult(
+                    port=443,
+                    service="https",
+                    banner=None,
+                    response_time=0.01,
+                    address=addresses[1].address,
+                    address_family="ipv4",
+                ),
+                PortScanResult(
+                    port=8080,
+                    service="http-alt",
+                    banner=None,
+                    response_time=0.01,
+                    address=addresses[0].address,
+                    address_family="ipv4",
+                ),
+            ),
+            duration=0.02,
+            resolved_ips=tuple(address.address for address in addresses),
+            address_family="ipv4",
+            addresses=addresses,
+        )
+        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        output = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            txt_output_path = Path(temporary_dir) / "tcp_report.txt"
+            json_output_path = Path(temporary_dir) / "tcp_results.json"
+
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "hylianscan",
+                        "example.com",
+                        "-p",
+                        "80,443,8080",
+                        "--nmap",
+                        "-mc",
+                        "404",
+                        "-o",
+                        "--json-output",
+                        "--quiet",
+                    ],
+                ),
+                patch("sys.stdout", output),
+                patch("hylianscan.resolve_target", return_value=target),
+                patch("hylianscan.run_port_scan", return_value=scan_result),
+                patch("hylianscan.resolve_output_path", return_value=txt_output_path),
+                patch(
+                    "hylianscan.resolve_json_output_path",
+                    return_value=json_output_path,
+                ),
+                patch(
+                    "hylianscan.run_nmap_service_version_scan",
+                    return_value=import_result,
+                ) as nmap_runner,
+            ):
+                hylianscan.main()
+
+            saved_report = txt_output_path.read_text(encoding="utf-8")
+            document = json.loads(json_output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            nmap_runner.call_args_list,
+            [
+                call("192.0.2.10", [80, 8080]),
+                call("198.51.100.20", [443]),
+            ],
+        )
+        self.assertEqual(output.getvalue().count("[+] NMAP SERVICE SCAN"), 2)
+        self.assertEqual(saved_report.count("[+] NMAP SERVICE SCAN"), 2)
+        self.assertIn("Filtered Findings: 0 shown, 3 hidden", output.getvalue())
+        self.assertEqual(document["schema"]["version"], 1)
+        nmap = document["enrichment"]["nmap"]
+        self.assertEqual(nmap["status"], "completed")
+        self.assertEqual(nmap["target"], "example.com")
+        self.assertEqual(nmap["ports_requested"], [80, 443, 8080])
+        self.assertEqual(
+            [(run["target"], run["ports_requested"]) for run in nmap["runs"]],
+            [("192.0.2.10", [80, 8080]), ("198.51.100.20", [443])],
+        )
+        self.assertEqual(
+            document["scan"]["report_filters"]["http_status_codes"],
+            {
+                "expression": "404",
+                "resolved_codes": [404],
+                "native_open_ports": 3,
+                "shown_open_ports": 0,
+                "hidden_open_ports": 3,
+            },
+        )
+
     def test_nmap_display_uses_braille_spinner_when_encoding_supports_it(self) -> None:
         self.assertEqual(select_spinner_frames("utf-8"), NMAP_BRAILLE_SPINNER_FRAMES)
 
@@ -251,9 +370,11 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         self.assertIn("Nmap Enrichment : Enabled (post-scan)", clean_output)
         self.assertNotIn("Running Nmap service/version detection... |", terminal_output)
         self.assertEqual(terminal_output.count("[+] NMAP SERVICE SCAN"), 1)
+        self.assertLess(
+            clean_output.index("Running Nmap service/version detection"),
+            clean_output.index("[ SCAN POWERED BY THE TRIFORCE"),
+        )
         self.assertGreaterEqual(clean_lines.count(SEPARATOR_LINE), 4)
-        nmap_index = clean_lines.index("[+] NMAP SERVICE SCAN")
-        self.assertNotEqual(clean_lines[nmap_index - 1], SEPARATOR_LINE)
         self.assertEqual(clean_lines[-1], SEPARATOR_LINE)
         self.assertNotIn("method=", terminal_output)
         self.assertNotIn("confidence=", terminal_output)
@@ -387,6 +508,57 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             self.assertNotIn("Running Nmap service/version detection", saved_report)
             self.assertNotIn("Nmap Enrichment", saved_report)
             self.assertNotIn("\x1b[", saved_report)
+
+    def test_match_code_with_nmap_keeps_native_evidence_in_quiet_txt(self) -> None:
+        scan_result = make_scan_result((make_open_port(),))
+        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        output = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            txt_output_path = Path(temporary_dir) / "tcp_report.txt"
+
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "hylianscan",
+                        "example.com",
+                        "-p",
+                        "80",
+                        "--nmap",
+                        "-mc",
+                        "404",
+                        "-o",
+                        "--quiet",
+                    ],
+                ),
+                patch("sys.stdout", output),
+                patch("hylianscan.resolve_target", return_value=make_target()),
+                patch("hylianscan.run_port_scan", return_value=scan_result),
+                patch("hylianscan.resolve_output_path", return_value=txt_output_path),
+                patch("hylianscan.resolve_json_output_path", return_value=None),
+                patch(
+                    "hylianscan.run_nmap_service_version_scan",
+                    return_value=import_result,
+                ) as nmap_runner,
+            ):
+                hylianscan.main()
+
+            terminal_output = output.getvalue()
+            saved_report = txt_output_path.read_text(encoding="utf-8")
+
+        nmap_runner.assert_called_once_with("127.0.0.1", [80])
+        self.assertIsNone(ANSI_PATTERN.search(terminal_output))
+        self.assertIn("HTTP Status Filter: 404", terminal_output)
+        self.assertIn("Filtered Findings: 0 shown, 1 hidden", terminal_output)
+        self.assertIn(
+            "No open-port findings matched the HTTP status filter.",
+            terminal_output,
+        )
+        self.assertNotIn("No open ports found", terminal_output)
+        self.assertEqual(terminal_output.count("[+] NMAP SERVICE SCAN"), 1)
+        self.assertIn("Report Filter: HTTP status codes 404", saved_report)
+        self.assertEqual(saved_report.count("[+] NMAP SERVICE SCAN"), 1)
 
     def test_main_saves_nmap_enrichment_in_tcp_json_report(self) -> None:
         scan_result = make_scan_result((make_open_port(),))

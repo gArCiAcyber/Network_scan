@@ -1,10 +1,13 @@
 """Tests for final panel and saved TXT report rendering."""
 
 import re
+import socket
 import unittest
 from types import SimpleNamespace
 
 from core.panel import build_final_panel, build_saved_text_report
+from modules.target import ResolvedAddress
+from modules.tcp_scanner import PortScanResult, ScanResult
 
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -143,6 +146,63 @@ class PanelRenderingTests(unittest.TestCase):
         report = strip_ansi(build_final_panel(scan_result))
 
         self.assertNotIn("Host is up.", report)
+
+    def test_filtered_empty_result_reports_hidden_open_port_findings(self) -> None:
+        scan_result = make_http_scan_result()
+        scan_result.open_ports = ()
+
+        report = strip_ansi(
+            build_final_panel(
+                scan_result,
+                native_open_port_count=3,
+                http_status_filter="302",
+            )
+        )
+
+        self.assertIn("Host is up.", report)
+        self.assertIn("Filtered Findings : 0 shown, 3 hidden", report)
+        self.assertIn(
+            "No open-port findings matched the HTTP status filter.",
+            report,
+        )
+        self.assertNotIn("No open ports found", report)
+
+    def test_multiple_ipv4_findings_identify_their_addresses(self) -> None:
+        scan_result = ScanResult(
+            target_host="example.com",
+            resolved_ip="192.0.2.10",
+            scanned_ports=1,
+            open_ports=(
+                PortScanResult(
+                    80,
+                    "HTTP",
+                    None,
+                    0.01,
+                    address="192.0.2.10",
+                    address_family="ipv4",
+                ),
+                PortScanResult(
+                    80,
+                    "HTTP",
+                    None,
+                    0.02,
+                    address="192.0.2.11",
+                    address_family="ipv4",
+                ),
+            ),
+            duration=0.02,
+            resolved_ips=("192.0.2.10", "192.0.2.11"),
+            address_family="dual-stack",
+            addresses=(
+                ResolvedAddress("192.0.2.10", socket.AF_INET),
+                ResolvedAddress("192.0.2.11", socket.AF_INET),
+            ),
+        )
+
+        report = strip_ansi(build_final_panel(scan_result))
+
+        self.assertIn("address: 192.0.2.10 (IPv4)", report)
+        self.assertIn("address: 192.0.2.11 (IPv4)", report)
 
 
 if __name__ == "__main__":

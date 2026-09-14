@@ -4,6 +4,8 @@ import socket
 import unittest
 from unittest.mock import MagicMock, patch
 
+from core.tcp_live_display import TCPScanDisplay
+from modules.target import ResolvedAddress, TargetInfo
 from modules.tcp_scanner import (
     PortScanResult,
     discover_open_port,
@@ -14,6 +16,22 @@ from modules.tcp_scanner import (
 
 class TCPScannerFlowTests(unittest.TestCase):
     """Validate scanner flow without real network connections."""
+
+    def test_live_progress_labels_address_port_work_as_connection_attempts(self) -> None:
+        target = TargetInfo(
+            raw_input="example.com",
+            target_host="example.com",
+            resolved_ip="192.0.2.10",
+            is_ip_address=False,
+            address_family="dual-stack",
+        )
+
+        with patch("core.tcp_live_display.write_dynamic_line") as write_line:
+            TCPScanDisplay(target, 1).handle_progress(1, 2, 80)
+
+        rendered = write_line.call_args.args[0]
+        self.assertIn("1/2 connection attempts", rendered)
+        self.assertNotIn("1/2 ports", rendered)
 
     def test_scan_tcp_ports_passes_max_rate_pacer_to_discovery_workers(self) -> None:
         fake_pacer = object()
@@ -85,6 +103,24 @@ class TCPScannerFlowTests(unittest.TestCase):
         self.assertEqual(result.open_ports, ())
         self.assertIsNone(discover.call_args.args[4])
 
+    def test_scan_tcp_ports_skips_probe_callbacks_without_open_services(self) -> None:
+        probe_start = MagicMock()
+        probe_complete = MagicMock()
+
+        with patch("modules.tcp_scanner.discover_open_port", return_value=None):
+            scan_tcp_ports(
+                target_host="example.com",
+                resolved_ip="127.0.0.1",
+                ports=[80],
+                timeout=0.1,
+                max_workers=1,
+                service_probe_start_callback=probe_start,
+                service_probe_complete_callback=probe_complete,
+            )
+
+        probe_start.assert_not_called()
+        probe_complete.assert_not_called()
+
     def test_discover_open_port_uses_ipv6_socket_and_destination(self) -> None:
         fake_socket = MagicMock()
         fake_socket.__enter__.return_value = fake_socket
@@ -123,6 +159,35 @@ class TCPScannerFlowTests(unittest.TestCase):
 
         self.assertIs(result, finding)
         socket_factory.assert_not_called()
+
+    def test_live_multiple_address_finding_identifies_its_address(self) -> None:
+        target = TargetInfo(
+            raw_input="example.com",
+            target_host="example.com",
+            resolved_ip="192.0.2.10",
+            is_ip_address=False,
+            address_family="dual-stack",
+            addresses=(
+                ResolvedAddress("192.0.2.10", socket.AF_INET),
+                ResolvedAddress("192.0.2.11", socket.AF_INET),
+            ),
+        )
+        finding = PortScanResult(
+            80,
+            "HTTP",
+            None,
+            0.01,
+            address="192.0.2.11",
+            address_family="ipv4",
+        )
+
+        with (
+            patch("core.tcp_live_display.clear_dynamic_line"),
+            patch("core.tcp_live_display.print_safe") as print_safe,
+        ):
+            TCPScanDisplay(target, 1).handle_open_port(finding)
+
+        self.assertIn("80/tcp on 192.0.2.11 (IPv4)", print_safe.call_args.args[0])
 
 
 if __name__ == "__main__":

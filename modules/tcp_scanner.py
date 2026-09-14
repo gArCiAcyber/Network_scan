@@ -313,12 +313,12 @@ def scan_tcp_ports(
             ),
         )
     )
-    probe_started_at = time.perf_counter()
-
-    if service_probe_start_callback is not None:
-        service_probe_start_callback(len(ordered_discovered_ports))
-
     if ordered_discovered_ports:
+        probe_started_at = time.perf_counter()
+
+        if service_probe_start_callback is not None:
+            service_probe_start_callback(len(ordered_discovered_ports))
+
         probe_worker_count = _build_worker_count(
             len(ordered_discovered_ports),
             max_workers,
@@ -376,8 +376,8 @@ def scan_tcp_ports(
             if not probe_cancelled:
                 probe_executor.shutdown(wait=True)
 
-    if service_probe_complete_callback is not None:
-        service_probe_complete_callback(time.perf_counter() - probe_started_at)
+        if service_probe_complete_callback is not None:
+            service_probe_complete_callback(time.perf_counter() - probe_started_at)
 
     ordered_open_ports = tuple(
         sorted(
