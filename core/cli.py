@@ -202,6 +202,15 @@ def parse_arguments() -> argparse.Namespace:
         help="Keep DNSx JSONL response metadata in the JSON report.",
     )
     parser.add_argument(
+        "--httpx",
+        action="store_true",
+        help="Probe passive-discovery results with ProjectDiscovery HTTPx.",
+    )
+    parser.add_argument(
+        "--httpx-path",
+        help="Path to the HTTPx executable when it is not available in PATH.",
+    )
+    parser.add_argument(
         "-t",
         "--threads",
         type=int,
@@ -607,6 +616,8 @@ def validate_mode(args: argparse.Namespace) -> None:
     dnsx_auto_wildcard = getattr(args, "dnsx_auto_wildcard", False)
     dnsx_json = getattr(args, "dnsx_json", False)
     json_output = getattr(args, "json_output", None)
+    httpx = getattr(args, "httpx", False)
+    httpx_path = getattr(args, "httpx_path", None)
     host_discovery = getattr(args, "host_discovery", None)
     threads = getattr(args, "threads", None)
     timeout = getattr(args, "timeout", None)
@@ -671,9 +682,20 @@ def validate_mode(args: argparse.Namespace) -> None:
     if nmap_path and not nmap:
         raise ValueError("Use --nmap-path only together with --nmap.")
 
+    if httpx_path and not httpx:
+        raise ValueError("Use --httpx-path only together with --httpx.")
+
+    if httpx and not passive_providers:
+        raise ValueError("Use --httpx with --subfinder and/or --amass.")
+
     if nmap:
         passive_flags = (
-            passive_providers or subfinder_path or amass_path or dnsx_path
+            passive_providers
+            or subfinder_path
+            or amass_path
+            or dnsx_path
+            or httpx
+            or httpx_path
         )
 
         if nmap_xml:
@@ -684,7 +706,12 @@ def validate_mode(args: argparse.Namespace) -> None:
 
     if nmap_xml:
         passive_flags = (
-            passive_providers or subfinder_path or amass_path or dnsx_path
+            passive_providers
+            or subfinder_path
+            or amass_path
+            or dnsx_path
+            or httpx
+            or httpx_path
         )
         tcp_flags = ports or top_ports or port_profile or scan_profile or match_code
         tcp_tuning_flags = (

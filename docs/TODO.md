@@ -146,6 +146,7 @@
 
 ## Future Work
 
+- [X] Add optional HTTPx web probing after passive subdomain discovery.
 - [ ] Add TXT report export templates into `output/`.
 - [X] Add IPv4/IPv6 and dual-stack support with `socket.getaddrinfo()`.
 - [X] Add structured scan profiles.
