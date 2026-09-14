@@ -18,6 +18,7 @@ from core.terminal import DynamicBlockRenderer
 PASSIVE_PROVIDER_LABELS = {
     "subfinder": ("Subfinder", TRIFORCE_BLUE),
     "amass": ("Amass", TRIFORCE_RED),
+    "dnsx": ("DNSx", TRIFORCE_BLUE),
 }
 PASSIVE_SPINNER_FRAMES = ("|", "/", "-", "\\")
 PASSIVE_SPINNER_INTERVAL_SECONDS = 0.12

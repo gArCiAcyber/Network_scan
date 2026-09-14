@@ -20,6 +20,7 @@ from modules.nmap_xml import (
     NmapXmlImport,
     require_single_up_host,
 )
+from modules.subdomain import ProviderRunResult
 from modules.tcp_scanner import PortScanResult, ScanResult
 from modules.target import ResolvedAddress, socket_family_for_address
 from modules.tls_analysis import build_tls_analysis
@@ -330,32 +331,50 @@ def normalize_subdomain_results(subdomains: Sequence[str]) -> list[str]:
 
 
 def build_subdomain_provider_documents(
-    provider_results: Mapping[str, Sequence[str]],
+    provider_results: Mapping[str, ProviderRunResult | Sequence[str]],
 ) -> list[dict[str, Any]]:
     """Build provider-specific subdomain result documents."""
     provider_documents: list[dict[str, Any]] = []
 
     for provider_name in sorted(provider_results):
-        subdomains = normalize_subdomain_results(provider_results[provider_name])
-        provider_documents.append(
-            {
-                "name": provider_name,
-                "count": len(subdomains),
-                "subdomains": subdomains,
-            }
-        )
+        provider_result = provider_results[provider_name]
+        if not isinstance(provider_result, ProviderRunResult):
+            provider_result = ProviderRunResult(
+                subdomains=list(provider_result),
+                status="completed",
+                exit_code=0,
+            )
+        subdomains = normalize_subdomain_results(provider_result.subdomains)
+        provider_document = {
+            "name": provider_name,
+            "role": "resolution" if provider_name == "dnsx" else "discovery",
+            "count": len(subdomains),
+            "status": provider_result.status,
+            "exit_code": provider_result.exit_code,
+            "reason": provider_result.reason,
+            "subdomains": subdomains,
+        }
+        if provider_result.metadata is not None:
+            provider_document["metadata"] = provider_result.metadata
+        provider_documents.append(provider_document)
 
     return provider_documents
 
 
 def build_subdomain_discovery_document(
     target_domain: str,
-    provider_results: Mapping[str, Sequence[str]],
+    provider_results: Mapping[str, ProviderRunResult | Sequence[str]],
     httpx_result: HttpxResult | None = None,
+    final_subdomains: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Build a provider-aware JSON document for passive subdomain discovery."""
     provider_documents = build_subdomain_provider_documents(provider_results)
     subdomain_sources: dict[str, list[str]] = {}
+    discovery_documents = [
+        provider_document
+        for provider_document in provider_documents
+        if provider_document["role"] == "discovery"
+    ]
 
     for provider_document in provider_documents:
         provider_name = provider_document["name"]
@@ -363,13 +382,44 @@ def build_subdomain_discovery_document(
         for subdomain in provider_document["subdomains"]:
             subdomain_sources.setdefault(subdomain, []).append(provider_name)
 
-    final_subdomains = sorted(
-        {
-            subdomain
-            for provider_document in provider_documents
-            for subdomain in provider_document["subdomains"]
-        }
+    if final_subdomains is None:
+        final_subdomains = sorted(
+            {
+                subdomain
+                for provider_document in provider_documents
+                for subdomain in provider_document["subdomains"]
+            }
+        )
+    else:
+        final_subdomains = normalize_subdomain_results(final_subdomains)
+
+    candidate_sources: dict[str, list[str]] = {}
+    for provider_document in discovery_documents:
+        for subdomain in provider_document["subdomains"]:
+            candidate_sources.setdefault(subdomain, []).append(provider_document["name"])
+
+    results: dict[str, Any] = {
+        "subdomains": final_subdomains,
+        "sources": subdomain_sources,
+        "candidates": {
+            "subdomains": sorted(candidate_sources),
+            "sources": candidate_sources,
+        },
+    }
+    dnsx_document = next(
+        (provider_document for provider_document in provider_documents if provider_document["name"] == "dnsx"),
+        None,
     )
+    if dnsx_document is not None:
+        results["resolution"] = {
+            "provider": "dnsx",
+            "status": dnsx_document["status"],
+            "exit_code": dnsx_document["exit_code"],
+            "reason": dnsx_document["reason"],
+            "subdomains": dnsx_document["subdomains"],
+        }
+        if "metadata" in dnsx_document:
+            results["resolution"]["metadata"] = dnsx_document["metadata"]
 
     document = {
         "schema": {
@@ -387,10 +437,7 @@ def build_subdomain_discovery_document(
             },
         },
         "providers": provider_documents,
-        "results": {
-            "subdomains": final_subdomains,
-            "sources": subdomain_sources,
-        },
+        "results": results,
     }
 
     if httpx_result is not None:
@@ -411,9 +458,10 @@ def build_subdomain_discovery_document(
 
 def write_subdomain_json_report(
     target_domain: str,
-    provider_results: Mapping[str, Sequence[str]],
+    provider_results: Mapping[str, ProviderRunResult | Sequence[str]],
     output_path: Path,
     httpx_result: HttpxResult | None = None,
+    final_subdomains: Sequence[str] | None = None,
 ) -> None:
     """Write passive subdomain discovery results as provider-aware JSON."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -421,6 +469,7 @@ def write_subdomain_json_report(
         target_domain,
         provider_results,
         httpx_result=httpx_result,
+        final_subdomains=final_subdomains,
     )
     output_path.write_text(
         json.dumps(document, indent=2, sort_keys=True) + "\n",

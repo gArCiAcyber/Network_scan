@@ -39,6 +39,8 @@ def build_args(
     port_profile: str | None = None,
     subfinder: bool = False,
     amass: bool = False,
+    dnsx: bool = False,
+    json_output: str | None = None,
     quiet: bool = False,
     threads: int | None = None,
     timeout: float | None = None,
@@ -49,6 +51,14 @@ def build_args(
     nmap_path: str | None = None,
     subfinder_path: str | None = None,
     amass_path: str | None = None,
+    dnsx_path: str | None = None,
+    dnsx_resolver: str | None = None,
+    dnsx_threads: int | None = None,
+    dnsx_rate_limit: int | None = None,
+    dnsx_timeout: float | None = None,
+    dnsx_retry: int | None = None,
+    dnsx_auto_wildcard: bool = False,
+    dnsx_json: bool = False,
     stance: str | None = None,
 ) -> argparse.Namespace:
     """Build a minimal argparse namespace for CLI helper tests."""
@@ -58,6 +68,8 @@ def build_args(
         port_profile=port_profile,
         subfinder=subfinder,
         amass=amass,
+        dnsx=dnsx,
+        json_output=json_output,
         quiet=quiet,
         threads=threads,
         timeout=timeout,
@@ -68,6 +80,14 @@ def build_args(
         nmap_path=nmap_path,
         subfinder_path=subfinder_path,
         amass_path=amass_path,
+        dnsx_path=dnsx_path,
+        dnsx_resolver=dnsx_resolver,
+        dnsx_threads=dnsx_threads,
+        dnsx_rate_limit=dnsx_rate_limit,
+        dnsx_timeout=dnsx_timeout,
+        dnsx_retry=dnsx_retry,
+        dnsx_auto_wildcard=dnsx_auto_wildcard,
+        dnsx_json=dnsx_json,
         stance=stance,
     )
 
@@ -234,6 +254,68 @@ class CLIHelperTests(unittest.TestCase):
             get_passive_providers(build_args(subfinder=True, amass=True)),
             ["subfinder", "amass"],
         )
+        self.assertEqual(
+            get_passive_providers(build_args(subfinder=True, dnsx=True)),
+            ["subfinder", "dnsx"],
+        )
+
+    def test_validate_mode_requires_a_discovery_source_for_dnsx(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--subfinder or --amass"):
+            validate_mode(build_args(dnsx=True))
+
+        with self.assertRaisesRegex(ValueError, "--dnsx-path only"):
+            validate_mode(build_args(dnsx_path="/opt/tools/dnsx"))
+
+    def test_validate_mode_requires_dnsx_for_every_dnsx_option(self) -> None:
+        options = {
+            "dnsx_resolver": "1.1.1.1",
+            "dnsx_threads": 10,
+            "dnsx_rate_limit": 100,
+            "dnsx_timeout": 3.0,
+            "dnsx_retry": 2,
+            "dnsx_auto_wildcard": True,
+            "dnsx_json": True,
+        }
+
+        for option, value in options.items():
+            with self.subTest(option=option), self.assertRaisesRegex(
+                ValueError, option.replace("_", "-")
+            ):
+                validate_mode(build_args(subfinder=True, **{option: value}))
+
+    def test_validate_mode_requires_json_output_for_dnsx_metadata(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--dnsx-json.*--json-output"):
+            validate_mode(build_args(subfinder=True, dnsx=True, dnsx_json=True))
+
+        validate_mode(
+            build_args(
+                subfinder=True,
+                dnsx=True,
+                dnsx_json=True,
+                json_output="report.json",
+            )
+        )
+
+    def test_validate_mode_rejects_nonpositive_dnsx_values(self) -> None:
+        for option in (
+            "dnsx_threads",
+            "dnsx_rate_limit",
+            "dnsx_timeout",
+            "dnsx_retry",
+        ):
+            with self.subTest(option=option), self.assertRaisesRegex(
+                ValueError, "greater than zero"
+            ):
+                validate_mode(
+                    build_args(subfinder=True, dnsx=True, **{option: 0})
+                )
+
+    def test_validate_mode_rejects_tcp_tuning_in_passive_mode(self) -> None:
+        for option in ("threads", "timeout", "max_rate"):
+            with self.subTest(option=option), self.assertRaisesRegex(
+                ValueError, "only with TCP scanning"
+            ):
+                validate_mode(build_args(subfinder=True, **{option: 1}))
 
     def test_validate_mode_rejects_passive_discovery_mixed_with_port_flags(self) -> None:
         invalid_args = (
@@ -604,6 +686,42 @@ class CLIHelperTests(unittest.TestCase):
         self.assertTrue(args.amass)
         self.assertEqual(args.subfinder_path, "/opt/tools/subfinder")
         self.assertEqual(args.amass_path, "/opt/tools/amass")
+
+    def test_parse_arguments_accepts_dnsx_flags(self) -> None:
+        with patch(
+            "sys.argv",
+            [
+                "hylianscan",
+                "example.com",
+                "--subfinder",
+                "--dnsx",
+                "--dnsx-path",
+                "/opt/tools/dnsx",
+                "--dnsx-resolver",
+                "1.1.1.1,8.8.8.8",
+                "--dnsx-threads",
+                "25",
+                "--dnsx-rate-limit",
+                "100",
+                "--dnsx-timeout",
+                "2.5",
+                "--dnsx-retry",
+                "3",
+                "--dnsx-auto-wildcard",
+                "--dnsx-json",
+            ],
+        ):
+            args = parse_arguments()
+
+        self.assertTrue(args.dnsx)
+        self.assertEqual(args.dnsx_path, "/opt/tools/dnsx")
+        self.assertEqual(args.dnsx_resolver, "1.1.1.1,8.8.8.8")
+        self.assertEqual(args.dnsx_threads, 25)
+        self.assertEqual(args.dnsx_rate_limit, 100)
+        self.assertEqual(args.dnsx_timeout, 2.5)
+        self.assertEqual(args.dnsx_retry, 3)
+        self.assertTrue(args.dnsx_auto_wildcard)
+        self.assertTrue(args.dnsx_json)
 
     def test_parse_arguments_accepts_max_rate_flag(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com", "--max-rate", "100"]):

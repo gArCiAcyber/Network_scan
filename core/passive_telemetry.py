@@ -140,6 +140,7 @@ def provider_label(provider: str) -> str:
     labels = {
         "subfinder": "Subfinder",
         "amass": "Amass",
+        "dnsx": "DNSx",
         "hylianscan": "passive discovery",
     }
     return labels.get(provider, provider.capitalize())
@@ -150,9 +151,15 @@ def build_lifecycle_activity_message(provider: str, event: str) -> str | None:
     label = provider_label(provider)
 
     if event == "provider started":
+        if provider == "dnsx":
+            return "Resolving discovered subdomains with DNSx..."
+
         return f"Running {label} passive enumeration..."
 
     if event == "first result observed":
+        if provider == "dnsx":
+            return "DNSx resolved the first candidate..."
+
         return f"{label} returned the first candidate..."
 
     if event == "provider completed":

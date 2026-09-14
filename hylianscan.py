@@ -94,7 +94,7 @@ from modules.nmap_xml import (
     parse_single_host_nmap_xml_file,
 )
 from modules.scan_stance import ScanStance
-from modules.subdomain import run_amass, run_subfinder
+from modules.subdomain import ProviderRunResult, run_amass, run_dnsx, run_subfinder
 from modules.target import TargetInfo, resolve_target
 from modules.tcp_scanner import ScanResult, scan_tcp_ports
 
@@ -154,13 +154,15 @@ def format_match_codes(match_codes: list[int]) -> str:
     return ", ".join(str(status_code) for status_code in match_codes)
 
 
-def merge_subdomain_results(provider_results: dict[str, list[str]]) -> list[str]:
+def merge_subdomain_results(
+    provider_results: Mapping[str, ProviderRunResult],
+) -> list[str]:
     """Merge provider results into one deduplicated and sorted subdomain list."""
     return sorted(
         {
             subdomain.strip().lower().strip(".")
-            for subdomains in provider_results.values()
-            for subdomain in subdomains
+            for result in provider_results.values()
+            for subdomain in result.subdomains
             if subdomain.strip()
         }
     )
@@ -335,6 +337,14 @@ def run_passive_subdomain_discovery(
     output_path: Path,
     json_output_path: Path | None = None,
     provider_paths: Mapping[str, str | None] | None = None,
+    address_family: str = "dual-stack",
+    dnsx_resolver: str | None = None,
+    dnsx_threads: int | None = None,
+    dnsx_rate_limit: int | None = None,
+    dnsx_timeout: float | None = None,
+    dnsx_retry: int | None = None,
+    dnsx_auto_wildcard: bool = False,
+    dnsx_json: bool = False,
     httpx_enabled: bool = False,
     httpx_binary: str | None = None,
     quiet: bool = False,
@@ -342,17 +352,18 @@ def run_passive_subdomain_discovery(
     """Run selected passive discovery providers and return a clean summary."""
     telemetry = None if quiet else PassiveActivityTelemetry()
     display = None if quiet else PassiveDiscoveryDisplay(domain)
-    provider_results: dict[str, list[str]] = {}
+    provider_results: dict[str, ProviderRunResult] = {}
     subdomains: list[str] = []
     httpx_result: HttpxResult | None = None
     httpx_output_path: Path | None = None
     executable_paths = provider_paths or {}
+    discovery_providers = [provider for provider in providers if provider != "dnsx"]
 
     if display is not None:
         display.start()
 
     try:
-        for provider in providers:
+        for provider in discovery_providers:
             telemetry_callback = None
 
             if display is not None and telemetry is not None:
@@ -377,7 +388,38 @@ def run_passive_subdomain_discovery(
                 display.add_activity(
                     format_passive_provider_count_message(
                         provider,
-                        len(provider_results[provider]),
+                        len(provider_results[provider].subdomains),
+                    )
+                )
+
+        if "dnsx" in providers:
+            candidate_subdomains = merge_subdomain_results(provider_results)
+            telemetry_callback = None
+
+            if display is not None and telemetry is not None:
+                telemetry_callback = lambda output: display.add_activity(
+                    telemetry.map_provider_output("dnsx", output)
+                )
+
+            provider_results["dnsx"] = run_dnsx(
+                candidate_subdomains,
+                telemetry_callback=telemetry_callback,
+                executable_path=executable_paths.get("dnsx"),
+                address_family=address_family,
+                resolver=dnsx_resolver,
+                threads=dnsx_threads,
+                rate_limit=dnsx_rate_limit,
+                query_timeout=dnsx_timeout,
+                retry=dnsx_retry,
+                auto_wildcard=dnsx_auto_wildcard,
+                json_output=dnsx_json,
+            )
+
+            if display is not None:
+                display.add_activity(
+                    format_passive_provider_count_message(
+                        "dnsx",
+                        len(provider_results["dnsx"].subdomains),
                     )
                 )
 
@@ -385,8 +427,15 @@ def run_passive_subdomain_discovery(
             display.add_activity(telemetry.map_merge_activity())
             display.add_activity("[*] Removing duplicate subdomains...")
 
-        subdomains = merge_subdomain_results(provider_results)
-        raw_discovery_count = sum(len(results) for results in provider_results.values())
+        if "dnsx" in providers:
+            subdomains = merge_subdomain_results({"dnsx": provider_results["dnsx"]})
+        else:
+            subdomains = merge_subdomain_results(provider_results)
+
+        raw_discovery_count = sum(
+            len(provider_results[provider].subdomains)
+            for provider in discovery_providers
+        )
 
         if display is not None:
             display.add_activity("[*] Writing passive discovery output...")
@@ -422,11 +471,24 @@ def run_passive_subdomain_discovery(
                 target_domain=domain,
                 provider_results=provider_results,
                 output_path=json_output_path,
+                final_subdomains=subdomains,
                 httpx_result=httpx_result,
             )
     finally:
         if display is not None:
             display.stop()
+
+    provider_failures = [
+        f"{provider}: {result.reason or result.status}"
+        for provider, result in provider_results.items()
+        if result.status in {"failed", "timed_out"}
+    ]
+
+    if provider_failures:
+        raise ValueError(
+            "Passive discovery completed with provider errors: "
+            f"{'; '.join(provider_failures)} Partial results were saved."
+        )
 
     if not subdomains and not quiet:
         print_safe(
@@ -579,9 +641,18 @@ def main() -> None:
                 output_path=output_path,
                 json_output_path=json_output_path,
                 provider_paths={
-                    "subfinder": args.subfinder_path,
-                    "amass": args.amass_path,
+                    "subfinder": getattr(args, "subfinder_path", None),
+                    "amass": getattr(args, "amass_path", None),
+                    "dnsx": getattr(args, "dnsx_path", None),
                 },
+                address_family=getattr(args, "address_family", "dual-stack"),
+                dnsx_resolver=getattr(args, "dnsx_resolver", None),
+                dnsx_threads=getattr(args, "dnsx_threads", None),
+                dnsx_rate_limit=getattr(args, "dnsx_rate_limit", None),
+                dnsx_timeout=getattr(args, "dnsx_timeout", None),
+                dnsx_retry=getattr(args, "dnsx_retry", None),
+                dnsx_auto_wildcard=getattr(args, "dnsx_auto_wildcard", False),
+                dnsx_json=getattr(args, "dnsx_json", False),
                 httpx_enabled=getattr(args, "httpx", False),
                 httpx_binary=getattr(args, "httpx_path", None),
                 quiet=quiet,

@@ -1,17 +1,21 @@
 """Tests for passive subdomain provider execution helpers."""
 
+import argparse
 import io
+import json
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
 import hylianscan
 from modules.subdomain import (
+    ProviderRunResult,
     resolve_provider_executable,
     run_amass,
+    run_dnsx,
     run_passive_provider,
     run_subfinder,
 )
@@ -90,7 +94,10 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                 "modules.subdomain.resolve_provider_executable",
                 return_value="/opt/tools/subfinder",
             ) as resolver,
-            patch("modules.subdomain.run_passive_provider", return_value=[]) as provider,
+            patch(
+                "modules.subdomain.run_passive_provider",
+                return_value=ProviderRunResult([], "completed", 0),
+            ) as provider,
         ):
             run_subfinder("example.com", executable_path="/opt/tools/subfinder")
 
@@ -111,7 +118,10 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                 "modules.subdomain.resolve_provider_executable",
                 return_value="/opt/tools/amass",
             ) as resolver,
-            patch("modules.subdomain.run_passive_provider", return_value=[]) as provider,
+            patch(
+                "modules.subdomain.run_passive_provider",
+                return_value=ProviderRunResult([], "completed", 0),
+            ) as provider,
         ):
             run_amass("example.com", executable_path="/opt/tools/amass")
 
@@ -126,13 +136,182 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             ["/opt/tools/amass", "enum", "-passive", "-d", "example.com"],
         )
 
+    def test_run_dnsx_resolves_candidates_from_stdin(self) -> None:
+        with (
+            patch(
+                "modules.subdomain.resolve_provider_executable",
+                return_value="/opt/tools/dnsx",
+            ) as resolver,
+            patch(
+                "modules.subdomain.run_passive_provider",
+                return_value=ProviderRunResult([], "completed", 0),
+            ) as provider,
+        ):
+            run_dnsx(
+                ["api.example.com", "www.example.com"],
+                executable_path="/opt/tools/dnsx",
+            )
+
+        resolver.assert_called_once_with(
+            provider_name="DNSx",
+            default_command="dnsx",
+            path_option="--dnsx-path",
+            explicit_path="/opt/tools/dnsx",
+        )
+        self.assertEqual(
+            provider.call_args.kwargs["command"],
+            ["/opt/tools/dnsx", "-silent", "-no-color", "-a", "-aaaa"],
+        )
+        self.assertEqual(
+            provider.call_args.kwargs["input_text"],
+            "api.example.com\nwww.example.com\n",
+        )
+
+    def test_run_dnsx_builds_address_family_and_operational_flags(self) -> None:
+        expected_records = {
+            "ipv4": ["-a"],
+            "ipv6": ["-aaaa"],
+            "dual-stack": ["-a", "-aaaa"],
+        }
+
+        for family, record_flags in expected_records.items():
+            with (
+                self.subTest(family=family),
+                patch(
+                    "modules.subdomain.resolve_provider_executable",
+                    return_value="dnsx",
+                ),
+                patch(
+                    "modules.subdomain.run_passive_provider",
+                    return_value=ProviderRunResult([], "completed", 0),
+                ) as provider,
+            ):
+                run_dnsx(
+                    ["api.example.com"],
+                    address_family=family,
+                    resolver="1.1.1.1,8.8.8.8",
+                    threads=25,
+                    rate_limit=100,
+                    query_timeout=2.5,
+                    retry=3,
+                    auto_wildcard=True,
+                )
+
+            self.assertEqual(
+                provider.call_args.kwargs["command"],
+                [
+                    "dnsx",
+                    "-silent",
+                    "-no-color",
+                    *record_flags,
+                    "-r",
+                    "1.1.1.1,8.8.8.8",
+                    "-t",
+                    "25",
+                    "-rl",
+                    "100",
+                    "-timeout",
+                    "2.5s",
+                    "-retry",
+                    "3",
+                    "-auto-wildcard",
+                ],
+            )
+
+    def test_run_dnsx_validates_explicit_path_without_candidates(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "DNSx executable path does not exist.*--dnsx-path",
+        ):
+            run_dnsx([], executable_path="missing-dnsx")
+
+    def test_run_dnsx_skips_without_resolving_default_path_without_candidates(self) -> None:
+        with patch("modules.subdomain.resolve_provider_executable") as resolver:
+            result = run_dnsx([])
+
+        self.assertEqual(result, ProviderRunResult([], "skipped", reason="No candidate subdomains to resolve."))
+        resolver.assert_not_called()
+
+    def test_run_dnsx_parses_opt_in_jsonl_metadata(self) -> None:
+        def run_provider(**kwargs: object) -> ProviderRunResult:
+            output_parser = kwargs["output_parser"]
+            self.assertIsNotNone(output_parser)
+            self.assertEqual(
+                output_parser('{"host":"API.EXAMPLE.COM","a":["192.0.2.1"]}'),
+                "API.EXAMPLE.COM",
+            )
+            return ProviderRunResult(["api.example.com"], "completed", 0)
+
+        with (
+            patch(
+                "modules.subdomain.resolve_provider_executable",
+                return_value="dnsx",
+            ),
+            patch(
+                "modules.subdomain.run_passive_provider",
+                side_effect=run_provider,
+            ) as provider,
+        ):
+            result = run_dnsx(["api.example.com"], json_output=True)
+
+        self.assertIn("-j", provider.call_args.kwargs["command"])
+        self.assertEqual(
+            result.metadata,
+            [{"host": "API.EXAMPLE.COM", "a": ["192.0.2.1"]}],
+        )
+
+    def test_cli_forwards_dnsx_controls_to_passive_orchestration(self) -> None:
+        args = argparse.Namespace(
+            target="example.com",
+            output=None,
+            json_output="report.json",
+            quiet=True,
+            subfinder=True,
+            amass=False,
+            dnsx=True,
+            address_family="ipv6",
+            dnsx_resolver="1.1.1.1",
+            dnsx_threads=25,
+            dnsx_rate_limit=100,
+            dnsx_timeout=2.5,
+            dnsx_retry=3,
+            dnsx_auto_wildcard=True,
+            dnsx_json=True,
+        )
+
+        with (
+            patch("hylianscan.parse_arguments", return_value=args),
+            patch("hylianscan.run_passive_subdomain_discovery", return_value="done") as run,
+            redirect_stdout(io.StringIO()),
+        ):
+            hylianscan.main()
+
+        self.assertEqual(run.call_args.kwargs["address_family"], "ipv6")
+        self.assertEqual(run.call_args.kwargs["dnsx_resolver"], "1.1.1.1")
+        self.assertEqual(run.call_args.kwargs["dnsx_threads"], 25)
+        self.assertEqual(run.call_args.kwargs["dnsx_rate_limit"], 100)
+        self.assertEqual(run.call_args.kwargs["dnsx_timeout"], 2.5)
+        self.assertEqual(run.call_args.kwargs["dnsx_retry"], 3)
+        self.assertTrue(run.call_args.kwargs["dnsx_auto_wildcard"])
+        self.assertTrue(run.call_args.kwargs["dnsx_json"])
+
     def test_passive_discovery_forwards_provider_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_path = Path(temporary_dir) / "subdomains.txt"
 
             with (
-                patch("hylianscan.run_subfinder", return_value=["www.example.com"]) as subfinder,
-                patch("hylianscan.run_amass", return_value=["api.example.com"]) as amass,
+                patch(
+                    "hylianscan.run_subfinder",
+                    return_value=ProviderRunResult(
+                        ["www.example.com"], "completed", 0
+                    ),
+                ) as subfinder,
+                patch(
+                    "hylianscan.run_amass",
+                    return_value=ProviderRunResult(
+                        ["api.example.com"], "completed", 0
+                    ),
+                ) as amass,
             ):
                 summary = hylianscan.run_passive_subdomain_discovery(
                     domain="example.com",
@@ -153,6 +332,58 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         )
         self.assertEqual(amass.call_args.kwargs["executable_path"], "/opt/tools/amass")
 
+    def test_cli_writes_partial_reports_before_provider_failure_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            output_path = Path(temporary_dir) / "subdomains.txt"
+            json_output_path = Path(temporary_dir) / "subdomains.json"
+            args = argparse.Namespace(
+                target="example.com",
+                output="reports",
+                json_output="report.json",
+                quiet=True,
+                subfinder=True,
+                amass=False,
+                dnsx=False,
+            )
+            failed_result = ProviderRunResult(
+                ["api.example.com"],
+                "failed",
+                7,
+                "Exited with status code 7.",
+            )
+            terminal_output = io.StringIO()
+
+            with (
+                patch("hylianscan.parse_arguments", return_value=args),
+                patch(
+                    "hylianscan.resolve_subdomain_output_path",
+                    return_value=output_path,
+                ),
+                patch(
+                    "hylianscan.resolve_subdomain_json_output_path",
+                    return_value=json_output_path,
+                ),
+                patch("hylianscan.run_subfinder", return_value=failed_result),
+                redirect_stdout(terminal_output),
+                self.assertRaises(SystemExit) as exit_context,
+            ):
+                hylianscan.main()
+
+            document = json.loads(json_output_path.read_text(encoding="utf-8"))
+            self.assertEqual(exit_context.exception.code, 1)
+            self.assertIn(
+                "Error: Passive discovery completed with provider errors",
+                terminal_output.getvalue(),
+            )
+            self.assertIn("Partial results were saved", terminal_output.getvalue())
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "api.example.com\n",
+            )
+            self.assertEqual(document["results"]["subdomains"], ["api.example.com"])
+            self.assertEqual(document["providers"][0]["status"], "failed")
+            self.assertEqual(document["providers"][0]["exit_code"], 7)
+
     def test_nonzero_provider_exit_warns_and_keeps_partial_results(self) -> None:
         errors = io.StringIO()
         command = [
@@ -164,9 +395,53 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         with redirect_stderr(errors):
             results = run_passive_provider("example.com", "Fake", command)
 
-        self.assertEqual(results, ["api.example.com"])
+        self.assertEqual(results.subdomains, ["api.example.com"])
+        self.assertEqual(results.status, "failed")
+        self.assertEqual(results.exit_code, 7)
+        self.assertEqual(results.reason, "Exited with status code 7.")
         self.assertIn("exited with status code 7", errors.getvalue())
         self.assertIn("partial results", errors.getvalue())
+
+    def test_provider_timeout_keeps_partial_results_and_status(self) -> None:
+        errors = io.StringIO()
+        command = [
+            sys.executable,
+            "-u",
+            "-c",
+            "import time; print('api.example.com', flush=True); time.sleep(10)",
+        ]
+
+        with redirect_stderr(errors):
+            result = run_passive_provider(
+                "example.com",
+                "Fake",
+                command,
+                timeout=0.5,
+            )
+
+        self.assertEqual(result.subdomains, ["api.example.com"])
+        self.assertEqual(result.status, "timed_out")
+        self.assertIsNone(result.exit_code)
+        self.assertEqual(result.reason, "Timed out after 0.5 seconds.")
+        self.assertIn("timed out", errors.getvalue())
+
+    def test_passive_provider_can_consume_stdin(self) -> None:
+        command = [
+            sys.executable,
+            "-c",
+            "import sys; print(sys.stdin.read().splitlines()[0])",
+        ]
+
+        results = run_passive_provider(
+            "example.com",
+            "DNSx",
+            command,
+            input_text="api.example.com\n",
+        )
+
+        self.assertEqual(results.subdomains, ["api.example.com"])
+        self.assertEqual(results.status, "completed")
+        self.assertEqual(results.exit_code, 0)
 
 
 if __name__ == "__main__":

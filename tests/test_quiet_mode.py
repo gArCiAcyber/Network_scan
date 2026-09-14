@@ -2,6 +2,7 @@
 
 import argparse
 import io
+import json
 import re
 import socket
 import tempfile
@@ -13,6 +14,7 @@ from unittest.mock import patch
 import hylianscan
 from core.output import DEFAULT_TCP_TEXT_ARGUMENT
 from core.panel import build_quiet_final_panel
+from modules.subdomain import ProviderRunResult
 from modules.target import TargetInfo
 from modules.target import ResolvedAddress
 from modules.tcp_scanner import PortScanResult, ScanResult
@@ -274,7 +276,9 @@ class QuietModeTests(unittest.TestCase):
 
             with patch(
                 "hylianscan.run_subfinder",
-                return_value=["www.example.com"],
+                return_value=ProviderRunResult(
+                    ["www.example.com"], "completed", 0
+                ),
             ) as subfinder:
                 summary = hylianscan.run_passive_subdomain_discovery(
                     domain="example.com",
@@ -294,7 +298,9 @@ class QuietModeTests(unittest.TestCase):
 
             with patch(
                 "hylianscan.run_subfinder",
-                return_value=["www.example.com"],
+                return_value=ProviderRunResult(
+                    ["www.example.com"], "completed", 0
+                ),
             ):
                 summary = hylianscan.run_passive_subdomain_discovery(
                     domain="example.com",
@@ -310,6 +316,64 @@ class QuietModeTests(unittest.TestCase):
             self.assertIn("Raw Discoveries: 1", summary)
             self.assertIn("Unique Subdomains: 1", summary)
             self.assertIn(f"Output Path: {output_path.name}", summary)
+
+    def test_dnsx_filters_passive_output_but_keeps_source_candidates_for_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            output_path = Path(temporary_dir) / "subdomains.txt"
+            json_output_path = Path(temporary_dir) / "subdomains.json"
+
+            with (
+                patch(
+                    "hylianscan.run_subfinder",
+                    return_value=ProviderRunResult(
+                        ["dead.example.com", "live.example.com"],
+                        "completed",
+                        0,
+                    ),
+                ),
+                patch(
+                    "hylianscan.run_dnsx",
+                    return_value=ProviderRunResult(
+                        ["live.example.com"], "completed", 0
+                    ),
+                ) as dnsx,
+            ):
+                hylianscan.run_passive_subdomain_discovery(
+                    domain="example.com",
+                    providers=["subfinder", "dnsx"],
+                    output_path=output_path,
+                    json_output_path=json_output_path,
+                    address_family="ipv6",
+                    dnsx_resolver="1.1.1.1",
+                    dnsx_threads=25,
+                    dnsx_rate_limit=100,
+                    dnsx_timeout=2.5,
+                    dnsx_retry=3,
+                    dnsx_auto_wildcard=True,
+                    quiet=True,
+                )
+
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "live.example.com\n",
+            )
+            self.assertEqual(
+                dnsx.call_args.args[0],
+                ["dead.example.com", "live.example.com"],
+            )
+            self.assertEqual(dnsx.call_args.kwargs["address_family"], "ipv6")
+            self.assertEqual(dnsx.call_args.kwargs["resolver"], "1.1.1.1")
+            self.assertEqual(dnsx.call_args.kwargs["threads"], 25)
+            self.assertEqual(dnsx.call_args.kwargs["rate_limit"], 100)
+            self.assertEqual(dnsx.call_args.kwargs["query_timeout"], 2.5)
+            self.assertEqual(dnsx.call_args.kwargs["retry"], 3)
+            self.assertTrue(dnsx.call_args.kwargs["auto_wildcard"])
+            document = json.loads(json_output_path.read_text(encoding="utf-8"))
+            self.assertEqual(document["results"]["subdomains"], ["live.example.com"])
+            self.assertEqual(
+                [provider["name"] for provider in document["providers"]],
+                ["dnsx", "subfinder"],
+            )
 
 
 if __name__ == "__main__":
