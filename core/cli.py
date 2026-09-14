@@ -87,21 +87,21 @@ def parse_arguments() -> argparse.Namespace:
         dest="address_family",
         action="store_const",
         const="ipv4",
-        help="Use IPv4 addresses for TCP scans and A records for DNSx.",
+        help="Resolve and scan IPv4 addresses only.",
     )
     address_family_group.add_argument(
         "--ipv6",
         dest="address_family",
         action="store_const",
         const="ipv6",
-        help="Use IPv6 addresses for TCP scans and AAAA records for DNSx.",
+        help="Resolve and scan IPv6 addresses only.",
     )
     address_family_group.add_argument(
         "--dual-stack",
         dest="address_family",
         action="store_const",
         const="dual-stack",
-        help="Use both IPv4 and IPv6 addresses or DNS records (default).",
+        help="Resolve and scan both IPv4 and IPv6 addresses (default).",
     )
     discovery_group = scan_behavior_group.add_mutually_exclusive_group()
     discovery_group.add_argument(
@@ -191,57 +191,7 @@ def parse_arguments() -> argparse.Namespace:
         metavar="PATH",
         help="Path to the Amass executable when it is not available in PATH.",
     )
-passive_group.add_argument(
-    "--dnsx",
-    action="store_true",
-    help="Resolve discovered passive subdomains using DNSx.",
-)
-
-passive_group.add_argument(
-    "--dnsx-path",
-    help="Path to the DNSx executable when it is not available in PATH.",
-)
-
-passive_group.add_argument(
-    "--dnsx-resolver",
-    help="DNSx resolver file or comma-separated resolver list.",
-)
-
-passive_group.add_argument(
-    "--dnsx-threads",
-    type=int,
-    help="Number of concurrent DNSx threads.",
-)
-
-passive_group.add_argument(
-    "--dnsx-rate-limit",
-    type=int,
-    help="Maximum DNSx requests per second.",
-)
-
-passive_group.add_argument(
-    "--dnsx-timeout",
-    type=float,
-    help="DNSx timeout per DNS query in seconds.",
-)
-
-passive_group.add_argument(
-    "--dnsx-retry",
-    type=int,
-    help="Number of DNSx attempts per DNS query.",
-)
-
-passive_group.add_argument(
-    "--dnsx-auto-wildcard",
-    action="store_true",
-    help="Enable DNSx automatic wildcard filtering.",
-)
-
-passive_group.add_argument(
-    "--dnsx-json",
-    action="store_true",
-    help="Keep DNSx JSONL response metadata in the JSON report.",
-)
+    passive_group.add_argument(
         "--httpx",
         action="store_true",
         help="Probe passive-discovery results with ProjectDiscovery HTTPx.",
@@ -251,45 +201,51 @@ passive_group.add_argument(
         metavar="PATH",
         help="Path to the HTTPx executable when it is not available in PATH.",
     )
-    parser.add_argument(
+    passive_group.add_argument(
         "--dnsx",
         action="store_true",
         help="Resolve discovered passive subdomains using DNSx.",
     )
-    parser.add_argument(
+    integrations_group.add_argument(
         "--dnsx-path",
+        metavar="PATH",
         help="Path to the DNSx executable when it is not available in PATH.",
     )
-    parser.add_argument(
+    integrations_group.add_argument(
         "--dnsx-resolver",
+        metavar="FILE",
         help="DNSx resolver file or comma-separated resolver list.",
     )
-    parser.add_argument(
+    performance_group.add_argument(
         "--dnsx-threads",
         type=int,
+        metavar="N",
         help="Number of concurrent DNSx threads.",
     )
-    parser.add_argument(
+    performance_group.add_argument(
         "--dnsx-rate-limit",
         type=int,
+        metavar="RATE",
         help="Maximum DNSx requests per second.",
     )
-    parser.add_argument(
+    performance_group.add_argument(
         "--dnsx-timeout",
         type=float,
+        metavar="SEC",
         help="DNSx timeout per DNS query in seconds.",
     )
-    parser.add_argument(
+    performance_group.add_argument(
         "--dnsx-retry",
         type=int,
+        metavar="N",
         help="Number of DNSx attempts per DNS query.",
     )
-    parser.add_argument(
+    passive_group.add_argument(
         "--dnsx-auto-wildcard",
         action="store_true",
         help="Enable DNSx automatic wildcard filtering.",
     )
-    parser.add_argument(
+    output_group.add_argument(
         "--dnsx-json",
         action="store_true",
         help="Keep DNSx JSONL response metadata in the JSON report.",
