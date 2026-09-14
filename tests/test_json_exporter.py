@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 
 from modules.json_exporter import (
+    build_subdomain_discovery_document,
     build_nmap_xml_import_document,
     build_port_document,
     build_tcp_scan_document,
@@ -14,6 +15,7 @@ from modules.nmap_enrichment import (
     build_completed_nmap_enrichment,
     build_skipped_nmap_enrichment,
 )
+from modules.subdomain import ProviderRunResult
 from modules.nmap_xml import parse_nmap_xml_text
 from modules.target import ResolvedAddress
 from modules.tcp_scanner import PortScanResult, ScanResult
@@ -769,6 +771,83 @@ class JSONExporterTests(unittest.TestCase):
         self.assertIn("probe", open_ports[0])
         self.assertEqual(open_ports[0]["http"]["status_code"], 301)
         self.assertEqual(open_ports[0]["tls_analysis"]["severity"], "low")
+
+    def test_subdomain_document_can_export_dnsx_filtered_results(self) -> None:
+        document = build_subdomain_discovery_document(
+            "example.com",
+            {
+                "subfinder": ProviderRunResult(
+                    ["dead.example.com", "live.example.com"],
+                    "failed",
+                    7,
+                    "Exited with status code 7.",
+                ),
+                "dnsx": ProviderRunResult(
+                    ["live.example.com"],
+                    "completed",
+                    0,
+                    metadata=[{"host": "live.example.com", "a": ["192.0.2.1"]}],
+                ),
+            },
+            final_subdomains=["live.example.com"],
+        )
+
+        self.assertEqual(document["results"]["subdomains"], ["live.example.com"])
+        self.assertEqual(
+            document["providers"][0]["name"],
+            "dnsx",
+        )
+        self.assertEqual(
+            document["providers"][1],
+            {
+                "name": "subfinder",
+                "role": "discovery",
+                "count": 2,
+                "status": "failed",
+                "exit_code": 7,
+                "reason": "Exited with status code 7.",
+                "subdomains": ["dead.example.com", "live.example.com"],
+            },
+        )
+        self.assertEqual(
+            document["results"]["sources"]["live.example.com"],
+            ["dnsx", "subfinder"],
+        )
+        self.assertEqual(
+            document["results"]["candidates"],
+            {
+                "subdomains": ["dead.example.com", "live.example.com"],
+                "sources": {
+                    "dead.example.com": ["subfinder"],
+                    "live.example.com": ["subfinder"],
+                },
+            },
+        )
+        self.assertEqual(
+            document["results"]["resolution"],
+            {
+                "provider": "dnsx",
+                "status": "completed",
+                "exit_code": 0,
+                "reason": None,
+                "subdomains": ["live.example.com"],
+                "metadata": [
+                    {"host": "live.example.com", "a": ["192.0.2.1"]}
+                ],
+            },
+        )
+
+    def test_subdomain_document_accepts_legacy_list_provider_results(self) -> None:
+        document = build_subdomain_discovery_document(
+            "example.com",
+            {"subfinder": ["API.EXAMPLE.COM"]},
+        )
+
+        self.assertEqual(document["results"]["subdomains"], ["api.example.com"])
+        self.assertEqual(
+            document["providers"][0]["subdomains"],
+            ["api.example.com"],
+        )
 
 
 if __name__ == "__main__":

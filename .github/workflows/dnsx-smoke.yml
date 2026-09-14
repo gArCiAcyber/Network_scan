@@ -1,0 +1,45 @@
+name: DNSx smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "modules/subdomain.py"
+      - "scripts/check_dnsx.py"
+      - ".github/workflows/dnsx-smoke.yml"
+  pull_request:
+    paths:
+      - "modules/subdomain.py"
+      - "scripts/check_dnsx.py"
+      - ".github/workflows/dnsx-smoke.yml"
+  workflow_dispatch:
+
+jobs:
+  dnsx-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Install DNSx 1.3.1
+        env:
+          GOBIN: ${{ runner.temp }}/dnsx-bin
+        run: |
+          mkdir -p "$GOBIN"
+          go install github.com/projectdiscovery/dnsx/cmd/dnsx@v1.3.1
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
+      - name: Run DNSx smoke check
+        run: python scripts/check_dnsx.py

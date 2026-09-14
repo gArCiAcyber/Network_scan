@@ -44,7 +44,7 @@ It can probe services, extract useful protocol metadata, organize results, and e
 | Area                         | What Hylianscan does                                                   |
 | ---------------------------- | ---------------------------------------------------------------------- |
 | **Protocol-aware TCP recon** | Detects useful service hints instead of only showing open ports.       |
-| **Passive discovery**        | Runs Subfinder, Amass, or both, then merges and deduplicates results.  |
+| **Passive discovery**        | Runs Subfinder/Amass, optionally validates candidates with DNSx, then deduplicates results. |
 | **Clean reporting**          | Saves target-specific TXT/JSON evidence into organized output folders. |
 | **Terminal-first workflow**  | Built to feel good inside Kali/Linux terminals without heavy setup.    |
 | **Source-run simplicity**    | Runs directly with Python from the repository.                         |
@@ -83,7 +83,7 @@ python3 hylianscan.py -u scanme.nmap.org -p 20-25,53,80,110,143,443,587,993,995,
 
 ### 🗺️ Passive Discovery
 
-Passive Discovery can run **Subfinder**, **Amass**, or both providers in the same workflow.
+Passive Discovery can run **Subfinder**, **Amass**, or both providers in the same workflow. Add **DNSx** to keep only candidates with A and/or AAAA address records.
 
 Hylianscan keeps provider activity visible, counts raw discoveries, removes duplicates, and writes the final subdomain map to disk.
 
@@ -91,6 +91,11 @@ Hylianscan keeps provider activity visible, counts raw discoveries, removes dupl
 
 ```bash
 python3 hylianscan.py example.com --subfinder --amass -o --json-output
+```
+
+```bash
+# Discover candidates, confirm A and AAAA records with DNSx, and export the results
+python3 hylianscan.py example.com --subfinder --amass --dnsx -o --json-output
 ```
 
 ```text
@@ -144,7 +149,9 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 
 * Subfinder support.
 * Amass support.
-* Provider path overrides with `--subfinder-path` and `--amass-path`.
+* DNSx A/AAAA resolution with IPv4, IPv6, and dual-stack selection.
+* DNSx resolver, concurrency, rate-limit, timeout, retry, and automatic wildcard controls.
+* Provider path overrides with `--subfinder-path`, `--amass-path`, and `--dnsx-path`.
 * Provider-aware terminal activity.
 * Raw discovery counts.
 * Unique subdomain counts.
@@ -197,7 +204,7 @@ python3 hylianscan.py --help
 
 Hylianscan uses the Python standard library for its core execution.
 
-For Passive Discovery, install Subfinder and/or Amass separately and keep them available in your `PATH`, or pass explicit paths with `--subfinder-path` and `--amass-path`.
+For Passive Discovery, install Subfinder and/or Amass separately and keep them available in your `PATH`, or pass explicit paths with `--subfinder-path` and `--amass-path`. DNSx is optional and can be enabled with `--dnsx`.
 
 For optional live Nmap enrichment, install Nmap separately and keep it available in your `PATH`, or pass an explicit path with `--nmap-path`.
 
@@ -251,7 +258,20 @@ python3 hylianscan.py example.com --amass
 
 # Subfinder + Amass with TXT/JSON output
 python3 hylianscan.py example.com --subfinder --amass -o --json-output
+
+# Subfinder + Amass, filtered to subdomains with A or AAAA records
+python3 hylianscan.py example.com --subfinder --amass --dnsx -o --json-output
+
+# IPv6-only DNSx resolution with operational controls
+python3 hylianscan.py example.com --subfinder --dnsx --ipv6 --dnsx-resolver resolvers.txt --dnsx-threads 50 --dnsx-rate-limit 100 --dnsx-timeout 3 --dnsx-retry 2 --dnsx-auto-wildcard
+
+# Keep DNSx JSONL record metadata in the JSON report
+python3 hylianscan.py example.com --subfinder --dnsx --dnsx-json --json-output
 ```
+
+DNSx uses both A and AAAA records by default. Use `--ipv4` for A records only or `--ipv6` for AAAA records only. DNSx confirms address records; it does not prove that an application service is reachable.
+
+In JSON reports, `results.candidates` contains the deduplicated Subfinder/Amass discovery evidence, while `results.resolution` records DNSx's status and the final address-record-confirmed subdomains. The existing `results.subdomains` and `results.sources` fields remain available for compatibility.
 
 ---
 
@@ -364,7 +384,7 @@ python3 hylianscan.py --help
 ## ❗ Notes
 
 * TCP scanning and Passive Discovery are separate modes.
-* Passive Discovery requires Subfinder and/or Amass.
+* Passive Discovery requires Subfinder and/or Amass; DNSx is an optional resolver stage.
 * Full-range TCP scans should only be used in authorized environments.
 * Demo commands should be treated as examples, not permission to scan public systems.
 * The tool is intended for labs, learning, legitimate recon, and authorized security work.
