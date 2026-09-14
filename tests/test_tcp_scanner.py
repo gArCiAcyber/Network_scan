@@ -4,7 +4,12 @@ import socket
 import unittest
 from unittest.mock import MagicMock, patch
 
-from modules.tcp_scanner import PortScanResult, discover_open_port, scan_tcp_ports
+from modules.tcp_scanner import (
+    PortScanResult,
+    discover_open_port,
+    probe_open_service,
+    scan_tcp_ports,
+)
 
 
 class TCPScannerFlowTests(unittest.TestCase):
@@ -55,10 +60,12 @@ class TCPScannerFlowTests(unittest.TestCase):
                 timeout=0.1,
                 max_workers=1,
                 max_rate=10.0,
+                http_probing=False,
             )
 
         self.assertEqual(len(result.open_ports), 1)
         self.assertIs(probe.call_args.args[4], fake_pacer)
+        self.assertFalse(probe.call_args.args[7])
 
     def test_scan_tcp_ports_keeps_default_flow_without_max_rate(self) -> None:
         with (
@@ -96,6 +103,26 @@ class TCPScannerFlowTests(unittest.TestCase):
         fake_socket.connect_ex.assert_called_once_with(("2001:db8::10", 443, 0, 0))
         self.assertIsNotNone(finding)
         self.assertEqual(finding.address_family, "ipv6")
+
+    def test_disabled_http_probing_keeps_discovery_without_opening_a_probe_socket(self) -> None:
+        finding = PortScanResult(
+            port=443,
+            service="https",
+            banner=None,
+            response_time=0.01,
+            web_url="https://example.com",
+        )
+
+        with patch("modules.tcp_scanner.socket.socket") as socket_factory:
+            result = probe_open_service(
+                "example.com",
+                "127.0.0.1",
+                finding,
+                http_probing=False,
+            )
+
+        self.assertIs(result, finding)
+        socket_factory.assert_not_called()
 
 
 if __name__ == "__main__":
