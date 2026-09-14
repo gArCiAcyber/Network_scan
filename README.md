@@ -15,7 +15,7 @@
 
 # 🛡️ Hylianscan
 
-**Hylianscan** is a fantasy-inspired Python reconnaissance tool built for authorized TCP scanning, protocol-aware probing, passive subdomain discovery, and clean evidence reporting.
+**Hylianscan** is a fantasy-inspired Python reconnaissance tool built for authorized TCP scanning, protocol-aware probing, passive subdomain discovery, HTTPx web fingerprinting, and clean evidence reporting.
 
 It is designed for Kali Linux workflows, security labs, portfolio projects, and practical recon automation.
 
@@ -144,6 +144,7 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Subfinder support.
 * Amass support.
 * Provider path overrides with `--subfinder-path` and `--amass-path`.
+* Optional HTTPx probing of the root domain and deduplicated discoveries.
 * Provider-aware terminal activity.
 * Raw discovery counts.
 * Unique subdomain counts.
@@ -166,6 +167,13 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Nmap runs only against TCP ports already found open by Hylianscan.
 * Nmap must be installed separately.
 * Enrichment is printed to the terminal and included in saved TXT/JSON reports when `-o` and/or `--json-output` are used.
+
+### Optional HTTPx Web Probing
+
+* Runs ProjectDiscovery HTTPx after Subfinder and/or Amass when `--httpx` is provided.
+* Probes both HTTP and HTTPS and collects status, title, technologies, server, IP, CNAME, and redirect location.
+* Saves the raw structured findings as `httpx.jsonl` and embeds them in the passive JSON report.
+* HTTPx must be installed separately or selected with `--httpx-path`.
 
 ### Nmap XML Import
 
@@ -197,6 +205,8 @@ python3 hylianscan.py --help
 Hylianscan uses the Python standard library for its core execution.
 
 For Passive Discovery, install Subfinder and/or Amass separately and keep them available in your `PATH`, or pass explicit paths with `--subfinder-path` and `--amass-path`.
+
+For optional live web fingerprinting, install ProjectDiscovery HTTPx separately and keep it available in your `PATH`, or pass an explicit path with `--httpx-path`.
 
 For optional live Nmap enrichment, install Nmap separately and keep it available in your `PATH`, or pass an explicit path with `--nmap-path`.
 
@@ -250,6 +260,12 @@ python3 hylianscan.py example.com --amass
 
 # Subfinder + Amass with TXT/JSON output
 python3 hylianscan.py example.com --subfinder --amass -o --json-output
+
+# Subfinder + Amass followed by HTTPx (reserved fake target)
+python3 hylianscan.py example.test --subfinder --amass --httpx -o --json-output
+
+# Use an explicit HTTPx executable
+python3 hylianscan.py example.test --subfinder --httpx --httpx-path /usr/local/bin/httpx --json-output
 ```
 
 ---
@@ -320,6 +336,7 @@ tcp_report.txt
 tcp_results.json
 subdomains.txt
 subdomains.json
+httpx.jsonl
 nmap_import_report.txt
 nmap_import_results.json
 ```
