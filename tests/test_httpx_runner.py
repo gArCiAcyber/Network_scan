@@ -15,6 +15,7 @@ from modules.httpx_runner import (
     parse_httpx_jsonl,
     run_httpx,
 )
+from modules.subdomain import ProviderRunResult
 
 
 HTTPX_JSONL = "\n".join(
@@ -112,7 +113,9 @@ class HttpxRunnerTests(unittest.TestCase):
             with (
                 patch(
                     "hylianscan.run_subfinder",
-                    return_value=["api.example.test"],
+                    return_value=ProviderRunResult(
+                        ["api.example.test"], "completed", 0
+                    ),
                 ),
                 patch("hylianscan.run_httpx", return_value=httpx_result) as runner,
             ):
@@ -135,6 +138,40 @@ class HttpxRunnerTests(unittest.TestCase):
         self.assertEqual(document["enrichment"]["httpx"]["live_services"], 2)
         self.assertIn("[+] HTTPX WEB PROBE", summary)
         self.assertIn("https://example.test", summary)
+
+    def test_httpx_receives_dnsx_filtered_results(self) -> None:
+        httpx_result = HttpxResult(
+            status="completed",
+            targets_requested=("example.test", "live.example.test"),
+            findings=(),
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            with (
+                patch(
+                    "hylianscan.run_subfinder",
+                    return_value=ProviderRunResult(
+                        ["dead.example.test", "live.example.test"], "completed", 0
+                    ),
+                ),
+                patch(
+                    "hylianscan.run_dnsx",
+                    return_value=ProviderRunResult(
+                        ["live.example.test"], "completed", 0
+                    ),
+                ) as dnsx,
+                patch("hylianscan.run_httpx", return_value=httpx_result) as httpx,
+            ):
+                hylianscan.run_passive_subdomain_discovery(
+                    domain="example.test",
+                    providers=["subfinder", "dnsx"],
+                    output_path=Path(temporary_dir) / "subdomains.txt",
+                    httpx_enabled=True,
+                    quiet=True,
+                )
+
+        dnsx.assert_called_once()
+        httpx.assert_called_once_with(["example.test", "live.example.test"])
 
 
 if __name__ == "__main__":
