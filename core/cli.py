@@ -201,6 +201,49 @@ def parse_arguments() -> argparse.Namespace:
         metavar="PATH",
         help="Path to the HTTPx executable when it is not available in PATH.",
     )
+    parser.add_argument(
+        "--dnsx",
+        action="store_true",
+        help="Resolve discovered passive subdomains using DNSx.",
+    )
+    parser.add_argument(
+        "--dnsx-path",
+        help="Path to the DNSx executable when it is not available in PATH.",
+    )
+    parser.add_argument(
+        "--dnsx-resolver",
+        help="DNSx resolver file or comma-separated resolver list.",
+    )
+    parser.add_argument(
+        "--dnsx-threads",
+        type=int,
+        help="Number of concurrent DNSx threads.",
+    )
+    parser.add_argument(
+        "--dnsx-rate-limit",
+        type=int,
+        help="Maximum DNSx requests per second.",
+    )
+    parser.add_argument(
+        "--dnsx-timeout",
+        type=float,
+        help="DNSx timeout per DNS query in seconds.",
+    )
+    parser.add_argument(
+        "--dnsx-retry",
+        type=int,
+        help="Number of DNSx attempts per DNS query.",
+    )
+    parser.add_argument(
+        "--dnsx-auto-wildcard",
+        action="store_true",
+        help="Enable DNSx automatic wildcard filtering.",
+    )
+    parser.add_argument(
+        "--dnsx-json",
+        action="store_true",
+        help="Keep DNSx JSONL response metadata in the JSON report.",
+    )
     performance_group.add_argument(
         "-t",
         "--threads",
