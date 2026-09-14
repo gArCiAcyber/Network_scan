@@ -330,6 +330,31 @@ class CLIHelperTests(unittest.TestCase):
         self.assertTrue(args.quiet)
         self.assertIsNone(args.stance)
 
+    def test_help_starts_with_task_oriented_examples(self) -> None:
+        output = io.StringIO()
+
+        with (
+            patch("sys.argv", ["hylianscan", "--help"]),
+            patch("sys.stdout", output),
+        ):
+            with self.assertRaises(SystemExit) as exit_context:
+                parse_arguments()
+
+        rendered = output.getvalue()
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertLess(
+            rendered.index("Examples:"), rendered.index("positional arguments:")
+        )
+        self.assertNotIn("start:", rendered)
+        self.assertNotIn("Quick scan:", rendered)
+        self.assertNotIn("Web scan:", rendered)
+        self.assertNotIn("Passive discovery:", rendered)
+        self.assertIn("hylianscan example.com -t 50 --max-rate 10", rendered)
+        self.assertIn("hylianscan example.com", rendered)
+        self.assertIn("hylianscan example.com --profile web", rendered)
+        self.assertIn("hylianscan example.com --subfinder --amass", rendered)
+
     def test_parse_arguments_preserves_explicit_stance(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com", "--stance", "nayru"]):
             args = parse_arguments()

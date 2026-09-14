@@ -16,46 +16,72 @@ def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments for the scanner."""
     parser = argparse.ArgumentParser(
         prog=APP_NAME,
-        description="High-performance reconnaissance scanner for authorized targets.",
+        description=(
+            "High-performance reconnaissance scanner for authorized targets.\n\n"
+            "Examples:\n"
+            "  hylianscan example.com -t 50 --max-rate 10\n\n"
+            "  hylianscan example.com\n"
+            "  hylianscan example.com --profile web\n"
+            "  hylianscan example.com --subfinder --amass"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
     )
-    parser.add_argument(
+    general_group = parser.add_argument_group("General")
+    target_group = parser.add_argument_group("Target")
+    scan_scope_group = parser.add_argument_group("Scan Scope")
+    scan_behavior_group = parser.add_argument_group("Scan Behavior")
+    passive_group = parser.add_argument_group("Passive Discovery")
+    performance_group = parser.add_argument_group("Performance")
+    integrations_group = parser.add_argument_group("Integrations")
+    output_group = parser.add_argument_group("Output")
+    import_group = parser.add_argument_group("Import")
+    information_group = parser.add_argument_group("Information")
+
+    general_group.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="show this help message and exit.",
+    )
+    general_group.add_argument(
         "--version",
         action="version",
         version=f"{APP_NAME} {APP_VERSION}",
     )
-    parser.add_argument(
+    information_group.add_argument(
         "--list-scan-profiles",
         "--list-profiles",
         dest="list_scan_profiles",
         action="store_true",
         help="List complete built-in scan profiles and exit without scanning.",
     )
-    parser.add_argument(
+    information_group.add_argument(
         "--list-port-profiles",
         action="store_true",
         help="List built-in TCP port profiles and exit without scanning.",
     )
-    parser.add_argument(
+    information_group.add_argument(
         "--list-stances",
         action="store_true",
         help="List built-in TCP scan stances and exit without scanning.",
     )
-    parser.add_argument(
+    import_group.add_argument(
         "--nmap-xml",
         metavar="PATH",
         help="Import an existing Nmap XML file and exit without scanning.",
     )
-    parser.add_argument(
+    integrations_group.add_argument(
         "--nmap",
         action="store_true",
         help="Run optional Nmap service/version enrichment after native TCP scanning.",
     )
-    parser.add_argument(
+    integrations_group.add_argument(
         "--nmap-path",
         metavar="PATH",
         help="Path to the Nmap executable for optional live enrichment.",
     )
-    address_family_group = parser.add_mutually_exclusive_group()
+    address_family_group = scan_behavior_group.add_mutually_exclusive_group()
     address_family_group.add_argument(
         "--ipv4",
         dest="address_family",
@@ -77,7 +103,7 @@ def parse_arguments() -> argparse.Namespace:
         const="dual-stack",
         help="Resolve and scan both IPv4 and IPv6 addresses (default).",
     )
-    discovery_group = parser.add_mutually_exclusive_group()
+    discovery_group = scan_behavior_group.add_mutually_exclusive_group()
     discovery_group.add_argument(
         "--host-discovery",
         choices=("tcp", "icmp"),
@@ -88,21 +114,22 @@ def parse_arguments() -> argparse.Namespace:
         dest="host_discovery",
         action="store_const",
         const="tcp",
-        help=argparse.SUPPRESS,
+        help="Alias for --host-discovery tcp.",
     )
     discovery_group.add_argument(
         "--icmp-discovery",
         dest="host_discovery",
         action="store_const",
         const="icmp",
-        help=argparse.SUPPRESS,
+        help="Alias for --host-discovery icmp.",
     )
     parser.add_argument(
         "target",
         nargs="?",
+        metavar="TARGET",
         help="Target host string: IP address, hostname, or domain name.",
     )
-    parser.add_argument(
+    target_group.add_argument(
         "-u",
         "--url",
         dest="target_url",
@@ -112,79 +139,89 @@ def parse_arguments() -> argparse.Namespace:
             "hostname, or domain name."
         ),
     )
-    parser.add_argument(
+    scan_scope_group.add_argument(
         "-p",
         "--ports",
+        metavar="PORTS",
         help=(
             "Ports to scan, using comma lists or ranges. "
             "Examples: 80,443 or 1-1000. Use '-p -' for 1-65535."
         ),
     )
-    parser.add_argument(
+    scan_scope_group.add_argument(
         "--top-ports",
         type=int,
+        metavar="N",
         help="Scan the top N built-in TCP ports. Example: --top-ports 400.",
     )
-    parser.add_argument(
+    scan_scope_group.add_argument(
         "--profile",
         "--scan-profile",
         dest="scan_profile",
+        metavar="NAME",
         help="Apply a complete scan profile: quick, web, or cautious.",
     )
-    parser.add_argument(
+    scan_scope_group.add_argument(
         "--port-profile",
+        metavar="NAME",
         help=(
             "Use a predefined TCP port profile. Supports quick/kokiri, "
             "web/sheikah, mail/rito, admin/castle, and bugbounty/triforce."
         ),
     )
-    parser.add_argument(
+    passive_group.add_argument(
         "-s",
         "--subfinder",
         action="store_true",
         help="Enable passive subdomain discovery using Subfinder.",
     )
-    parser.add_argument(
+    integrations_group.add_argument(
         "--subfinder-path",
+        metavar="PATH",
         help="Path to the Subfinder executable when it is not available in PATH.",
     )
-    parser.add_argument(
+    passive_group.add_argument(
         "-a",
         "--amass",
         action="store_true",
         help="Enable passive subdomain discovery using Amass.",
     )
-    parser.add_argument(
+    integrations_group.add_argument(
         "--amass-path",
+        metavar="PATH",
         help="Path to the Amass executable when it is not available in PATH.",
     )
-    parser.add_argument(
+    passive_group.add_argument(
         "--httpx",
         action="store_true",
         help="Probe passive-discovery results with ProjectDiscovery HTTPx.",
     )
-    parser.add_argument(
+    integrations_group.add_argument(
         "--httpx-path",
+        metavar="PATH",
         help="Path to the HTTPx executable when it is not available in PATH.",
     )
-    parser.add_argument(
+    performance_group.add_argument(
         "-t",
         "--threads",
         type=int,
+        metavar="N",
         help="Override the selected stance worker count.",
     )
-    parser.add_argument(
+    performance_group.add_argument(
         "-T",
         "--timeout",
         type=float,
+        metavar="SEC",
         help="Override the selected stance timeout per TCP port in seconds.",
     )
-    parser.add_argument(
+    performance_group.add_argument(
         "--max-rate",
         type=float,
+        metavar="RATE",
         help="Limit how many new TCP connection attempts are started per second.",
     )
-    http_probing_group = parser.add_mutually_exclusive_group()
+    http_probing_group = scan_behavior_group.add_mutually_exclusive_group()
     http_probing_group.add_argument(
         "--http-probing",
         dest="http_probing",
@@ -197,35 +234,39 @@ def parse_arguments() -> argparse.Namespace:
         action="store_false",
         help="Skip HTTP/HTTPS probes after TCP discovery.",
     )
-    parser.add_argument(
+    scan_behavior_group.add_argument(
         "-mc",
         "--match-code",
+        metavar="CODES",
         help=(
             "Report only HTTP/HTTPS findings with matching status codes. "
             "Supports comma lists and ranges, such as 200,301-304."
         ),
     )
-    parser.add_argument(
+    scan_behavior_group.add_argument(
         "--stance",
+        metavar="NAME",
         help=(
             "TCP scan stance. Supports fast/din, balanced/nayru, "
             "and stealthier/farore. Default: balanced."
         ),
     )
-    parser.add_argument(
+    output_group.add_argument(
         "-o",
         "--output",
         nargs="?",
         const="hylianscan_results.txt",
+        metavar="PATH",
         help="Save TXT reports for TCP scans, passive discovery, or Nmap XML import.",
     )
-    parser.add_argument(
+    output_group.add_argument(
         "--json-output",
         nargs="?",
         const="hylianscan_tcp_results.json",
+        metavar="PATH",
         help="Save TCP, passive subdomain, or Nmap XML import results as JSON.",
     )
-    parser.add_argument(
+    output_group.add_argument(
         "--quiet",
         action="store_true",
         help="Reduce terminal output for scripting and automation.",

@@ -11,6 +11,7 @@ from modules.http_metadata import (
     parse_http_response_head,
 )
 from modules.http_security import build_http_security_observations
+from modules.host_discovery import HostDiscoveryResult
 from modules.httpx_runner import HttpxResult
 from modules.nmap_enrichment import NmapEnrichmentResult
 from modules.nmap_xml import (
@@ -191,6 +192,8 @@ def build_tcp_scan_document(
     scan_result: ScanResult,
     report_filters: Mapping[str, Any] | None = None,
     nmap_enrichment: NmapEnrichmentResult | None = None,
+    native_open_port_count: int | None = None,
+    host_discovery_results: Sequence[HostDiscoveryResult] | None = None,
 ) -> dict[str, Any]:
     """Build a future-ready JSON document for TCP scan results."""
     addresses = _scan_addresses(scan_result)
@@ -233,7 +236,34 @@ def build_tcp_scan_document(
     }
 
     if report_filters:
-        scan_document["report_filters"] = dict(report_filters)
+        filter_document = dict(report_filters)
+        http_filter = filter_document.get("http_status_codes")
+
+        if native_open_port_count is not None and isinstance(http_filter, Mapping):
+            shown_count = len(scan_result.open_ports)
+            filter_document["http_status_codes"] = {
+                **http_filter,
+                "native_open_ports": native_open_port_count,
+                "shown_open_ports": shown_count,
+                "hidden_open_ports": max(0, native_open_port_count - shown_count),
+            }
+
+        scan_document["report_filters"] = filter_document
+
+    if host_discovery_results:
+        scan_document["host_discovery"] = {
+            "method": host_discovery_results[0].method,
+            "results": [
+                {
+                    "address": result.address.address,
+                    "address_family": result.address.family_name,
+                    "reachable": result.is_up,
+                    "response_time_seconds": round(result.response_time, 6),
+                    "error": result.error,
+                }
+                for result in host_discovery_results
+            ],
+        }
 
     open_ports = list(scan_result.open_ports)
     document = {
@@ -271,6 +301,8 @@ def write_tcp_json_report(
     output_path: Path,
     report_filters: Mapping[str, Any] | None = None,
     nmap_enrichment: NmapEnrichmentResult | None = None,
+    native_open_port_count: int | None = None,
+    host_discovery_results: Sequence[HostDiscoveryResult] | None = None,
 ) -> None:
     """Write TCP scan results as pretty JSON."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -278,6 +310,8 @@ def write_tcp_json_report(
         scan_result,
         report_filters=report_filters,
         nmap_enrichment=nmap_enrichment,
+        native_open_port_count=native_open_port_count,
+        host_discovery_results=host_discovery_results,
     )
     output_path.write_text(
         json.dumps(document, indent=2, sort_keys=True) + "\n",
@@ -435,6 +469,12 @@ def build_nmap_enrichment_document(
         "target": enrichment.target,
         "ports_requested": list(enrichment.ports_requested),
     }
+
+    if enrichment.runs:
+        document["runs"] = [
+            build_nmap_enrichment_document(run) for run in enrichment.runs
+        ]
+        return document
 
     if enrichment.status == "skipped":
         document["reason"] = enrichment.reason or "unknown"

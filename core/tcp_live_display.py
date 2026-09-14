@@ -117,13 +117,26 @@ class TCPScanDisplay:
         write_dynamic_line(
             f"{HACKER_GREEN}[*]{RESET} TCP Scan: About "
             f"[{progress_bar}] {percent_done:.1f}% | "
-            f"{completed}/{total} ports | ETA {format_duration(remaining_seconds)}"
+            f"{completed}/{total} connection attempts | "
+            f"ETA {format_duration(remaining_seconds)}"
         )
 
     def handle_open_port(self, result: PortScanResult) -> None:
         """Render a permanent open-port discovery line."""
         clear_dynamic_line()
-        print_safe(f"{HACKER_GREEN}[+] OPEN: {result.port}/tcp{RESET}")
+        address_suffix = ""
+
+        if len(self.target.address_records) > 1 and result.address:
+            family_label = {"ipv4": "IPv4", "ipv6": "IPv6"}.get(
+                result.address_family,
+                result.address_family,
+            )
+            family = f" ({family_label})" if family_label else ""
+            address_suffix = f" on {result.address}{family}"
+
+        print_safe(
+            f"{HACKER_GREEN}[+] OPEN: {result.port}/tcp{address_suffix}{RESET}"
+        )
 
     def start_service_probe(self, open_port_count: int) -> None:
         """Render the service probe phase header."""

@@ -3,6 +3,7 @@
 import argparse
 import io
 import re
+import socket
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -13,6 +14,7 @@ import hylianscan
 from core.output import DEFAULT_TCP_TEXT_ARGUMENT
 from core.panel import build_quiet_final_panel
 from modules.target import TargetInfo
+from modules.target import ResolvedAddress
 from modules.tcp_scanner import PortScanResult, ScanResult
 
 
@@ -66,6 +68,67 @@ class QuietModeTests(unittest.TestCase):
         self.assertIn("No open ports found.", output)
         self.assertNotIn("TRIFORCE", output)
         self.assertNotIn("------------------------------------------------------------------------", output)
+
+    def test_quiet_tcp_summary_distinguishes_filtered_findings(self) -> None:
+        scan_result = ScanResult(
+            target_host="example.com",
+            resolved_ip="93.184.216.34",
+            scanned_ports=2,
+            open_ports=(),
+            duration=1.23,
+        )
+
+        output = build_quiet_final_panel(
+            scan_result,
+            native_open_port_count=2,
+            http_status_filter="302",
+        )
+
+        self.assertIsNone(ANSI_PATTERN.search(output))
+        self.assertIn("HTTP Status Filter: 302", output)
+        self.assertIn("Filtered Findings: 0 shown, 2 hidden", output)
+        self.assertIn(
+            "No open-port findings matched the HTTP status filter.",
+            output,
+        )
+        self.assertNotIn("No open ports found", output)
+
+    def test_quiet_multiple_ipv4_findings_identify_their_addresses(self) -> None:
+        scan_result = ScanResult(
+            target_host="example.com",
+            resolved_ip="192.0.2.10",
+            scanned_ports=1,
+            open_ports=(
+                PortScanResult(
+                    80,
+                    "HTTP",
+                    None,
+                    0.01,
+                    address="192.0.2.10",
+                    address_family="ipv4",
+                ),
+                PortScanResult(
+                    80,
+                    "HTTP",
+                    None,
+                    0.02,
+                    address="192.0.2.11",
+                    address_family="ipv4",
+                ),
+            ),
+            duration=0.02,
+            resolved_ips=("192.0.2.10", "192.0.2.11"),
+            address_family="dual-stack",
+            addresses=(
+                ResolvedAddress("192.0.2.10", socket.AF_INET),
+                ResolvedAddress("192.0.2.11", socket.AF_INET),
+            ),
+        )
+
+        output = build_quiet_final_panel(scan_result)
+
+        self.assertIn("address=192.0.2.10 (IPv4)", output)
+        self.assertIn("address=192.0.2.11 (IPv4)", output)
 
     def test_quiet_tcp_summary_does_not_include_orientation_configuration(self) -> None:
         scan_result = ScanResult(

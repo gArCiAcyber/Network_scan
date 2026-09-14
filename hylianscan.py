@@ -74,7 +74,7 @@ from modules.http_filter import (
     build_http_status_filter_metadata,
     filter_scan_result_by_http_status,
 )
-from modules.host_discovery import discover_hosts
+from modules.host_discovery import HostDiscoveryResult, discover_hosts
 from modules.httpx_runner import (
     HttpxResult,
     build_skipped_httpx_result,
@@ -85,6 +85,7 @@ from modules.httpx_runner import (
 from modules.nmap_enrichment import (
     NmapEnrichmentResult,
     build_completed_nmap_enrichment,
+    build_multi_nmap_enrichment,
     build_skipped_nmap_enrichment,
 )
 from modules.nmap_runner import run_nmap_service_version_scan
@@ -307,8 +308,8 @@ def run_host_discovery(
     target: TargetInfo,
     method: str,
     timeout: float,
-) -> TargetInfo:
-    """Run optional host discovery and retain only reachable addresses."""
+) -> tuple[TargetInfo, tuple[HostDiscoveryResult, ...]]:
+    """Run host discovery and return the scan target plus its evidence."""
     discovery_results = discover_hosts(
         target.address_records,
         method,
@@ -325,7 +326,7 @@ def run_host_discovery(
         )
         raise ValueError(f"Host discovery found no reachable addresses: {errors}")
 
-    return target.with_addresses(reachable_addresses)
+    return target.with_addresses(reachable_addresses), discovery_results
 
 
 def run_passive_subdomain_discovery(
@@ -475,38 +476,51 @@ def run_live_nmap_enrichment(
     nmap_binary: str | None = None,
 ) -> NmapEnrichmentResult:
     """Run optional Nmap service enrichment against native open TCP ports."""
-    open_ports = [finding.port for finding in scan_result.open_ports]
+    findings_by_address: dict[str, list[int]] = {}
 
-    if not open_ports:
+    for finding in scan_result.open_ports:
+        address = finding.address or target.resolved_ip
+        findings_by_address.setdefault(address, []).append(finding.port)
+
+    if not findings_by_address:
         return build_skipped_nmap_enrichment(
             "no open TCP ports found.",
             target.resolved_ip,
-            open_ports,
+            [],
         )
 
-    try:
-        keyword_arguments = {}
+    runs = []
 
-        if nmap_binary:
-            keyword_arguments["nmap_binary"] = nmap_binary
+    for address, open_ports in findings_by_address.items():
+        try:
+            keyword_arguments = {}
 
-        import_result = run_nmap_service_version_scan(
-            target.resolved_ip,
-            open_ports,
-            **keyword_arguments,
-        )
+            if nmap_binary:
+                keyword_arguments["nmap_binary"] = nmap_binary
 
-        return build_completed_nmap_enrichment(
-            import_result,
-            target.resolved_ip,
-            open_ports,
-        )
-    except (RuntimeError, ValueError) as error:
-        return build_skipped_nmap_enrichment(
-            str(error),
-            target.resolved_ip,
-            open_ports,
-        )
+            import_result = run_nmap_service_version_scan(
+                address,
+                open_ports,
+                **keyword_arguments,
+            )
+
+            runs.append(
+                build_completed_nmap_enrichment(
+                    import_result,
+                    address,
+                    open_ports,
+                )
+            )
+        except (RuntimeError, ValueError) as error:
+            runs.append(
+                build_skipped_nmap_enrichment(
+                    str(error),
+                    address,
+                    open_ports,
+                )
+            )
+
+    return build_multi_nmap_enrichment(target.target_host, runs)
 
 
 def main() -> None:
@@ -603,9 +617,10 @@ def main() -> None:
                 address_family=getattr(args, "address_family", "dual-stack"),
             )
             host_discovery = resolve_host_discovery(args)
+            host_discovery_results = None
 
             if host_discovery:
-                target = run_host_discovery(
+                target, host_discovery_results = run_host_discovery(
                     target,
                     host_discovery,
                     scan_stance.timeout,
@@ -636,26 +651,13 @@ def main() -> None:
                 quiet=quiet,
                 http_probing=http_probing,
             )
-            scan_result = filter_scan_result_by_http_status(
+            filtered_scan_result = filter_scan_result_by_http_status(
                 native_scan_result,
                 match_codes,
             )
-
-            if quiet and match_codes is not None:
-                print(f"HTTP Status Filter: {format_match_codes(match_codes)}")
-
-            if quiet:
-                final_panel = build_quiet_final_panel(
-                    scan_result,
-                    scan_scope=scan_scope,
-                )
-            else:
-                final_panel = build_final_panel(
-                    scan_result,
-                    scan_scope=scan_scope,
-                )
-
-            print(final_panel)
+            http_status_filter = (
+                format_match_codes(match_codes) if match_codes is not None else None
+            )
             nmap_enrichment = None
 
             if getattr(args, "nmap", False):
@@ -681,8 +683,32 @@ def main() -> None:
                     if nmap_display is not None:
                         nmap_display.stop()
 
+            if quiet:
+                final_panel = build_quiet_final_panel(
+                    filtered_scan_result,
+                    scan_scope=scan_scope,
+                    native_open_port_count=len(native_scan_result.open_ports),
+                    http_status_filter=http_status_filter,
+                )
+            else:
+                final_panel = build_final_panel(
+                    filtered_scan_result,
+                    scan_scope=scan_scope,
+                    native_open_port_count=len(native_scan_result.open_ports),
+                    http_status_filter=http_status_filter,
+                )
+
+            terminal_report = final_panel
+
+            if nmap_enrichment is not None:
+                terminal_report = "\n\n".join(
+                    [terminal_report, nmap_enrichment.terminal_text]
+                )
+
+            print(terminal_report)
+
             saved_report = build_saved_text_report(
-                scan_result,
+                filtered_scan_result,
                 scan_scope=scan_scope,
                 base_report=final_panel,
                 match_code_expression=match_code_expression,
@@ -697,18 +723,16 @@ def main() -> None:
 
             if json_output_path is not None:
                 write_tcp_json_report(
-                    scan_result,
+                    filtered_scan_result,
                     json_output_path,
                     report_filters=report_filters,
                     nmap_enrichment=nmap_enrichment,
+                    native_open_port_count=len(native_scan_result.open_ports),
+                    host_discovery_results=host_discovery_results,
                 )
 
             if output_path is not None and not quiet:
                 print_safe(f"[*] Report saved to: {output_path}")
-
-            if nmap_enrichment is not None:
-                print()
-                print(nmap_enrichment.terminal_text)
 
     except ValueError as error:
         if quiet:

@@ -18,6 +18,7 @@ class NmapEnrichmentResult:
     terminal_text: str
     import_result: NmapXmlImport | None = None
     reason: str | None = None
+    runs: tuple["NmapEnrichmentResult", ...] = ()
 
 
 def format_nmap_enrichment_summary(
@@ -126,4 +127,30 @@ def build_skipped_nmap_enrichment(
         ports_requested=tuple(sorted(set(ports))),
         terminal_text=format_nmap_enrichment_skipped(reason, target, ports),
         reason=reason,
+    )
+
+
+def build_multi_nmap_enrichment(
+    target: str,
+    runs: Sequence[NmapEnrichmentResult],
+) -> NmapEnrichmentResult:
+    """Combine per-address Nmap runs without changing single-run output."""
+    if len(runs) == 1:
+        return runs[0]
+
+    completed = sum(run.status == "completed" for run in runs)
+    if completed == len(runs):
+        status = "completed"
+    elif completed:
+        status = "partial"
+    else:
+        status = "skipped"
+    return NmapEnrichmentResult(
+        status=status,
+        target=target,
+        ports_requested=tuple(
+            sorted({port for run in runs for port in run.ports_requested})
+        ),
+        terminal_text="\n\n".join(run.terminal_text for run in runs),
+        runs=tuple(runs),
     )

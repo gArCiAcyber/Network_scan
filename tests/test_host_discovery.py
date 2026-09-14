@@ -5,11 +5,36 @@ import socket
 import unittest
 from unittest.mock import MagicMock, patch
 
-from modules.host_discovery import discover_host
-from modules.target import ResolvedAddress
+from hylianscan import run_host_discovery
+from modules.host_discovery import HostDiscoveryResult, discover_host
+from modules.target import ResolvedAddress, TargetInfo
 
 
 class HostDiscoveryTests(unittest.TestCase):
+    def test_orchestration_keeps_discovery_evidence_for_filtered_addresses(self) -> None:
+        addresses = (
+            ResolvedAddress("192.0.2.10", socket.AF_INET),
+            ResolvedAddress("2001:db8::10", socket.AF_INET6),
+        )
+        target = TargetInfo(
+            raw_input="example.com",
+            target_host="example.com",
+            resolved_ip=addresses[0].address,
+            is_ip_address=False,
+            addresses=addresses,
+            address_family="dual-stack",
+        )
+        discovery_results = (
+            HostDiscoveryResult(addresses[0], "tcp", True, 0.01),
+            HostDiscoveryResult(addresses[1], "tcp", False, 1.0, "timed out"),
+        )
+
+        with patch("hylianscan.discover_hosts", return_value=discovery_results):
+            scan_target, evidence = run_host_discovery(target, "tcp", 1.0)
+
+        self.assertEqual(scan_target.address_records, (addresses[0],))
+        self.assertEqual(evidence, discovery_results)
+
     def test_tcp_discovery_uses_ipv6_socket_and_sockaddr(self) -> None:
         address = ResolvedAddress("2001:db8::10", socket.AF_INET6)
         fake_socket = MagicMock()
