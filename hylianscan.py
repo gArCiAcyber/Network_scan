@@ -2,7 +2,10 @@
 """Main CLI orchestrator for hylianscan."""
 
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
+import sys
+import time
 
 from core.banner import show_banner
 from core.cli import (
@@ -41,6 +44,7 @@ from core.output import (
     resolve_output_path,
     resolve_subdomain_json_output_path,
     resolve_subdomain_output_path,
+    resolve_subdomain_candidates_path,
     save_report,
     save_subdomain_results,
     should_create_passive_output_workspace,
@@ -94,7 +98,11 @@ from modules.nmap_xml import (
     parse_single_host_nmap_xml_file,
 )
 from modules.scan_stance import ScanStance
-from modules.subdomain import ProviderRunResult, run_amass, run_dnsx, run_subfinder
+from modules.subdomain import (
+    DEFAULT_PROVIDER_TIMEOUT_SECONDS, ProviderInterrupted, ProviderRunResult,
+    inspect_provider_compatibility, resolve_provider_executable,
+    run_amass, run_dnsx, run_subfinder, scoped_subdomain,
+)
 from modules.target import TargetInfo, resolve_target
 from modules.tcp_scanner import ScanResult, scan_tcp_ports
 
@@ -348,16 +356,74 @@ def run_passive_subdomain_discovery(
     httpx_enabled: bool = False,
     httpx_binary: str | None = None,
     quiet: bool = False,
+    provider_timeouts: Mapping[str, float | None] | None = None,
 ) -> str:
     """Run selected passive discovery providers and return a clean summary."""
+    if scoped_subdomain(domain, domain) is None:
+        raise ValueError("Passive discovery requires a valid DNS domain name.")
+    executable_paths = provider_paths or {}
+    executables = {}
+    for provider in providers:
+        executables[provider] = resolve_provider_executable(
+            provider_name={"subfinder": "Subfinder", "amass": "Amass", "dnsx": "DNSx"}[provider],
+            default_command=provider,
+            path_option=f"--{provider}-path",
+            explicit_path=executable_paths.get(provider),
+        )
+    timeouts = dict.fromkeys(providers, DEFAULT_PROVIDER_TIMEOUT_SECONDS)
+    timeouts.update({name: value for name, value in (provider_timeouts or {}).items()
+                     if value is not None})
+    compatibility = {}
+    for provider in providers:
+        started = time.monotonic()
+        compatibility[provider] = inspect_provider_compatibility(
+            provider, executables[provider], timeout=min(timeouts[provider], 10.0),
+        )
+        timeouts[provider] -= time.monotonic() - started
+        if timeouts[provider] <= 0:
+            raise ValueError(f"{provider} process budget exhausted during compatibility checks.")
+        if compatibility[provider]["status"] == "untested":
+            print(f"Warning: {provider} {compatibility[provider]['version']} is untested; "
+                  "required CLI options are present, but output compatibility is unverified.", file=sys.stderr)
+    if not quiet:
+        show_passive_providers(providers)
     telemetry = None if quiet else PassiveActivityTelemetry()
     display = None if quiet else PassiveDiscoveryDisplay(domain)
-    provider_results: dict[str, ProviderRunResult] = {}
+    provider_results = {
+        provider: ProviderRunResult([], "skipped", reason="Provider has not started.")
+        for provider in providers
+    }
     subdomains: list[str] = []
     httpx_result: HttpxResult | None = None
     httpx_output_path: Path | None = None
-    executable_paths = provider_paths or {}
     discovery_providers = [provider for provider in providers if provider != "dnsx"]
+    provider = ""
+
+    def save_progress() -> list[str]:
+        for name, result in provider_results.items():
+            provider_results[name] = replace(result, compatibility=compatibility[name])
+        candidates = merge_subdomain_results({
+            name: provider_results[name] for name in discovery_providers
+        })
+        candidates = [name for name in candidates if scoped_subdomain(name, domain)]
+        if "dnsx" in providers:
+            save_subdomain_results(candidates, resolve_subdomain_candidates_path(output_path))
+            final = provider_results["dnsx"].subdomains
+        else:
+            final = candidates
+        save_subdomain_results(final, output_path)
+        if json_output_path is not None:
+            write_subdomain_json_report(
+                domain, provider_results, json_output_path, final_subdomains=final,
+                httpx_result=httpx_result,
+            )
+        diagnostics = [
+            f"{name}: {line}" for name, result in provider_results.items()
+            for line in result.diagnostics
+        ]
+        if diagnostics:
+            save_report("\n".join(diagnostics), output_path.with_name(f"{output_path.stem}_providers.log"))
+        return final
 
     if display is not None:
         display.start()
@@ -376,13 +442,17 @@ def run_passive_subdomain_discovery(
                     domain,
                     telemetry_callback=telemetry_callback,
                     executable_path=executable_paths.get("subfinder"),
+                    timeout=timeouts[provider],
                 )
             elif provider == "amass":
                 provider_results[provider] = run_amass(
                     domain,
                     telemetry_callback=telemetry_callback,
                     executable_path=executable_paths.get("amass"),
+                    timeout=timeouts[provider],
                 )
+
+            save_progress()
 
             if display is not None:
                 display.add_activity(
@@ -393,7 +463,9 @@ def run_passive_subdomain_discovery(
                 )
 
         if "dnsx" in providers:
-            candidate_subdomains = merge_subdomain_results(provider_results)
+            provider = "dnsx"
+            candidate_subdomains = [name for name in merge_subdomain_results(provider_results)
+                                    if scoped_subdomain(name, domain)]
             telemetry_callback = None
 
             if display is not None and telemetry is not None:
@@ -405,6 +477,7 @@ def run_passive_subdomain_discovery(
                 candidate_subdomains,
                 telemetry_callback=telemetry_callback,
                 executable_path=executable_paths.get("dnsx"),
+                timeout=timeouts[provider],
                 address_family=address_family,
                 resolver=dnsx_resolver,
                 threads=dnsx_threads,
@@ -427,10 +500,7 @@ def run_passive_subdomain_discovery(
             display.add_activity(telemetry.map_merge_activity())
             display.add_activity("[*] Removing duplicate subdomains...")
 
-        if "dnsx" in providers:
-            subdomains = merge_subdomain_results({"dnsx": provider_results["dnsx"]})
-        else:
-            subdomains = merge_subdomain_results(provider_results)
+        subdomains = save_progress()
 
         raw_discovery_count = sum(
             len(provider_results[provider].subdomains)
@@ -439,8 +509,6 @@ def run_passive_subdomain_discovery(
 
         if display is not None:
             display.add_activity("[*] Writing passive discovery output...")
-
-        save_subdomain_results(subdomains, output_path)
 
         if httpx_enabled:
             httpx_targets = [domain, *subdomains]
@@ -466,14 +534,17 @@ def run_passive_subdomain_discovery(
                     f"[+] HTTPx returned {len(httpx_result.findings)} live services"
                 )
 
-        if json_output_path is not None:
-            write_subdomain_json_report(
-                target_domain=domain,
-                provider_results=provider_results,
-                output_path=json_output_path,
-                final_subdomains=subdomains,
-                httpx_result=httpx_result,
+            save_progress()
+    except (KeyboardInterrupt, ValueError) as error:
+        if isinstance(error, ProviderInterrupted):
+            provider_results[provider] = error.result
+        elif provider and provider_results[provider].status == "skipped":
+            provider_results[provider] = ProviderRunResult(
+                [], "interrupted" if isinstance(error, KeyboardInterrupt) else "failed",
+                reason=str(error) or "Interrupted by user.",
             )
+        save_progress()
+        raise
     finally:
         if display is not None:
             display.stop()
@@ -632,9 +703,6 @@ def main() -> None:
                 workspace_dir=workspace_dir,
             )
 
-            if not quiet:
-                show_passive_providers(passive_providers)
-
             final_panel = run_passive_subdomain_discovery(
                 domain=args.target,
                 providers=passive_providers,
@@ -644,6 +712,11 @@ def main() -> None:
                     "subfinder": getattr(args, "subfinder_path", None),
                     "amass": getattr(args, "amass_path", None),
                     "dnsx": getattr(args, "dnsx_path", None),
+                },
+                provider_timeouts={
+                    "subfinder": getattr(args, "subfinder_timeout", None),
+                    "amass": getattr(args, "amass_timeout", None),
+                    "dnsx": getattr(args, "dnsx_process_timeout", None),
                 },
                 address_family=getattr(args, "address_family", "dual-stack"),
                 dnsx_resolver=getattr(args, "dnsx_resolver", None),

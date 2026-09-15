@@ -1,23 +1,28 @@
 """Passive subdomain discovery integration for hylianscan."""
 
 import json
+import math
 import re
 import os
+import signal
 import shutil
 import subprocess
 import sys
-import threading
-from collections.abc import Callable
-from dataclasses import dataclass
+import tempfile
+import time
+from collections import deque
+from collections.abc import Callable, Iterable
+from contextlib import ExitStack
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TextIO
 
 from modules.target import normalize_address_family
+from modules.provider_compatibility import PROVIDERS, VERSION_PATTERN, classify_version, missing_flags
 
 
 TelemetryCallback = Callable[[str], None]
 
-ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+ANSI_PATTERN = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
 DEFAULT_PROVIDER_TIMEOUT_SECONDS = 180.0
 PROVIDER_SHUTDOWN_GRACE_SECONDS = 5.0
 
@@ -31,6 +36,17 @@ class ProviderRunResult:
     exit_code: int | None = None
     reason: str | None = None
     metadata: list[dict[str, object]] | None = None
+    diagnostics: tuple[str, ...] = ()
+    elapsed_seconds: float | None = None
+    compatibility: dict[str, str] | None = None
+
+
+class ProviderInterrupted(KeyboardInterrupt):
+    """Carry already collected evidence through cancellation."""
+
+    def __init__(self, result: ProviderRunResult):
+        super().__init__("Passive provider interrupted")
+        self.result = result
 
 
 def build_provider_missing_message(provider_name: str, path_option: str) -> str:
@@ -74,7 +90,7 @@ def resolve_provider_executable(
 
 def clean_terminal_text(value: str) -> str:
     """Remove ANSI escape codes and surrounding whitespace from tool output."""
-    return ANSI_PATTERN.sub("", value).strip()
+    return re.sub(r"[\x00-\x1f\x7f]", " ", ANSI_PATTERN.sub("", value)).strip()
 
 
 def clean_subdomain(value: str) -> str | None:
@@ -90,16 +106,51 @@ def clean_subdomain(value: str) -> str | None:
     return candidate
 
 
-def stream_lines(stream: TextIO | None, line_handler: Callable[[str], None]) -> None:
-    """Read a subprocess stream line by line and send clean text to a handler."""
-    if stream is None:
-        return
+def scoped_subdomain(value: str, domain: str) -> str | None:
+    """Accept only DNS hostnames inside the requested discovery domain."""
+    candidate = clean_subdomain(value)
+    root = domain.lower().rstrip(".")
+    if candidate is None or len(candidate) > 253:
+        return None
+    if candidate.rsplit(".", 1)[-1].isdigit():
+        return None
+    if not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+               for label in candidate.split(".")):
+        return None
+    if domain and candidate != root and not candidate.endswith("." + root):
+        return None
+    return candidate
 
-    for raw_line in stream:
-        line = clean_terminal_text(raw_line)
 
-        if line:
-            line_handler(line)
+def stop_provider(process: subprocess.Popen) -> None:
+    """Stop owned processes without an unbounded wait or pipe drain."""
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    elif process.poll() is None:
+        # Windows has no killpg; taskkill handles children of the owned process.
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+    try:
+        process.wait(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
+    finally:
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 def run_passive_provider(
@@ -109,130 +160,180 @@ def run_passive_provider(
     telemetry_callback: TelemetryCallback | None = None,
     timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     input_text: str | None = None,
-    output_parser: Callable[[str], str | None] | None = None,
+    output_parser: Callable[[str], str | Iterable[str] | None] | None = None,
+    stderr_callback: Callable[[str], None] | None = None,
 ) -> ProviderRunResult:
-    """Run one passive provider and preserve results plus execution status."""
-    subdomains: list[str] = []
+    """Poll file-backed output so input and inherited pipes cannot block a deadline."""
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("Provider timeout must be a finite positive number.")
+    if domain and scoped_subdomain(domain, domain) is None:
+        raise ValueError("Passive discovery requires a valid DNS domain name.")
     seen: set[str] = set()
-    first_result_observed = False
-    status = "completed"
-    reason = None
+    diagnostics: deque[str] = deque(maxlen=20)
+    status, reason = "completed", None
+    interrupted = False
+    next_diagnostic = 0.0
 
-    if telemetry_callback is not None:
-        telemetry_callback(f"{provider_name} provider started")
+    def emit(message: str) -> None:
+        if telemetry_callback is not None and not interrupted:
+            telemetry_callback(message)
 
-    def handle_stdout(line: str) -> None:
-        nonlocal first_result_observed
-
-        parsed_line = output_parser(line) if output_parser is not None else line
-        subdomain = clean_subdomain(parsed_line or "")
-
-        if subdomain is None or subdomain in seen:
+    def handle_line(line: str, stderr: bool) -> None:
+        nonlocal next_diagnostic
+        line = clean_terminal_text(line)
+        if not line:
             return
+        if stderr:
+            if stderr_callback is not None:
+                stderr_callback(line)
+            diagnostics.append(line[:2000])
+            # Prefix untrusted output so it cannot impersonate lifecycle events.
+            now = time.monotonic()
+            if now >= next_diagnostic:
+                emit(f"{provider_name} stderr: {line[:2000]}")
+                next_diagnostic = now + 1
+            return
+        parsed = output_parser(line) if output_parser else line
+        for candidate in ([parsed] if isinstance(parsed, str) else parsed or []):
+            hostname = scoped_subdomain(candidate, domain)
+            if hostname and hostname not in seen:
+                seen.add(hostname)
+                if len(seen) == 1:
+                    emit(f"{provider_name} first result observed")
 
-        seen.add(subdomain)
-        subdomains.append(subdomain)
+    with ExitStack() as stack:
+        stdin = stack.enter_context(tempfile.TemporaryFile())
+        stdin.write((input_text or "").encode("utf-8"))
+        stdin.seek(0)
+        writers, readers = [], []
+        for _ in range(2):
+            writer = stack.enter_context(tempfile.NamedTemporaryFile())
+            # O_TEMPORARY shares delete access on Windows, including inherited handles.
+            fd = os.open(writer.name, os.O_RDONLY | getattr(os, "O_BINARY", 0)
+                         | getattr(os, "O_TEMPORARY", 0))
+            readers.append(stack.enter_context(os.fdopen(fd, "rb")))
+            writers.append(writer)
+        pending = [b"", b""]
 
-        if telemetry_callback is not None and not first_result_observed:
-            first_result_observed = True
-            telemetry_callback(f"{provider_name} first result observed")
+        def drain(final: bool = False) -> None:
+            for index, reader in enumerate(readers):
+                # Snapshot the length: a surviving descendant cannot extend this drain.
+                remaining = os.fstat(reader.fileno()).st_size - reader.tell()
+                if not final:
+                    remaining = min(remaining, 65536)
+                while remaining > 0:
+                    chunk = reader.read(min(remaining, 65536))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    lines = (pending[index] + chunk).split(b"\n")
+                    pending[index] = lines.pop()
+                    for line in lines:
+                        handle_line(line.decode("utf-8", errors="replace"), bool(index))
+                    # ponytail: cap unterminated lines at 1 MiB; use structured files for larger records.
+                    if len(pending[index]) > 1048576:
+                        pending[index] = b""
+                        diagnostics.append("Dropped provider line exceeding 1 MiB.")
+                if final and pending[index]:
+                    handle_line(pending[index].decode("utf-8", errors="replace"), bool(index))
+                    pending[index] = b""
 
-    def handle_stderr(line: str) -> None:
-        if telemetry_callback is not None:
-            telemetry_callback(line)
-
-    try:
-        popen_arguments = {
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-            "text": True,
-            "bufsize": 1,
-        }
-
-        if input_text is not None:
-            popen_arguments["stdin"] = subprocess.PIPE
-
-        process = subprocess.Popen(command, **popen_arguments)
-    except FileNotFoundError as error:
-        raise ValueError(
-            build_provider_missing_message(provider_name, f"--{provider_name.lower()}-path")
-        ) from error
-    except OSError as error:
-        raise ValueError(f"Unable to start {provider_name}: {error}") from error
-
-    stdout_thread = threading.Thread(
-        target=stream_lines,
-        args=(process.stdout, handle_stdout),
-        daemon=True,
-    )
-    stderr_thread = threading.Thread(
-        target=stream_lines,
-        args=(process.stderr, handle_stderr),
-        daemon=True,
-    )
-
-    stdout_thread.start()
-    stderr_thread.start()
-
-    if input_text is not None and process.stdin is not None:
+        started = time.monotonic()
         try:
-            process.stdin.write(input_text)
-            process.stdin.close()
-        except BrokenPipeError:
-            pass
-
-    try:
-        return_code = process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        status = "timed_out"
-        reason = f"Timed out after {timeout:g} seconds."
-        warning = f"[-] {provider_name} timed out; returning partial results."
-        if telemetry_callback is not None:
-            telemetry_callback(warning)
-        else:
-            print(warning, file=sys.stderr)
-
-        process.terminate()
-
+            process = subprocess.Popen(
+                command, stdin=stdin, stdout=writers[0], stderr=writers[1],
+                start_new_session=os.name == "posix",
+            )
+        except OSError as error:
+            raise ValueError(f"Unable to start {provider_name}: {error}") from error
         try:
-            process.wait(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
+            emit(f"{provider_name} provider started")
+            next_progress = started
+            while True:
+                drain()
+                now = time.monotonic()
+                return_code = process.poll()
+                if return_code is not None:
+                    break
+                if now - started >= timeout:
+                    status = "timed_out"
+                    reason = f"Timed out after {timeout:g} seconds."
+                    break
+                if now >= next_progress:
+                    emit(f"{provider_name} progress: {now - started:.0f}s / {timeout:g}s; {len(seen)} candidates")
+                    next_progress = now + 5
+                time.sleep(min(0.05, max(0, timeout - (now - started))))
+        except KeyboardInterrupt:
+            status, reason = "interrupted", "Interrupted by user."
+            interrupted = True
+        finally:
+            # Also remove owned POSIX descendants after a wrapper exits normally.
+            try:
+                if process.poll() is None or os.name == "posix":
+                    stop_provider(process)
+                drain(final=True)
+            except KeyboardInterrupt:
+                status, reason = "interrupted", "Interrupted by user."
+                interrupted = True
+                stop_provider(process)
+                drain(final=True)
 
-        return_code = None
-    except KeyboardInterrupt:
-        process.terminate()
-        raise
-    finally:
-        stdout_thread.join(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
-        stderr_thread.join(timeout=PROVIDER_SHUTDOWN_GRACE_SECONDS)
-
-        for stream in (process.stdin, process.stdout, process.stderr):
-            if stream is not None and not stream.closed:
-                stream.close()
-
-    if return_code is not None and return_code != 0:
-        status = "failed"
-        reason = f"Exited with status code {return_code}."
-        warning = (
-            f"[-] Warning: {provider_name} exited with status code {return_code}; "
-            "returning partial results."
+        if status == "completed" and return_code != 0:
+            status, reason = "failed", f"Exited with status code {return_code}."
+        result = ProviderRunResult(
+            sorted(seen), status,
+            return_code if status in {"completed", "failed"} else None,
+            reason, diagnostics=tuple(diagnostics),
+            elapsed_seconds=round(time.monotonic() - started, 3),
         )
-        if telemetry_callback is not None:
-            telemetry_callback(warning)
-        else:
+    if status != "completed":
+        warning = f"[-] {provider_name}: {reason[0].lower() + reason[1:]} Returning partial results."
+        if telemetry_callback is None:
             print(warning, file=sys.stderr)
+        emit(f"{provider_name} provider {status}: {reason}")
+    else:
+        emit(f"{provider_name} provider completed: exit 0; {len(seen)} candidates")
+    if interrupted:
+        raise ProviderInterrupted(result)
+    return result
 
-    if return_code is not None and telemetry_callback is not None:
-        telemetry_callback(f"{provider_name} provider completed")
 
-    return ProviderRunResult(
-        subdomains=sorted(subdomains),
-        status=status,
-        exit_code=return_code,
-        reason=reason,
-    )
+def inspect_provider_compatibility(
+    provider: str, executable: str, timeout: float = 10.0,
+) -> dict[str, str]:
+    """Check version and required CLI options locally within one shared deadline."""
+    spec = PROVIDERS[provider]
+    started = time.monotonic()
+
+    def capture(arguments: list[str]) -> str:
+        remaining = timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            raise ValueError(f"{spec['name']} compatibility check timed out.")
+        lines: deque[str] = deque(maxlen=1024)
+        result = run_passive_provider(
+            "", f"{spec['name']} compatibility", [executable, *arguments],
+            timeout=remaining, output_parser=lambda line: lines.append(line[:2000]),
+            stderr_callback=lambda line: lines.append(line[:2000]),
+        )
+        if result.status != "completed":
+            raise ValueError(f"Unable to verify {spec['name']} compatibility: {result.reason or result.status}")
+        return "\n".join(lines)
+
+    output = capture(spec["version_args"])
+    versions = {match.group(1) for match in VERSION_PATTERN.finditer(output)}
+    if len(versions) != 1:
+        raise ValueError(f"Unable to verify {spec['name']} version from its version command.")
+    version = versions.pop()
+    status = classify_version(provider, version)
+    if status == "unsupported":
+        raise ValueError(
+            f"{spec['name']} {version} is unsupported. {spec.get('unsupported_reason', '')} "
+            f"Use tested version {spec['baseline']} with --{provider}-path."
+        )
+    missing = missing_flags(provider, capture(spec["help_args"]))
+    if missing:
+        raise ValueError(f"{spec['name']} {version} is missing required options: {', '.join(missing)}.")
+    return {"version": version, "status": status, "executable": executable}
 
 
 def run_subfinder(
@@ -271,13 +372,38 @@ def run_amass(
         path_option="--amass-path",
         explicit_path=executable_path,
     )
+    started = time.monotonic()
+    version_lines: list[str] = []
+    version_result = run_passive_provider(
+        "", "Amass version", [executable, "-version"],
+        timeout=min(timeout, 10), output_parser=lambda line: version_lines.append(line),
+    )
+    version = VERSION_PATTERN.search("\n".join([*version_lines, *version_result.diagnostics]))
+    if version_result.status != "completed" or version is None:
+        return ProviderRunResult([], "failed", reason="Unable to verify Amass version.",
+                                 diagnostics=version_result.diagnostics)
+    if classify_version("amass", version.group(1)) == "unsupported":
+        return ProviderRunResult(
+            [], "failed", reason=(
+                f"Amass {version.group(0)} is unsupported. Use Amass 3.x or 4.x "
+                "with --amass-path; Amass 5 requires a separate engine/session integration."
+            ),
+        )
+    remaining = timeout - (time.monotonic() - started)
+    if remaining <= 0:
+        return ProviderRunResult([], "timed_out", reason=f"Timed out after {timeout:g} seconds.")
+
+    def parse_amass_line(line: str) -> list[str]:
+        # Both ends may contain in-scope names (e.g. CNAME relationships).
+        return re.findall(r"([^\s]+)\s+\(FQDN\)", line) or [line]
 
     return run_passive_provider(
         domain=domain,
         provider_name="Amass",
         command=[executable, "enum", "-passive", "-d", domain],
         telemetry_callback=telemetry_callback,
-        timeout=timeout,
+        timeout=remaining,
+        output_parser=parse_amass_line,
     )
 
 
@@ -297,27 +423,20 @@ def run_dnsx(
 ) -> ProviderRunResult:
     """Return hostnames with DNSx-confirmed A and/or AAAA records."""
     metadata: list[dict[str, object]] | None = [] if json_output else None
-    if not subdomains:
-        if executable_path is not None:
-            resolve_provider_executable(
-                provider_name="DNSx",
-                default_command="dnsx",
-                path_option="--dnsx-path",
-                explicit_path=executable_path,
-            )
-        return ProviderRunResult(
-            subdomains=[],
-            status="skipped",
-            reason="No candidate subdomains to resolve.",
-            metadata=metadata,
-        )
-
+    candidates = {clean_subdomain(name) for name in subdomains}
     executable = resolve_provider_executable(
         provider_name="DNSx",
         default_command="dnsx",
         path_option="--dnsx-path",
         explicit_path=executable_path,
     )
+    if not subdomains:
+        return ProviderRunResult(
+            subdomains=[],
+            status="skipped",
+            reason="No candidate subdomains to resolve.",
+            metadata=metadata,
+        )
 
     family = normalize_address_family(address_family)
     command = [executable, "-silent", "-no-color"]
@@ -350,24 +469,24 @@ def run_dnsx(
         if not isinstance(record, dict):
             return None
 
+        host = record.get("host")
+        if not isinstance(host, str) or clean_subdomain(host) not in candidates:
+            return None
         if metadata is not None:
             metadata.append(record)
-        host = record.get("host")
-        return host if isinstance(host, str) else None
+        return host
 
-    result = run_passive_provider(
-        domain="",
-        provider_name="DNSx",
-        command=command,
-        telemetry_callback=telemetry_callback,
-        timeout=timeout,
-        input_text="\n".join(subdomains) + "\n",
-        output_parser=parse_json_line if json_output else None,
-    )
-    return ProviderRunResult(
-        subdomains=result.subdomains,
-        status=result.status,
-        exit_code=result.exit_code,
-        reason=result.reason,
-        metadata=metadata,
-    )
+    try:
+        result = run_passive_provider(
+            domain="",
+            provider_name="DNSx",
+            command=command,
+            telemetry_callback=telemetry_callback,
+            timeout=timeout,
+            input_text="\n".join(subdomains) + "\n",
+            output_parser=(parse_json_line if json_output else
+                           lambda line: line if clean_subdomain(line) in candidates else None),
+        )
+    except ProviderInterrupted as error:
+        raise ProviderInterrupted(replace(error.result, metadata=metadata)) from error
+    return replace(result, metadata=metadata)

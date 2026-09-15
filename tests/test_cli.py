@@ -95,6 +95,25 @@ def build_args(
 class CLIHelperTests(unittest.TestCase):
     """Validate pure command-line helper behavior."""
 
+    def test_provider_deadlines_parse_and_require_matching_provider(self) -> None:
+        options = (("--subfinder-timeout", "--subfinder", "subfinder_timeout"),
+                   ("--amass-timeout", "--amass", "amass_timeout"),
+                   ("--dnsx-process-timeout", "--dnsx", "dnsx_process_timeout"))
+        for option, provider, attribute in options:
+            with self.subTest(option=option):
+                with patch("sys.argv", ["hylianscan", "example.com", "--subfinder", provider, option, "12.5"]):
+                    args = parse_arguments()
+                self.assertEqual(getattr(args, attribute), 12.5)
+                validate_mode(args)
+                for invalid in (0, -1, float("nan"), float("inf")):
+                    setattr(args, attribute, invalid)
+                    with self.assertRaisesRegex(ValueError, "finite positive"):
+                        validate_mode(args)
+                setattr(args, attribute, 12.5)
+                setattr(args, provider[2:], False)
+                with self.assertRaisesRegex(ValueError, "only together"):
+                    validate_mode(args)
+
     def test_validate_port_accepts_valid_ports(self) -> None:
         self.assertEqual(validate_port(1), 1)
         self.assertEqual(validate_port(80), 80)

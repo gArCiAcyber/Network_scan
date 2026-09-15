@@ -272,6 +272,9 @@ python3 hylianscan.py example.com --subfinder --amass -o --json-output
 # Subfinder + Amass, filtered to subdomains with A or AAAA records
 python3 hylianscan.py example.com --subfinder --amass --dnsx -o --json-output
 
+# Separate process budgets (seconds); DNS query timeout remains independent
+python3 hylianscan.py example.com -s -a --dnsx --subfinder-timeout 180 --amass-timeout 180 --dnsx-process-timeout 180 --dnsx-timeout 3 --json-output
+
 # IPv6-only DNSx resolution with operational controls
 python3 hylianscan.py example.com --subfinder --dnsx --ipv6 --dnsx-resolver resolvers.txt --dnsx-threads 50 --dnsx-rate-limit 100 --dnsx-timeout 3 --dnsx-retry 2 --dnsx-auto-wildcard
 
@@ -288,6 +291,18 @@ python3 hylianscan.py example.test --subfinder --httpx --httpx-path /usr/local/b
 DNSx uses both A and AAAA records by default. Use `--ipv4` for A records only or `--ipv6` for AAAA records only. DNSx confirms address records; it does not prove that an application service is reachable.
 
 In JSON reports, `results.candidates` contains the deduplicated Subfinder/Amass discovery evidence, while `results.resolution` records DNSx's status and the final address-record-confirmed subdomains. The existing `results.subdomains` and `results.sources` fields remain available for compatibility.
+
+All selected Subfinder, Amass, and DNSx executables (including explicit path overrides) are checked before discovery starts. A missing or invalid executable stops the CLI with exit status 1 before any provider runs. DNSx is checked even when discovery would produce no candidates; unselected tools are not required.
+
+Local version/help checks reject unsupported versions and missing CLI options before enumeration. Untested stable versions within supported majors produce a warning; JSON provider entries record the observed version and compatibility status. The packaged registry and daily release-monitoring workflow are described in [External provider compatibility](docs/provider_compatibility.md), including tested baselines, test coverage, and the update review process.
+
+Providers run sequentially with a default process budget of 180 seconds each, followed by bounded cleanup. `--subfinder-timeout`, `--amass-timeout`, and `--dnsx-process-timeout` accept finite positive seconds. Each budget includes its startup compatibility checks (up to 10 seconds); Amass also retains its bounded execution-time version check. `--dnsx-timeout` controls an individual DNS query; `--timeout` is for TCP scanning. A timed-out enumeration returns partial results and the CLI exits with status 1 after saving reports.
+
+Amass 3.x hostname output and 4.x graph output are supported; graph parsing is tested against the 4.2.0 format. Amass 5.x is rejected before enumeration because its separate engine/session workflow needs a different integration. Use `--amass-path` to select a compatible executable. Discovery candidates must be valid DNS hostnames within the requested domain before reaching DNSx.
+
+After each discovery provider, Hylianscan saves a checkpoint. With DNSx enabled, `subdomains_candidates.txt` beside `subdomains.txt` preserves the discovery names; `subdomains.txt` contains only names confirmed by DNSx, and may be empty before resolution. For other TXT filenames, the candidate file uses `<stem>_candidates.txt`. Ctrl+C saves available evidence, marks the active provider `interrupted` in optional JSON, and exits with status 130.
+
+Progress shows provider elapsed time, budget, candidate count, and completion status. Upstream diagnostics are distinct from process timeouts. The last 20 stderr lines per provider (up to 2,000 characters each, terminal escapes removed) are saved in `<stem>_providers.log` and optional JSON; JSON also includes measured `elapsed_seconds` when available. Provider output is temporarily spooled to disk, so input and inherited output pipes cannot hold the runner open. POSIX cleanup stops the owned process group; Windows uses bounded process-tree termination while the parent is running. Detached services are not managed by this workflow.
 
 ---
 

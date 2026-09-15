@@ -1,0 +1,135 @@
+name: Provider compatibility
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-compatibility
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.releases.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: releases
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/provider_updates.py monitor --output docs/provider_updates.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: provider-updates
+          path: docs/provider_updates.json
+
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tests -p "test_*.py" -v
+
+  smoke:
+    needs: detect
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        release: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install isolated official release and check its contract
+        shell: python {0}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROVIDER: ${{ matrix.release.provider }}
+          VERSION: ${{ matrix.release.version }}
+        run: |
+          import os, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0, os.getcwd())
+          from scripts.provider_updates import install_release
+          provider, version = os.environ['PROVIDER'], os.environ['VERSION']
+          executable = install_release(provider, version, Path(os.environ['RUNNER_TEMP']) / 'provider-bin')
+          subprocess.run([sys.executable, 'scripts/check_provider.py', provider, version,
+                          '--executable', str(executable), '--output', f'evidence/{provider}-{version}.json'], check=True)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ matrix.os }}-${{ matrix.release.provider }}-${{ matrix.release.version }}
+          path: evidence/*.json
+          if-no-files-found: warn
+
+  review:
+    needs: [detect, regression, smoke]
+    if: always() && needs.detect.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: provider-updates
+          path: docs
+      - uses: actions/download-artifact@v4
+        id: evidence
+        continue-on-error: true
+        with:
+          pattern: evidence-*
+          path: provider-evidence
+      - name: Summarize validation without promoting any version
+        env:
+          REGRESSION_RESULT: ${{ needs.regression.result }}
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+          EVIDENCE_RESULT: ${{ steps.evidence.outcome }}
+          RELEASE_MATRIX: ${{ needs.detect.outputs.matrix }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          checks = [json.loads(path.read_text()) for path in sorted(Path('provider-evidence').rglob('*.json'))]
+          expected = 2 * len(json.loads(os.environ['RELEASE_MATRIX']))
+          complete = os.environ['EVIDENCE_RESULT'] == 'success' and len(checks) == expected
+          result = {'regression': os.environ['REGRESSION_RESULT'], 'smoke': os.environ['SMOKE_RESULT'], 'evidence_complete': complete, 'checks': checks}
+          Path('docs/provider_update_checks.json').write_text(json.dumps(result, indent=2) + '\n')
+          PY
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/provider-compatibility
+          commit-message: "docs: refresh external provider compatibility evidence"
+          title: "Review external provider releases and compatibility evidence"
+          body: |
+            Official stable releases were compared with the packaged compatibility registry.
+            See `docs/provider_updates.json` and `docs/provider_update_checks.json` for versions, unsupported releases, and actual check outcomes.
+
+            This PR does not promote versions or change installed executables. Review upstream changes and test coverage before updating `modules/provider_compatibility.json`. Unsupported major versions require integration work.
+
+            Validation run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          add-paths: |
+            docs/provider_updates.json
+            docs/provider_update_checks.json

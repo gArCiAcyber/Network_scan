@@ -1,0 +1,57 @@
+{
+  "target": "example.test",
+  "command": ["-d", "example.test", "-silent", "-timeout", "1", "-max-time", "1"],
+  "versions": {
+    "2.13.0": {
+      "version_stderr": "[INF] Current Version: v2.13.0\n[INF] Subfinder Config Directory: C:\\Users\\Erick\\AppData\\Roaming\\subfinder\n",
+      "required_flags": ["-d", "-silent", "-version", "-timeout", "-max-time"],
+      "normal_stdout": [
+        "test1.example.test",
+        "test11.example.test",
+        "test2017082301.example.test",
+        "www.test2017090103.example.test",
+        "www.test2017122101.example.test",
+        "www.test2017122102.example.test",
+        "test.example.test",
+        "test2.example.test",
+        "test6.example.test"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "elapsed_seconds": 2.266
+    },
+    "2.16.0": {
+      "version_stderr": "[INF] Current Version: v2.16.0\n[INF] Subfinder Config Directory: C:\\Users\\Erick\\AppData\\Roaming\\subfinder\n",
+      "required_flags": ["-d", "-silent", "-version", "-timeout", "-max-time"],
+      "normal_stdout": [],
+      "exit_code": null,
+      "timed_out": true,
+      "elapsed_seconds": 8.032,
+      "timeout_note": "The all-source command exceeded the 8-second harness bound; a source-specific crtsh run completed empty in 2.25 seconds."
+    }
+  },
+  "unknown_flag": {
+    "args": ["--hylianscan-unknown"],
+    "stdout": "flag provided but not defined: -hylianscan-unknown\n",
+    "stderr": "",
+    "exit_code": 2
+  },
+  "empty_output": {
+    "args": ["-d", "example.test", "-silent", "-sources", "crtsh", "-timeout", "1", "-max-time", "1"],
+    "stdout": "",
+    "stderr": "",
+    "exit_code": 0,
+    "observed_versions": ["2.13.0", "2.16.0"]
+  },
+  "provenance": {
+    "source": "Official projectdiscovery/subfinder Windows amd64 release archives",
+    "release_urls": {
+      "2.13.0": "https://github.com/projectdiscovery/subfinder/releases/tag/v2.13.0",
+      "2.16.0": "https://github.com/projectdiscovery/subfinder/releases/tag/v2.16.0"
+    },
+    "binary_paths": {
+      "2.13.0": "E:/hylianscan-compatibility/subfinder/2.13.0/subfinder.exe",
+      "2.16.0": "E:/hylianscan-compatibility/subfinder/2.16.0/subfinder.exe"
+    }
+  }
+}
