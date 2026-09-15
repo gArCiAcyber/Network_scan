@@ -2,7 +2,10 @@
 """Main CLI orchestrator for hylianscan."""
 
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
+import sys
+import time
 
 from core.banner import show_banner
 from core.cli import (
@@ -97,7 +100,8 @@ from modules.nmap_xml import (
 from modules.scan_stance import ScanStance
 from modules.subdomain import (
     DEFAULT_PROVIDER_TIMEOUT_SECONDS, ProviderInterrupted, ProviderRunResult,
-    resolve_provider_executable, run_amass, run_dnsx, run_subfinder, scoped_subdomain,
+    inspect_provider_compatibility, resolve_provider_executable,
+    run_amass, run_dnsx, run_subfinder, scoped_subdomain,
 )
 from modules.target import TargetInfo, resolve_target
 from modules.tcp_scanner import ScanResult, scan_tcp_ports
@@ -358,13 +362,29 @@ def run_passive_subdomain_discovery(
     if scoped_subdomain(domain, domain) is None:
         raise ValueError("Passive discovery requires a valid DNS domain name.")
     executable_paths = provider_paths or {}
+    executables = {}
     for provider in providers:
-        resolve_provider_executable(
+        executables[provider] = resolve_provider_executable(
             provider_name={"subfinder": "Subfinder", "amass": "Amass", "dnsx": "DNSx"}[provider],
             default_command=provider,
             path_option=f"--{provider}-path",
             explicit_path=executable_paths.get(provider),
         )
+    timeouts = dict.fromkeys(providers, DEFAULT_PROVIDER_TIMEOUT_SECONDS)
+    timeouts.update({name: value for name, value in (provider_timeouts or {}).items()
+                     if value is not None})
+    compatibility = {}
+    for provider in providers:
+        started = time.monotonic()
+        compatibility[provider] = inspect_provider_compatibility(
+            provider, executables[provider], timeout=min(timeouts[provider], 10.0),
+        )
+        timeouts[provider] -= time.monotonic() - started
+        if timeouts[provider] <= 0:
+            raise ValueError(f"{provider} process budget exhausted during compatibility checks.")
+        if compatibility[provider]["status"] == "untested":
+            print(f"Warning: {provider} {compatibility[provider]['version']} is untested; "
+                  "required CLI options are present, but output compatibility is unverified.", file=sys.stderr)
     if not quiet:
         show_passive_providers(providers)
     telemetry = None if quiet else PassiveActivityTelemetry()
@@ -377,12 +397,11 @@ def run_passive_subdomain_discovery(
     httpx_result: HttpxResult | None = None
     httpx_output_path: Path | None = None
     discovery_providers = [provider for provider in providers if provider != "dnsx"]
-    timeouts = dict.fromkeys(providers, DEFAULT_PROVIDER_TIMEOUT_SECONDS)
-    timeouts.update({name: value for name, value in (provider_timeouts or {}).items()
-                     if value is not None})
     provider = ""
 
     def save_progress() -> list[str]:
+        for name, result in provider_results.items():
+            provider_results[name] = replace(result, compatibility=compatibility[name])
         candidates = merge_subdomain_results({
             name: provider_results[name] for name in discovery_providers
         })

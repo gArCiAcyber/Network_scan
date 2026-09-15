@@ -174,7 +174,7 @@ def parse_arguments() -> argparse.Namespace:
         "-s",
         "--subfinder",
         action="store_true",
-        help="Enable passive subdomain discovery using Subfinder.",
+        help="Enable Subfinder discovery after local version and CLI compatibility checks.",
     )
     integrations_group.add_argument(
         "--subfinder-path",
@@ -185,7 +185,7 @@ def parse_arguments() -> argparse.Namespace:
         "-a",
         "--amass",
         action="store_true",
-        help="Enable passive subdomain discovery using Amass.",
+        help="Enable Amass discovery after local version and CLI compatibility checks.",
     )
     integrations_group.add_argument(
         "--amass-path",
@@ -205,7 +205,7 @@ def parse_arguments() -> argparse.Namespace:
     passive_group.add_argument(
         "--dnsx",
         action="store_true",
-        help="Resolve discovered passive subdomains using DNSx.",
+        help="Resolve passive subdomains using DNSx after local compatibility checks.",
     )
     integrations_group.add_argument(
         "--dnsx-path",

@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from modules.target import normalize_address_family
+from modules.provider_compatibility import PROVIDERS, VERSION_PATTERN, classify_version, missing_flags
 
 
 TelemetryCallback = Callable[[str], None]
@@ -37,6 +38,7 @@ class ProviderRunResult:
     metadata: list[dict[str, object]] | None = None
     diagnostics: tuple[str, ...] = ()
     elapsed_seconds: float | None = None
+    compatibility: dict[str, str] | None = None
 
 
 class ProviderInterrupted(KeyboardInterrupt):
@@ -159,6 +161,7 @@ def run_passive_provider(
     timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     input_text: str | None = None,
     output_parser: Callable[[str], str | Iterable[str] | None] | None = None,
+    stderr_callback: Callable[[str], None] | None = None,
 ) -> ProviderRunResult:
     """Poll file-backed output so input and inherited pipes cannot block a deadline."""
     if not math.isfinite(timeout) or timeout <= 0:
@@ -181,6 +184,8 @@ def run_passive_provider(
         if not line:
             return
         if stderr:
+            if stderr_callback is not None:
+                stderr_callback(line)
             diagnostics.append(line[:2000])
             # Prefix untrusted output so it cannot impersonate lifecycle events.
             now = time.monotonic()
@@ -293,6 +298,44 @@ def run_passive_provider(
     return result
 
 
+def inspect_provider_compatibility(
+    provider: str, executable: str, timeout: float = 10.0,
+) -> dict[str, str]:
+    """Check version and required CLI options locally within one shared deadline."""
+    spec = PROVIDERS[provider]
+    started = time.monotonic()
+
+    def capture(arguments: list[str]) -> str:
+        remaining = timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            raise ValueError(f"{spec['name']} compatibility check timed out.")
+        lines: deque[str] = deque(maxlen=1024)
+        result = run_passive_provider(
+            "", f"{spec['name']} compatibility", [executable, *arguments],
+            timeout=remaining, output_parser=lambda line: lines.append(line[:2000]),
+            stderr_callback=lambda line: lines.append(line[:2000]),
+        )
+        if result.status != "completed":
+            raise ValueError(f"Unable to verify {spec['name']} compatibility: {result.reason or result.status}")
+        return "\n".join(lines)
+
+    output = capture(spec["version_args"])
+    versions = {match.group(1) for match in VERSION_PATTERN.finditer(output)}
+    if len(versions) != 1:
+        raise ValueError(f"Unable to verify {spec['name']} version from its version command.")
+    version = versions.pop()
+    status = classify_version(provider, version)
+    if status == "unsupported":
+        raise ValueError(
+            f"{spec['name']} {version} is unsupported. {spec.get('unsupported_reason', '')} "
+            f"Use tested version {spec['baseline']} with --{provider}-path."
+        )
+    missing = missing_flags(provider, capture(spec["help_args"]))
+    if missing:
+        raise ValueError(f"{spec['name']} {version} is missing required options: {', '.join(missing)}.")
+    return {"version": version, "status": status, "executable": executable}
+
+
 def run_subfinder(
     domain: str,
     telemetry_callback: TelemetryCallback | None = None,
@@ -335,12 +378,11 @@ def run_amass(
         "", "Amass version", [executable, "-version"],
         timeout=min(timeout, 10), output_parser=lambda line: version_lines.append(line),
     )
-    version = re.search(r"\bv?(\d+)\.\d+\.\d+\b",
-                        "\n".join([*version_lines, *version_result.diagnostics]))
+    version = VERSION_PATTERN.search("\n".join([*version_lines, *version_result.diagnostics]))
     if version_result.status != "completed" or version is None:
         return ProviderRunResult([], "failed", reason="Unable to verify Amass version.",
                                  diagnostics=version_result.diagnostics)
-    if version.group(1) not in {"3", "4"}:
+    if classify_version("amass", version.group(1)) == "unsupported":
         return ProviderRunResult(
             [], "failed", reason=(
                 f"Amass {version.group(0)} is unsupported. Use Amass 3.x or 4.x "

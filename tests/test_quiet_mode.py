@@ -270,7 +270,8 @@ class QuietModeTests(unittest.TestCase):
             self.assertNotIn("Report saved to", rendered)
             self.assertTrue((workspace_dir / "tcp_report.txt").exists())
 
-    def test_passive_discovery_quiet_disables_telemetry_callback(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_passive_discovery_quiet_disables_telemetry_callback(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_path = Path(temporary_dir) / "subdomains.txt"
 
@@ -292,7 +293,8 @@ class QuietModeTests(unittest.TestCase):
             self.assertEqual(output_path.read_text(encoding="utf-8"), "www.example.com\n")
             self.assertIsNone(subfinder.call_args.kwargs["telemetry_callback"])
 
-    def test_passive_discovery_quiet_summary_is_plain_text(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_passive_discovery_quiet_summary_is_plain_text(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_path = Path(temporary_dir) / "subdomains.txt"
 
@@ -317,7 +319,8 @@ class QuietModeTests(unittest.TestCase):
             self.assertIn("Unique Subdomains: 1", summary)
             self.assertIn(f"Output Path: {output_path.name}", summary)
 
-    def test_dnsx_filters_passive_output_but_keeps_source_candidates_for_json(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_dnsx_filters_passive_output_but_keeps_source_candidates_for_json(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_path = Path(temporary_dir) / "subdomains.txt"
             json_output_path = Path(temporary_dir) / "subdomains.json"

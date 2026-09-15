@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import hylianscan
+from modules.provider_compatibility import PROVIDERS
 from modules.subdomain import (
     ProviderRunResult,
     ProviderInterrupted,
@@ -311,7 +312,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         self.assertTrue(run.call_args.kwargs["dnsx_auto_wildcard"])
         self.assertTrue(run.call_args.kwargs["dnsx_json"])
 
-    def test_passive_discovery_forwards_provider_paths(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_passive_discovery_forwards_provider_paths(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_path = Path(temporary_dir) / "subdomains.txt"
 
@@ -394,7 +396,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                             self.assertEqual(path.read_text(encoding="utf-8"), "existing evidence")
                         self.assertEqual(set(Path(directory).iterdir()), {output, report})
 
-    def test_preflight_requires_only_selected_tools(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_preflight_requires_only_selected_tools(self, compatibility) -> None:
         with (
             tempfile.TemporaryDirectory() as directory,
             patch("modules.subdomain.shutil.which", side_effect=lambda name:
@@ -407,7 +410,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         lookup.assert_called_once_with("subfinder")
         run.assert_called_once()
 
-    def test_cli_writes_partial_reports_before_provider_failure_exit(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_cli_writes_partial_reports_before_provider_failure_exit(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_path = Path(temporary_dir) / "subdomains.txt"
             json_output_path = Path(temporary_dir) / "subdomains.json"
@@ -625,7 +629,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             run_dnsx(["api.example.com"], json_output=True)
         self.assertEqual(context.exception.result.metadata, [{"host": "api.example.com"}])
 
-    def test_cli_interrupt_saves_provider_evidence_and_exits_130(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_cli_interrupt_saves_provider_evidence_and_exits_130(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as directory:
             args = argparse.Namespace(target="example.com", output=None, json_output=None,
                                       quiet=True, subfinder=True, amass=False, dnsx=False)
@@ -661,7 +666,9 @@ class PassiveProviderExecutableTests(unittest.TestCase):
 
                 def launch(command, **kwargs):
                     if "-version" in command:
-                        script = "import sys; print('v4.2.0', file=sys.stderr)"
+                        script = f"import sys; print({PROVIDERS[command[0]]['baseline']!r}, file=sys.stderr)"
+                    elif "-h" in command:
+                        script = f"print({' '.join(PROVIDERS[command[0]]['required_flags'])!r})"
                     elif command[0] == "amass":
                         script = "print('api.example.com (FQDN) --> cname_record --> alias.example.com (FQDN)'); print('other.test (FQDN) --> a_record --> 192.0.2.1 (IPAddress)')"
                     elif command[0] == "dnsx":
@@ -687,7 +694,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                 document = json.loads(report.read_text())
                 self.assertTrue(all(p['status']=='completed' for p in document['providers']))
 
-    def test_interrupt_checkpoints_candidates_and_dnsx_partial_metadata(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_interrupt_checkpoints_candidates_and_dnsx_partial_metadata(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "subdomains.txt"
             report = Path(directory) / "subdomains.json"
