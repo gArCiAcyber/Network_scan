@@ -201,3 +201,8 @@ def save_subdomain_results(subdomains: list[str], output_path: Path) -> None:
     """Persist passive subdomain results without flooding the terminal."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(subdomains) + "\n", encoding="utf-8")
+
+
+def resolve_subdomain_candidates_path(output_path: Path) -> Path:
+    """Keep discovery evidence beside the final DNS-confirmed report."""
+    return output_path.with_name(f"{output_path.stem}_candidates.txt")

@@ -17,6 +17,23 @@ FORBIDDEN_CHARACTER_NAMES = ("Zelda", "Navi", "Impa", "Din", "Link", "Skull Kid"
 class PassiveDiscoveryOutputTests(unittest.TestCase):
     """Validate passive discovery output remains provider-focused."""
 
+    def test_upstream_timeout_does_not_consume_process_timeout_event(self) -> None:
+        telemetry = PassiveActivityTelemetry()
+        raw = telemetry.map_provider_output("amass", "Amass stderr: upstream timeout; retrying")
+        actual = telemetry.map_provider_output("amass", "Amass provider timed_out: Timed out after 180 seconds.")
+        self.assertIn("diagnostic", raw)
+        self.assertNotIn("preserving partial results", raw)
+        self.assertIn("provider timed out", actual)
+        spoof = telemetry.map_provider_output("amass", "Amass stderr: Amass provider completed: exit 0")
+        self.assertIn("diagnostic", spoof)
+
+    def test_progress_and_completion_are_visible(self) -> None:
+        telemetry = PassiveActivityTelemetry()
+        self.assertIn("15s / 180s; 42 candidates", telemetry.map_provider_output(
+            "amass", "Amass progress: 15s / 180s; 42 candidates"))
+        self.assertIn("exit 0", telemetry.map_provider_output(
+            "amass", "Amass provider completed: exit 0; 42 candidates"))
+
     def test_show_passive_providers_marks_enabled_tools(self) -> None:
         output = io.StringIO()
 

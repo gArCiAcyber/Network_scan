@@ -36,6 +36,16 @@ class PassiveActivityTelemetry:
 
     def map_provider_output(self, provider: str, output: str) -> str | None:
         """Return one deduplicated activity message for observed provider output."""
+        label = provider_label(provider.lower())
+        # The runner tags stderr before it reaches this mapper. Never interpret
+        # upstream messages as our own process completion or timeout events.
+        if output.lower().startswith(f"{provider.lower()} stderr: "):
+            return f"{label} diagnostic: {output.split(': ', 1)[1]}"
+        if output.lower().startswith(f"{provider.lower()} progress: "):
+            return output
+        for status in ("timed_out", "failed", "interrupted", "completed"):
+            if output.lower().startswith(f"{provider.lower()} provider {status}:"):
+                return output.replace("timed_out", "timed out")
         normalized_output = output.strip().lower()
 
         if not normalized_output:
@@ -103,7 +113,7 @@ def build_activity_message(provider: str, output: str) -> str | None:
         )
 
     if contains_any(output, TIMEOUT_KEYWORDS):
-        return build_lifecycle_activity_message(normalized_provider, "provider timeout")
+        return f"{provider_label(normalized_provider)} reported an upstream timeout..."
 
     if contains_any(output, DISCOVERY_KEYWORDS):
         return f"Reading {provider_label(normalized_provider)} passive DNS results..."
@@ -163,7 +173,7 @@ def build_lifecycle_activity_message(provider: str, event: str) -> str | None:
         return f"{label} returned the first candidate..."
 
     if event == "provider completed":
-        return None
+        return f"{label} provider completed."
 
     if event == "merge/deduplication started":
         return "Normalizing provider results..."

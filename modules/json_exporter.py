@@ -356,6 +356,10 @@ def build_subdomain_provider_documents(
         }
         if provider_result.metadata is not None:
             provider_document["metadata"] = provider_result.metadata
+        if provider_result.elapsed_seconds is not None:
+            provider_document["elapsed_seconds"] = provider_result.elapsed_seconds
+        if provider_result.diagnostics:
+            provider_document["diagnostics"] = list(provider_result.diagnostics)
         provider_documents.append(provider_document)
 
     return provider_documents

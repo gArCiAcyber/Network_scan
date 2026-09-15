@@ -3,8 +3,11 @@
 import argparse
 import io
 import json
+import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -13,6 +16,7 @@ from unittest.mock import patch
 import hylianscan
 from modules.subdomain import (
     ProviderRunResult,
+    ProviderInterrupted,
     resolve_provider_executable,
     run_amass,
     run_dnsx,
@@ -120,7 +124,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             ) as resolver,
             patch(
                 "modules.subdomain.run_passive_provider",
-                return_value=ProviderRunResult([], "completed", 0),
+                side_effect=[ProviderRunResult([], "completed", 0, diagnostics=("v4.2.0",)),
+                             ProviderRunResult([], "completed", 0)],
             ) as provider,
         ):
             run_amass("example.com", executable_path="/opt/tools/amass")
@@ -442,6 +447,193 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         self.assertEqual(results.subdomains, ["api.example.com"])
         self.assertEqual(results.status, "completed")
         self.assertEqual(results.exit_code, 0)
+
+    def test_large_unread_stdin_obeys_deadline(self) -> None:
+        started = time.monotonic()
+        with redirect_stderr(io.StringIO()):
+            result = run_passive_provider(
+                "example.com", "Fake",
+                [sys.executable, "-u", "-c",
+                 "import time; print('api.example.com'); time.sleep(5)"],
+                timeout=0.3, input_text="api.example.com\n" * 100000,
+            )
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual(result.status, "timed_out")
+        self.assertEqual(result.subdomains, ["api.example.com"])
+
+    @unittest.skipUnless(os.name == "posix", "POSIX process-group signals")
+    def test_sigterm_output_is_preserved_before_forced_shutdown(self) -> None:
+        script = (
+            "import signal,time; "
+            "signal.signal(signal.SIGTERM, lambda *_: print('last.example.com', flush=True)); "
+            "print('api.example.com', flush=True); time.sleep(5)"
+        )
+        with (patch("modules.subdomain.PROVIDER_SHUTDOWN_GRACE_SECONDS", 0.1),
+              redirect_stderr(io.StringIO())):
+            started = time.monotonic()
+            result = run_passive_provider("example.com", "Fake",
+                                          [sys.executable, "-u", "-c", script], timeout=0.5)
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual(result.status, "timed_out")
+        self.assertEqual(result.subdomains, ["api.example.com", "last.example.com"])
+
+    def test_descendant_output_handles_do_not_delay_parent_completion(self) -> None:
+        # Descendant has a finite lifetime even when run against the old broken code.
+        command = [sys.executable, "-u", "-c",
+                   "import subprocess,sys; "
+                   "subprocess.Popen([sys.executable,'-c','import time; time.sleep(4)'], "
+                   "stdout=sys.stdout,stderr=sys.stderr); print('api.example.com')"]
+        started = time.monotonic()
+        result = run_passive_provider("example.com", "Fake", command, timeout=0.5)
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual(result.subdomains, ["api.example.com"])
+        self.assertEqual(result.status, "completed")
+
+    def test_interrupt_reaps_child_and_carries_partial_evidence(self) -> None:
+        def interrupt_after_result(message: str) -> None:
+            if "first result observed" in message:
+                raise KeyboardInterrupt
+
+        launched = []
+        popen = subprocess.Popen
+
+        def launch(*args, **kwargs):
+            process = popen(*args, **kwargs)
+            launched.append(process)
+            return process
+
+        with patch("modules.subdomain.subprocess.Popen", side_effect=launch):
+            with self.assertRaises(ProviderInterrupted) as context:
+                run_passive_provider(
+                    "example.com", "Fake", [sys.executable, "-u", "-c",
+                    "import time; print('api.example.com'); time.sleep(5)"],
+                    telemetry_callback=interrupt_after_result,
+                )
+        self.assertEqual(context.exception.result.status, "interrupted")
+        self.assertEqual(context.exception.result.subdomains, ["api.example.com"])
+        self.assertTrue(all(process.poll() is not None for process in launched))
+
+    def test_output_fragments_stderr_volume_and_scope(self) -> None:
+        script = (
+            "import sys,time; sys.stdout.write('api.exa'); sys.stdout.flush(); "
+            "time.sleep(.1); sys.stdout.write('mple.com\\n'); "
+            "sys.stderr.write('upstream timeout\\n'*10000); "
+            "print('example.com.evil.test'); print('badexample.com'); "
+            "print('192.0.2.1'); print('https://api.example.com'); "
+            "print('api.example.com', end='')"
+        )
+        result = run_passive_provider("example.com", "Fake", [sys.executable, "-u", "-c", script])
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.subdomains, ["api.example.com"])
+        self.assertEqual(len(result.diagnostics), 20)
+        self.assertIn("upstream timeout", result.diagnostics)
+
+    def test_amass_v3_hostname_output(self) -> None:
+        popen = subprocess.Popen
+
+        def launch(command, **kwargs):
+            script = "print('v3.23.3')" if "-version" in command else "print('api.example.com')"
+            return popen([sys.executable, "-u", "-c", script], **kwargs)
+
+        with (patch("modules.subdomain.shutil.which", return_value="amass"),
+              patch("modules.subdomain.subprocess.Popen", side_effect=launch)):
+            result = run_amass("example.com")
+        self.assertEqual(result.subdomains, ["api.example.com"])
+        self.assertEqual(result.status, "completed")
+
+    def test_dnsx_rejects_unrequested_output_and_preserves_interrupt_metadata(self) -> None:
+        def interrupt(**kwargs):
+            parser = kwargs["output_parser"]
+            self.assertIsNone(parser('{"host":"other.test"}'))
+            self.assertEqual(parser('{"host":"api.example.com"}'), "api.example.com")
+            raise ProviderInterrupted(ProviderRunResult(["api.example.com"], "interrupted"))
+
+        with (patch("modules.subdomain.shutil.which", return_value="dnsx"),
+              patch("modules.subdomain.run_passive_provider", side_effect=interrupt),
+              self.assertRaises(ProviderInterrupted) as context):
+            run_dnsx(["api.example.com"], json_output=True)
+        self.assertEqual(context.exception.result.metadata, [{"host": "api.example.com"}])
+
+    def test_cli_interrupt_saves_provider_evidence_and_exits_130(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            args = argparse.Namespace(target="example.com", output=None, json_output=None,
+                                      quiet=True, subfinder=True, amass=False, dnsx=False)
+            output = Path(directory) / "subdomains.txt"
+            partial = ProviderRunResult(["api.example.com"], "interrupted", diagnostics=("source timeout",))
+            with (patch("hylianscan.parse_arguments", return_value=args),
+                  patch("hylianscan.resolve_subdomain_output_path", return_value=output),
+                  patch("hylianscan.run_subfinder", side_effect=ProviderInterrupted(partial)),
+                  redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as context):
+                hylianscan.main()
+            self.assertEqual(context.exception.code, 130)
+            self.assertEqual(output.read_text().splitlines(), ["api.example.com"])
+            self.assertIn("source timeout", (Path(directory)/"subdomains_providers.log").read_text())
+
+    def test_amass_v5_rejected_before_enumeration(self) -> None:
+        with (patch("modules.subdomain.resolve_provider_executable", return_value="amass"),
+              patch("modules.subdomain.run_passive_provider", return_value=ProviderRunResult(
+                  [], "completed", 0, diagnostics=("v5.1.1",))) as provider):
+            result = run_amass("example.com")
+        self.assertEqual(result.status, "failed")
+        self.assertIn("Amass 5", result.reason)
+        self.assertEqual(provider.call_count, 1)
+        self.assertEqual(provider.call_args.args[2], ["amass", "-version"])
+
+    def test_discovery_combinations_use_real_runner_and_merge_amass_graph(self) -> None:
+        popen = subprocess.Popen
+        for providers in (["subfinder"], ["amass"], ["subfinder", "amass"],
+                          ["subfinder", "amass", "dnsx"]):
+            with self.subTest(providers=providers), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "subdomains.txt"
+                report = Path(directory) / "subdomains.json"
+
+                def launch(command, **kwargs):
+                    if "-version" in command:
+                        script = "import sys; print('v4.2.0', file=sys.stderr)"
+                    elif command[0] == "amass":
+                        script = "print('api.example.com (FQDN) --> cname_record --> alias.example.com (FQDN)'); print('other.test (FQDN) --> a_record --> 192.0.2.1 (IPAddress)')"
+                    elif command[0] == "dnsx":
+                        # Candidates are persisted before resolution; final TXT is not candidates.
+                        self.assertEqual((Path(directory)/'subdomains_candidates.txt').read_text().splitlines(),
+                                         ['alias.example.com', 'api.example.com', 'www.example.com'])
+                        script = "import sys; print(sys.stdin.read(), end='')"
+                    else:
+                        script = "print('www.example.com'); print('api.example.com')"
+                    return popen([sys.executable, "-u", "-c", script], **kwargs)
+
+                with (patch("modules.subdomain.shutil.which", side_effect=lambda name: name),
+                      patch("modules.subdomain.subprocess.Popen", side_effect=launch)):
+                    hylianscan.run_passive_subdomain_discovery(
+                        "example.com", providers, output, report, quiet=True,
+                    )
+                expected = set()
+                if "subfinder" in providers:
+                    expected.update(['api.example.com', 'www.example.com'])
+                if "amass" in providers:
+                    expected.update(['api.example.com', 'alias.example.com'])
+                self.assertEqual(output.read_text().splitlines(), sorted(expected))
+                document = json.loads(report.read_text())
+                self.assertTrue(all(p['status']=='completed' for p in document['providers']))
+
+    def test_interrupt_checkpoints_candidates_and_dnsx_partial_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "subdomains.txt"
+            report = Path(directory) / "subdomains.json"
+            partial = ProviderRunResult(["api.example.com"], "interrupted", reason="Interrupted by user.",
+                                        metadata=[{"host": "api.example.com"}])
+            with (patch("hylianscan.run_subfinder", return_value=ProviderRunResult(
+                    ["api.example.com", "www.example.com"], "completed", 0)),
+                  patch("hylianscan.run_dnsx", side_effect=ProviderInterrupted(partial)),
+                  self.assertRaises(KeyboardInterrupt)):
+                hylianscan.run_passive_subdomain_discovery(
+                    "example.com", ["subfinder", "dnsx"], output, report, quiet=True,
+                )
+            self.assertEqual(output.read_text().splitlines(), ["api.example.com"])
+            self.assertEqual((Path(directory)/"subdomains_candidates.txt").read_text().splitlines(),
+                             ["api.example.com", "www.example.com"])
+            resolution = json.loads(report.read_text())["results"]["resolution"]
+            self.assertEqual(resolution["status"], "interrupted")
+            self.assertEqual(resolution["metadata"], partial.metadata)
 
 
 if __name__ == "__main__":

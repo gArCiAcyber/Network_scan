@@ -1,6 +1,7 @@
 """Command-line parsing and argument normalization."""
 
 import argparse
+import math
 
 from core.version import APP_NAME, APP_VERSION
 from modules.ports import TOP_400_TCP_PORTS
@@ -234,6 +235,13 @@ def parse_arguments() -> argparse.Namespace:
         metavar="SEC",
         help="DNSx timeout per DNS query in seconds.",
     )
+    for option, provider in (("--subfinder-timeout", "Subfinder"),
+                             ("--amass-timeout", "Amass"),
+                             ("--dnsx-process-timeout", "DNSx")):
+        performance_group.add_argument(
+            option, type=float, metavar="SEC",
+            help=f"Total {provider} process budget in seconds (default: 180), plus bounded cleanup.",
+        )
     performance_group.add_argument(
         "--dnsx-retry",
         type=int,
@@ -643,6 +651,16 @@ def get_passive_providers(args: argparse.Namespace) -> list[str]:
 def validate_mode(args: argparse.Namespace) -> None:
     """Prevent ambiguous mode combinations."""
     passive_providers = get_passive_providers(args)
+    for name, attribute in (("subfinder", "subfinder_timeout"),
+                            ("amass", "amass_timeout"),
+                            ("dnsx", "dnsx_process_timeout")):
+        value = getattr(args, attribute, None)
+        option = "--" + attribute.replace("_", "-")
+        if value is not None:
+            if name not in passive_providers:
+                raise ValueError(f"Use {option} only together with --{name}.")
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{option} must be a finite positive number.")
     ports = getattr(args, "ports", None)
     top_ports = getattr(args, "top_ports", None)
     port_profile = getattr(args, "port_profile", None)
@@ -723,7 +741,7 @@ def validate_mode(args: argparse.Namespace) -> None:
         ("--dnsx-timeout", dnsx_timeout),
         ("--dnsx-retry", dnsx_retry),
     ):
-        if value is not None and value <= 0:
+        if value is not None and (not math.isfinite(value) or value <= 0):
             raise ValueError(f"{option} must be greater than zero.")
 
     if nmap_path and not nmap:
