@@ -111,6 +111,7 @@ class HttpxRunnerTests(unittest.TestCase):
             json_output_path = Path(temporary_dir) / "subdomains.json"
 
             with (
+                patch("hylianscan.resolve_provider_executable"),
                 patch(
                     "hylianscan.run_subfinder",
                     return_value=ProviderRunResult(
@@ -148,6 +149,7 @@ class HttpxRunnerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary_dir:
             with (
+                patch("hylianscan.resolve_provider_executable"),
                 patch(
                     "hylianscan.run_subfinder",
                     return_value=ProviderRunResult(

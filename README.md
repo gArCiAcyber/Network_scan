@@ -292,6 +292,8 @@ DNSx uses both A and AAAA records by default. Use `--ipv4` for A records only or
 
 In JSON reports, `results.candidates` contains the deduplicated Subfinder/Amass discovery evidence, while `results.resolution` records DNSx's status and the final address-record-confirmed subdomains. The existing `results.subdomains` and `results.sources` fields remain available for compatibility.
 
+All selected Subfinder, Amass, and DNSx executables (including explicit path overrides) are checked before discovery starts. A missing or invalid executable stops the CLI with exit status 1 before any provider runs. DNSx is checked even when discovery would produce no candidates; unselected tools are not required.
+
 Providers run sequentially with a default process budget of 180 seconds each, followed by bounded cleanup. `--subfinder-timeout`, `--amass-timeout`, and `--dnsx-process-timeout` accept finite positive seconds. The Amass budget includes its version check (up to 10 seconds). `--dnsx-timeout` controls an individual DNS query; `--timeout` is for TCP scanning. A timed-out provider returns partial results and the CLI exits with status 1 after saving reports.
 
 Amass 3.x hostname output and 4.x graph output are supported; graph parsing is tested against the 4.2.0 format. Amass 5.x is rejected before enumeration because its separate engine/session workflow needs a different integration. Use `--amass-path` to select a compatible executable. Discovery candidates must be valid DNS hostnames within the requested domain before reaching DNSx.

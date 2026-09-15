@@ -49,6 +49,7 @@ These are current contracts. Change them deliberately only when the task calls f
 - Keep socket timeouts and bounded response reads. Preserve target host usage for HTTP Host and TLS SNI while connecting to the resolved IP.
 - TLS probe contexts intentionally disable trust enforcement to collect evidence from invalid certificates. Keep this confined to recon collection; a successful handshake does not establish certificate trust.
 - Reuse passive executable resolution and provider execution helpers where applicable. Build subprocess commands as argument lists with shell execution disabled; validate targets and options rather than relying on quoting alone.
+- Validate every selected Subfinder/Amass/DNSx executable before announcing providers or starting discovery; preserve execution-time checks too. DNSx must validate availability even with no candidates. Unselected tools remain optional.
 - External tools remain optional, separately installed executables. Check the relevant tool's actual help/version and official documentation before changing its flags or parser assumptions.
 - Handle missing executables, nonzero exits, timeouts, and interruption explicitly. Drain captured stdout/stderr without deadlocks and ensure child processes and reader threads finish during cleanup.
 - Passive providers currently execute sequentially. Evaluate combined resource use, telemetry, and cancellation before introducing parallel execution.

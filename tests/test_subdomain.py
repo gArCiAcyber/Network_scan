@@ -230,12 +230,23 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         ):
             run_dnsx([], executable_path="missing-dnsx")
 
-    def test_run_dnsx_skips_without_resolving_default_path_without_candidates(self) -> None:
-        with patch("modules.subdomain.resolve_provider_executable") as resolver:
+    def test_run_dnsx_validates_installation_then_skips_without_candidates(self) -> None:
+        with (
+            patch("modules.subdomain.shutil.which", return_value="dnsx") as resolver,
+            patch("modules.subdomain.run_passive_provider") as provider,
+        ):
             result = run_dnsx([])
 
         self.assertEqual(result, ProviderRunResult([], "skipped", reason="No candidate subdomains to resolve."))
-        resolver.assert_not_called()
+        resolver.assert_called_once_with("dnsx")
+        provider.assert_not_called()
+
+    def test_run_dnsx_rejects_missing_installation_without_candidates(self) -> None:
+        with (
+            patch("modules.subdomain.shutil.which", return_value=None),
+            self.assertRaisesRegex(ValueError, "DNSx executable was not found.*--dnsx-path"),
+        ):
+            run_dnsx([])
 
     def test_run_dnsx_parses_opt_in_jsonl_metadata(self) -> None:
         def run_provider(**kwargs: object) -> ProviderRunResult:
@@ -305,6 +316,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             output_path = Path(temporary_dir) / "subdomains.txt"
 
             with (
+                patch("modules.subdomain.shutil.which", return_value=None) as lookup,
                 patch(
                     "hylianscan.run_subfinder",
                     return_value=ProviderRunResult(
@@ -323,8 +335,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                     providers=["subfinder", "amass"],
                     output_path=output_path,
                     provider_paths={
-                        "subfinder": "/opt/tools/subfinder",
-                        "amass": "/opt/tools/amass",
+                        "subfinder": sys.executable,
+                        "amass": sys.executable,
                     },
                     quiet=True,
                 )
@@ -333,9 +345,67 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         self.assertIn("Unique Subdomains: 2", summary)
         self.assertEqual(
             subfinder.call_args.kwargs["executable_path"],
-            "/opt/tools/subfinder",
+            sys.executable,
         )
-        self.assertEqual(amass.call_args.kwargs["executable_path"], "/opt/tools/amass")
+        self.assertEqual(amass.call_args.kwargs["executable_path"], sys.executable)
+        lookup.assert_not_called()
+
+    def test_cli_rejects_unavailable_tools_before_any_provider_starts(self) -> None:
+        for unavailable in ("subfinder", "amass", "dnsx"):
+            for path_kind in ("PATH", "missing", "directory"):
+                for quiet in (False, True):
+                    with self.subTest(tool=unavailable, path=path_kind, quiet=quiet), \
+                            tempfile.TemporaryDirectory() as directory:
+                        output = Path(directory) / "subdomains.txt"
+                        report = Path(directory) / "subdomains.json"
+                        for path in (output, report):
+                            path.write_text("existing evidence", encoding="utf-8")
+                        argv = ["hylianscan", "example.test", "-s", "-a", "--dnsx",
+                                "--output", directory, "--json-output", "subdomains.json"]
+                        if quiet:
+                            argv.append("--quiet")
+                        if path_kind != "PATH":
+                            argv.extend([f"--{unavailable}-path", str(
+                                Path(directory) / "missing" if path_kind == "missing"
+                                else Path(directory))])
+                        terminal = io.StringIO()
+                        with (
+                            patch("sys.argv", argv),
+                            patch("modules.subdomain.shutil.which", side_effect=lambda name:
+                                  None if name == unavailable else name),
+                            patch("hylianscan.resolve_subdomain_json_output_path", return_value=report),
+                            patch("hylianscan.clear_screen"),
+                            patch("hylianscan.show_banner"),
+                            patch("hylianscan.show_passive_providers") as announcement,
+                            patch("hylianscan.PassiveDiscoveryDisplay") as display,
+                            patch("hylianscan.run_subfinder") as subfinder,
+                            patch("hylianscan.run_amass") as amass,
+                            patch("hylianscan.run_dnsx") as dnsx,
+                            redirect_stdout(terminal),
+                            self.assertRaises(SystemExit) as context,
+                        ):
+                            hylianscan.main()
+                        self.assertEqual(context.exception.code, 1)
+                        self.assertIn(f"--{unavailable}-path", terminal.getvalue())
+                        self.assertIn("executable", terminal.getvalue())
+                        for operation in (subfinder, amass, dnsx, display, announcement):
+                            operation.assert_not_called()
+                        for path in (output, report):
+                            self.assertEqual(path.read_text(encoding="utf-8"), "existing evidence")
+                        self.assertEqual(set(Path(directory).iterdir()), {output, report})
+
+    def test_preflight_requires_only_selected_tools(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("modules.subdomain.shutil.which", side_effect=lambda name:
+                  name if name == "subfinder" else None) as lookup,
+            patch("hylianscan.run_subfinder", return_value=ProviderRunResult([], "completed", 0)) as run,
+        ):
+            hylianscan.run_passive_subdomain_discovery(
+                "example.test", ["subfinder"], Path(directory) / "subdomains.txt", quiet=True,
+            )
+        lookup.assert_called_once_with("subfinder")
+        run.assert_called_once()
 
     def test_cli_writes_partial_reports_before_provider_failure_exit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -360,6 +430,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
 
             with (
                 patch("hylianscan.parse_arguments", return_value=args),
+                patch("hylianscan.resolve_provider_executable"),
                 patch(
                     "hylianscan.resolve_subdomain_output_path",
                     return_value=output_path,
@@ -561,6 +632,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             output = Path(directory) / "subdomains.txt"
             partial = ProviderRunResult(["api.example.com"], "interrupted", diagnostics=("source timeout",))
             with (patch("hylianscan.parse_arguments", return_value=args),
+                  patch("hylianscan.resolve_provider_executable"),
                   patch("hylianscan.resolve_subdomain_output_path", return_value=output),
                   patch("hylianscan.run_subfinder", side_effect=ProviderInterrupted(partial)),
                   redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as context):
@@ -623,6 +695,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                                         metadata=[{"host": "api.example.com"}])
             with (patch("hylianscan.run_subfinder", return_value=ProviderRunResult(
                     ["api.example.com", "www.example.com"], "completed", 0)),
+                  patch("hylianscan.resolve_provider_executable"),
                   patch("hylianscan.run_dnsx", side_effect=ProviderInterrupted(partial)),
                   self.assertRaises(KeyboardInterrupt)):
                 hylianscan.run_passive_subdomain_discovery(

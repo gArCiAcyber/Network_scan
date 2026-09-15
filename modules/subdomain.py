@@ -382,27 +382,19 @@ def run_dnsx(
     """Return hostnames with DNSx-confirmed A and/or AAAA records."""
     metadata: list[dict[str, object]] | None = [] if json_output else None
     candidates = {clean_subdomain(name) for name in subdomains}
-    if not subdomains:
-        if executable_path is not None:
-            resolve_provider_executable(
-                provider_name="DNSx",
-                default_command="dnsx",
-                path_option="--dnsx-path",
-                explicit_path=executable_path,
-            )
-        return ProviderRunResult(
-            subdomains=[],
-            status="skipped",
-            reason="No candidate subdomains to resolve.",
-            metadata=metadata,
-        )
-
     executable = resolve_provider_executable(
         provider_name="DNSx",
         default_command="dnsx",
         path_option="--dnsx-path",
         explicit_path=executable_path,
     )
+    if not subdomains:
+        return ProviderRunResult(
+            subdomains=[],
+            status="skipped",
+            reason="No candidate subdomains to resolve.",
+            metadata=metadata,
+        )
 
     family = normalize_address_family(address_family)
     command = [executable, "-silent", "-no-color"]

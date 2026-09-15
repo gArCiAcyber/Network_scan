@@ -97,7 +97,7 @@ from modules.nmap_xml import (
 from modules.scan_stance import ScanStance
 from modules.subdomain import (
     DEFAULT_PROVIDER_TIMEOUT_SECONDS, ProviderInterrupted, ProviderRunResult,
-    run_amass, run_dnsx, run_subfinder, scoped_subdomain,
+    resolve_provider_executable, run_amass, run_dnsx, run_subfinder, scoped_subdomain,
 )
 from modules.target import TargetInfo, resolve_target
 from modules.tcp_scanner import ScanResult, scan_tcp_ports
@@ -357,6 +357,16 @@ def run_passive_subdomain_discovery(
     """Run selected passive discovery providers and return a clean summary."""
     if scoped_subdomain(domain, domain) is None:
         raise ValueError("Passive discovery requires a valid DNS domain name.")
+    executable_paths = provider_paths or {}
+    for provider in providers:
+        resolve_provider_executable(
+            provider_name={"subfinder": "Subfinder", "amass": "Amass", "dnsx": "DNSx"}[provider],
+            default_command=provider,
+            path_option=f"--{provider}-path",
+            explicit_path=executable_paths.get(provider),
+        )
+    if not quiet:
+        show_passive_providers(providers)
     telemetry = None if quiet else PassiveActivityTelemetry()
     display = None if quiet else PassiveDiscoveryDisplay(domain)
     provider_results = {
@@ -366,7 +376,6 @@ def run_passive_subdomain_discovery(
     subdomains: list[str] = []
     httpx_result: HttpxResult | None = None
     httpx_output_path: Path | None = None
-    executable_paths = provider_paths or {}
     discovery_providers = [provider for provider in providers if provider != "dnsx"]
     timeouts = dict.fromkeys(providers, DEFAULT_PROVIDER_TIMEOUT_SECONDS)
     timeouts.update({name: value for name, value in (provider_timeouts or {}).items()
@@ -674,9 +683,6 @@ def main() -> None:
                 args.json_output,
                 workspace_dir=workspace_dir,
             )
-
-            if not quiet:
-                show_passive_providers(passive_providers)
 
             final_panel = run_passive_subdomain_discovery(
                 domain=args.target,

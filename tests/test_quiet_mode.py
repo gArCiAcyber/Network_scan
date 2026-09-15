@@ -279,7 +279,7 @@ class QuietModeTests(unittest.TestCase):
                 return_value=ProviderRunResult(
                     ["www.example.com"], "completed", 0
                 ),
-            ) as subfinder:
+            ) as subfinder, patch("hylianscan.resolve_provider_executable"):
                 summary = hylianscan.run_passive_subdomain_discovery(
                     domain="example.com",
                     providers=["subfinder"],
@@ -301,7 +301,7 @@ class QuietModeTests(unittest.TestCase):
                 return_value=ProviderRunResult(
                     ["www.example.com"], "completed", 0
                 ),
-            ):
+            ), patch("hylianscan.resolve_provider_executable"):
                 summary = hylianscan.run_passive_subdomain_discovery(
                     domain="example.com",
                     providers=["subfinder"],
@@ -323,6 +323,7 @@ class QuietModeTests(unittest.TestCase):
             json_output_path = Path(temporary_dir) / "subdomains.json"
 
             with (
+                patch("hylianscan.resolve_provider_executable"),
                 patch(
                     "hylianscan.run_subfinder",
                     return_value=ProviderRunResult(
