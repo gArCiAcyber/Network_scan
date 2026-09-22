@@ -50,16 +50,18 @@ the result.
 
 ## Decision
 
-2.13.0 remains `untested` and was not added to `tested_versions`. The version and
-flag contract matches, and its captured output parses correctly, but a repeatable
-populated end-to-end comparison across both releases was not established. The
-baseline itself also timed out in the all-source environment, so the evidence is
-insufficient to certify output compatibility or performance.
+Subfinder 2.13.0 is now listed in `tested_versions`. Its official Windows amd64
+binary reported the expected version, exposed the required flags, produced
+in-scope output that Hylianscan parsed and deduplicated, and handled empty output
+and invalid flags as expected. The committed replay test verifies parsing and
+TXT/JSON reporting without network access.
 
-The current registry therefore remains deliberately unchanged:
+This certifies the captured Windows integration contract; it does not guarantee
+provider source availability or performance, and Linux real-binary coverage is
+still pending. The registry entry is:
 
 ```json
-"tested_versions": ["2.16.0"]
+"tested_versions": ["2.13.0", "2.16.0"]
 ```
 
 ## Platform coverage

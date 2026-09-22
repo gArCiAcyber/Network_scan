@@ -3,7 +3,7 @@
     "name": "Subfinder",
     "repository": "projectdiscovery/subfinder",
     "baseline": "2.16.0",
-    "tested_versions": ["2.16.0"],
+    "tested_versions": ["2.13.0", "2.16.0"],
     "supported_majors": [2],
     "version_args": ["-version"],
     "help_args": ["-h"],

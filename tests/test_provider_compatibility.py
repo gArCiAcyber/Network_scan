@@ -22,6 +22,7 @@ from scripts.provider_updates import collect_updates, install_release, stable_ve
 
 class CompatibilityTests(unittest.TestCase):
     def test_policy_keeps_new_versions_unverified_and_rejects_unknown_majors(self):
+        self.assertEqual(classify_version("subfinder", "2.13.0"), "tested")
         for tool, spec in PROVIDERS.items():
             with self.subTest(tool=tool):
                 self.assertEqual(classify_version(tool, spec["baseline"]), "tested")
