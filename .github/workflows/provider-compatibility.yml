@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "23 7 * * *"
   workflow_dispatch:
+    inputs:
+      provider:
+        description: "Optional historical provider: subfinder, amass, or dnsx"
+        required: false
+        type: string
+      version:
+        description: "Optional stable historical version, paired with provider"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,9 +33,19 @@ jobs:
         with:
           python-version: "3.12"
       - id: releases
+        shell: python {0}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python scripts/provider_updates.py monitor --output docs/provider_updates.json
+          HISTORICAL_PROVIDER: ${{ inputs.provider }}
+          HISTORICAL_VERSION: ${{ inputs.version }}
+        run: |
+          import os, subprocess, sys
+          command = [sys.executable, 'scripts/provider_updates.py', 'monitor',
+                     '--output', 'docs/provider_updates.json']
+          provider, version = os.environ.get('HISTORICAL_PROVIDER'), os.environ.get('HISTORICAL_VERSION')
+          if provider or version:
+              command.extend(['--provider', provider or '', '--version', version or ''])
+          subprocess.run(command, check=True)
       - uses: actions/upload-artifact@v4
         with:
           name: provider-updates
@@ -67,14 +86,28 @@ jobs:
           PROVIDER: ${{ matrix.release.provider }}
           VERSION: ${{ matrix.release.version }}
         run: |
-          import os, subprocess, sys
+          import json, os, platform, subprocess, sys
           from pathlib import Path
           sys.path.insert(0, os.getcwd())
           from scripts.provider_updates import install_release
           provider, version = os.environ['PROVIDER'], os.environ['VERSION']
-          executable = install_release(provider, version, Path(os.environ['RUNNER_TEMP']) / 'provider-bin')
-          subprocess.run([sys.executable, 'scripts/check_provider.py', provider, version,
-                          '--executable', str(executable), '--output', f'evidence/{provider}-{version}.json'], check=True)
+          evidence = Path(f'evidence/{provider}-{version}.json')
+          try:
+              executable = install_release(provider, version, Path(os.environ['RUNNER_TEMP']) / 'provider-bin')
+          except Exception as error:
+              evidence.parent.mkdir(parents=True, exist_ok=True)
+              evidence.write_text(json.dumps({
+                  'provider': provider, 'expected_version': version,
+                  'platform': platform.system(), 'architecture': platform.machine(),
+                  'status': 'failed', 'classification': 'limited',
+                  'phase': 'installation', 'error': str(error),
+              }, indent=2) + '\n')
+              raise
+          completed = subprocess.run([
+              sys.executable, 'scripts/check_provider.py', provider, version,
+              '--executable', str(executable), '--output', str(evidence),
+          ], check=False)
+          raise SystemExit(completed.returncode)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -102,22 +135,16 @@ jobs:
         with:
           pattern: evidence-*
           path: provider-evidence
-      - name: Summarize validation without promoting any version
+      - name: Classify evidence and propose registry promotions
         env:
           REGRESSION_RESULT: ${{ needs.regression.result }}
-          SMOKE_RESULT: ${{ needs.smoke.result }}
-          EVIDENCE_RESULT: ${{ steps.evidence.outcome }}
-          RELEASE_MATRIX: ${{ needs.detect.outputs.matrix }}
         run: |
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          checks = [json.loads(path.read_text()) for path in sorted(Path('provider-evidence').rglob('*.json'))]
-          expected = 2 * len(json.loads(os.environ['RELEASE_MATRIX']))
-          complete = os.environ['EVIDENCE_RESULT'] == 'success' and len(checks) == expected
-          result = {'regression': os.environ['REGRESSION_RESULT'], 'smoke': os.environ['SMOKE_RESULT'], 'evidence_complete': complete, 'checks': checks}
-          Path('docs/provider_update_checks.json').write_text(json.dumps(result, indent=2) + '\n')
-          PY
+          python scripts/summarize_provider_checks.py \
+            --manifest docs/provider_updates.json \
+            --evidence provider-evidence \
+            --regression "$REGRESSION_RESULT" \
+            --registry modules/provider_compatibility.json \
+            --output docs/provider_update_checks.json
       - uses: peter-evans/create-pull-request@v7
         with:
           branch: automation/provider-compatibility
@@ -127,9 +154,10 @@ jobs:
             Official stable releases were compared with the packaged compatibility registry.
             See `docs/provider_updates.json` and `docs/provider_update_checks.json` for versions, unsupported releases, and actual check outcomes.
 
-            This PR does not promote versions or change installed executables. Review upstream changes and test coverage before updating `modules/provider_compatibility.json`. Unsupported major versions require integration work.
+            Versions classified as approved are proposed in `modules/provider_compatibility.json`. Limited or incompatible versions retain their evidence without registry promotion. Review is required before merging registry changes; no binary is installed on user systems.
 
             Validation run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           add-paths: |
             docs/provider_updates.json
             docs/provider_update_checks.json
+            modules/provider_compatibility.json

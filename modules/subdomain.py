@@ -301,14 +301,14 @@ def run_passive_provider(
 def inspect_provider_compatibility(
     provider: str, executable: str, timeout: float = 10.0,
 ) -> dict[str, str]:
-    """Check version and required CLI options locally within one shared deadline."""
+    """Describe local compatibility without blocking discovery on version policy."""
     spec = PROVIDERS[provider]
     started = time.monotonic()
 
-    def capture(arguments: list[str]) -> str:
+    def capture(arguments: list[str]) -> tuple[str, str | None]:
         remaining = timeout - (time.monotonic() - started)
         if remaining <= 0:
-            raise ValueError(f"{spec['name']} compatibility check timed out.")
+            return "", "Compatibility check budget exhausted."
         lines: deque[str] = deque(maxlen=1024)
         result = run_passive_provider(
             "", f"{spec['name']} compatibility", [executable, *arguments],
@@ -316,24 +316,32 @@ def inspect_provider_compatibility(
             stderr_callback=lambda line: lines.append(line[:2000]),
         )
         if result.status != "completed":
-            raise ValueError(f"Unable to verify {spec['name']} compatibility: {result.reason or result.status}")
-        return "\n".join(lines)
+            return "\n".join(lines), result.reason or result.status
+        return "\n".join(lines), None
 
-    output = capture(spec["version_args"])
+    output, version_error = capture(spec["version_args"])
     versions = {match.group(1) for match in VERSION_PATTERN.finditer(output)}
-    if len(versions) != 1:
-        raise ValueError(f"Unable to verify {spec['name']} version from its version command.")
-    version = versions.pop()
-    status = classify_version(provider, version)
-    if status == "unsupported":
-        raise ValueError(
-            f"{spec['name']} {version} is unsupported. {spec.get('unsupported_reason', '')} "
-            f"Use tested version {spec['baseline']} with --{provider}-path."
-        )
-    missing = missing_flags(provider, capture(spec["help_args"]))
+    version = versions.pop() if len(versions) == 1 and version_error is None else "unknown"
+    status = classify_version(provider, version) if version != "unknown" else "unverified"
+    reasons = []
+    if version_error:
+        reasons.append(f"Version command failed: {version_error}")
+    elif version == "unknown":
+        reasons.append("Version output was missing or ambiguous.")
+    elif status == "unsupported":
+        reasons.append(spec.get("unsupported_reason", "Version is outside supported majors."))
+
+    help_output, help_error = capture(spec["help_args"])
+    missing = missing_flags(provider, help_output)
+    if help_error:
+        raise ValueError(f"Unable to verify {spec['name']} required options: {help_error}")
     if missing:
         raise ValueError(f"{spec['name']} {version} is missing required options: {', '.join(missing)}.")
-    return {"version": version, "status": status, "executable": executable}
+
+    result = {"version": version, "status": status, "executable": executable}
+    if reasons:
+        result["reason"] = " ".join(reasons)
+    return result
 
 
 def run_subfinder(

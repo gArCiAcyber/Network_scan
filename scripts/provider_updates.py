@@ -33,23 +33,32 @@ def stable_version(tag: str) -> str:
     return tag.removeprefix("v")
 
 
-def collect_updates() -> tuple[dict, list]:
+def collect_updates(provider: str | None = None, version: str | None = None) -> tuple[dict, list]:
     """Collect all releases before writing anything; API failures cannot promote versions."""
+    if bool(provider) != bool(version):
+        raise ValueError("Historical provider and version must be supplied together.")
+    if provider is not None and provider not in PROVIDERS:
+        raise ValueError(f"Unknown provider: {provider}")
+    if version is not None:
+        version = stable_version(version)
     updates, matrix = {}, []
-    for provider, spec in PROVIDERS.items():
+    for name, spec in PROVIDERS.items():
         release = github_json(spec["repository"], "latest")
         if release.get("draft") or release.get("prerelease"):
-            raise ValueError(f"Expected a stable release for {provider}")
+            raise ValueError(f"Expected a stable release for {name}")
         latest = stable_version(release["tag_name"])
-        status = classify_version(provider, latest)
-        updates[provider] = {
+        status = classify_version(name, latest)
+        updates[name] = {
             "baseline": spec["baseline"], "latest": latest, "status": status,
             "release": f"https://github.com/{spec['repository']}/releases/tag/{release['tag_name']}",
         }
-        versions = [spec["baseline"]]
-        if latest != spec["baseline"] and status != "unsupported":
-            versions.append(latest)
-        matrix.extend({"provider": provider, "version": version} for version in versions)
+        versions = [spec["baseline"], latest]
+        matrix.extend({"provider": name, "version": candidate} for candidate in dict.fromkeys(versions))
+    if provider is not None and version is not None:
+        historical = {"provider": provider, "version": version}
+        if historical not in matrix:
+            matrix.append(historical)
+        updates[provider]["requested"] = version
     return updates, matrix
 
 
@@ -103,6 +112,8 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     monitor = commands.add_parser("monitor")
     monitor.add_argument("--output", type=Path, required=True)
+    monitor.add_argument("--provider", choices=PROVIDERS)
+    monitor.add_argument("--version")
     install = commands.add_parser("install")
     install.add_argument("provider", choices=PROVIDERS)
     install.add_argument("version")
@@ -111,9 +122,12 @@ def main() -> None:
     if args.command == "install":
         print(install_release(args.provider, args.version, args.destination))
         return
-    updates, matrix = collect_updates()
+    updates, matrix = collect_updates(args.provider, args.version)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(updates, indent=2) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps({"providers": updates, "matrix": matrix}, indent=2) + "\n",
+        encoding="utf-8",
+    )
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             output.write(f"matrix={json.dumps(matrix)}\n")

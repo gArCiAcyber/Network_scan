@@ -11,7 +11,8 @@ from modules.subdomain import inspect_provider_compatibility, run_dnsx
 from tests.fixtures.dns_server import local_dns
 
 
-def check_dnsx(executable: str) -> None:
+def check_dnsx(executable: str) -> dict:
+    evidence = {}
     with local_dns() as resolver:
         for family in ("ipv4", "ipv6", "dual-stack"):
             result = run_dnsx(
@@ -22,8 +23,17 @@ def check_dnsx(executable: str) -> None:
             assert result.status == "completed", result
             assert result.subdomains == ["live.example.test"], result
             assert result.metadata and result.metadata[0]["host"] == "live.example.test", result
+            evidence[family] = {
+                "status": result.status,
+                "exit_code": result.exit_code,
+                "subdomains": result.subdomains,
+                "metadata": result.metadata,
+                "elapsed_seconds": result.elapsed_seconds,
+            }
         empty = run_dnsx([], executable_path=executable)
         assert empty.status == "skipped", empty
+        evidence["empty_input"] = {"status": empty.status, "reason": empty.reason}
+    return evidence
 
 
 def main() -> int:

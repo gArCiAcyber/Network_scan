@@ -15,6 +15,8 @@ import zipfile
 import hylianscan
 from modules.provider_compatibility import PROVIDERS, classify_version, missing_flags
 from modules.subdomain import ProviderRunResult, inspect_provider_compatibility
+from scripts.check_provider import LimitedEvidence, check_subfinder
+from scripts.summarize_provider_checks import propose_promotions, summarize
 from scripts.provider_updates import collect_updates, install_release, stable_version
 
 
@@ -44,22 +46,27 @@ class CompatibilityTests(unittest.TestCase):
                     self.assertEqual(result["version"], spec["baseline"])
                     self.assertEqual(result["status"], "tested")
 
-    def test_bad_versions_and_missing_flags_fail_closed(self):
-        for output, help_output, expected in (
-            ("unknown", "", "Unable to verify"),
-            ("4.2.0 3.23.3", "", "Unable to verify"),
-            ("5.1.1", "", "unsupported"),
-            ("4.2.0", "-domain -passive", "missing required options: -d"),
+    def test_bad_versions_warn_but_missing_flags_fail_closed(self):
+        for output, help_output, status, expected in (
+            ("unknown", "-d -passive", "unverified", "missing or ambiguous"),
+            ("4.2.0 3.23.3", "-d -passive", "unverified", "missing or ambiguous"),
+            ("5.1.1", "-d -passive", "unsupported", "engine/session"),
         ):
             with self.subTest(output=output, help=help_output):
                 def run(*args, **kwargs):
                     kwargs["output_parser"](output if "-version" in args[2] else help_output)
                     return ProviderRunResult([], "completed", 0)
-                with patch("modules.subdomain.run_passive_provider", side_effect=run), \
-                        self.assertRaisesRegex(ValueError, expected):
-                    inspect_provider_compatibility("amass", "amass")
+                with patch("modules.subdomain.run_passive_provider", side_effect=run):
+                    result = inspect_provider_compatibility("amass", "amass")
+                self.assertEqual(result["status"], status)
+                self.assertIn(expected, result["reason"])
+        with patch("modules.subdomain.run_passive_provider", side_effect=lambda *args, **kwargs: (
+            kwargs["output_parser"]("4.2.0" if "-version" in args[2] else "-domain -passive")
+            or ProviderRunResult([], "completed", 0)
+        )), self.assertRaisesRegex(ValueError, "missing required options: -d"):
+            inspect_provider_compatibility("amass", "amass")
 
-    def test_version_process_timeout_and_nonzero_exit_are_errors(self):
+    def test_version_process_timeout_and_nonzero_exit_fail_and_are_reaped(self):
         popen = subprocess.Popen
         for script in ("import time; time.sleep(30)", "print('4.2.0'); raise SystemExit(7)"):
             processes = []
@@ -73,24 +80,31 @@ class CompatibilityTests(unittest.TestCase):
                 inspect_provider_compatibility("amass", "fixture", timeout=0.15)
             self.assertTrue(all(process.poll() is not None for process in processes))
 
-    def test_later_incompatible_provider_stops_before_enumeration_or_report_writes(self):
+    def test_unsupported_provider_warns_and_discovery_continues(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "subdomains.txt"
-            output.write_text("existing evidence")
+            warning = io.StringIO()
             with (
                 patch("hylianscan.resolve_provider_executable", side_effect=lambda **kw: kw["default_command"]),
                 patch("hylianscan.inspect_provider_compatibility", side_effect=[
-                    {"status": "tested", "version": "2.16.0"}, ValueError("Amass 5.1.1 is unsupported")]),
-                patch("hylianscan.run_subfinder") as subfinder,
-                patch("hylianscan.run_amass") as amass,
-                patch("hylianscan.show_passive_providers") as announce,
-                self.assertRaisesRegex(ValueError, "unsupported"),
+                    {"status": "tested", "version": "2.16.0"},
+                    {"status": "unsupported", "version": "5.1.1", "reason": "Amass 5 needs integration."},
+                ]),
+                patch("hylianscan.run_subfinder", return_value=ProviderRunResult(
+                    ["www.example.test"], "completed", 0,
+                )) as subfinder,
+                patch("hylianscan.run_amass", return_value=ProviderRunResult(
+                    [], "completed", 0,
+                )) as amass,
+                redirect_stderr(warning),
             ):
-                hylianscan.run_passive_subdomain_discovery("example.test", ["subfinder", "amass"], output)
-            for operation in (subfinder, amass, announce):
-                operation.assert_not_called()
-            self.assertEqual(output.read_text(), "existing evidence")
-            self.assertEqual(list(Path(directory).iterdir()), [output])
+                hylianscan.run_passive_subdomain_discovery(
+                    "example.test", ["subfinder", "amass"], output, quiet=True,
+                )
+            subfinder.assert_called_once()
+            amass.assert_called_once()
+            self.assertEqual(output.read_text(), "www.example.test\n")
+            self.assertIn("unsupported", warning.getvalue())
 
     def test_untested_warning_budget_and_json_evidence(self):
         checked = {"status": "untested", "version": "2.999.0", "executable": "subfinder"}
@@ -114,19 +128,61 @@ class CompatibilityTests(unittest.TestCase):
 
 
 class ReleaseMonitorTests(unittest.TestCase):
-    def test_monitor_keeps_unsupported_latest_out_of_execution_matrix(self):
+    def test_subfinder_smoke_uses_reserved_target_and_preserves_evidence(self):
+        completed = ProviderRunResult(["api.example.test"], "completed", 0, elapsed_seconds=0.1)
+        empty = ProviderRunResult([], "completed", 0, elapsed_seconds=0.1)
+        rejected = ProviderRunResult([], "failed", 2, diagnostics=("unknown option",))
+        with patch("scripts.check_provider.run_passive_provider", side_effect=[completed, empty, rejected]) as run:
+            evidence = check_subfinder(Path("subfinder"))
+        self.assertEqual(evidence["normal_output"]["subdomains"], ["api.example.test"])
+        self.assertEqual(evidence["empty_output"]["subdomains"], [])
+        self.assertEqual(evidence["unknown_option"]["exit_code"], 2)
+        self.assertIn("example.test", run.call_args_list[0].args[2])
+        with patch("scripts.check_provider.run_passive_provider", return_value=empty), \
+                self.assertRaises(LimitedEvidence):
+            check_subfinder(Path("subfinder"))
+
+    def test_monitor_checks_baseline_latest_and_requested_history(self):
         releases = {"subfinder": "v2.999.0", "amass": "v5.1.1", "dnsx": "v1.3.1"}
         before = json.dumps(PROVIDERS, sort_keys=True)
         with patch("scripts.provider_updates.github_json", side_effect=lambda repo, endpoint:
                    {"tag_name": releases[repo.split('/')[-1]], "draft": False, "prerelease": False}):
-            updates, matrix = collect_updates()
+            updates, matrix = collect_updates("subfinder", "2.13.0")
         self.assertEqual(updates["subfinder"]["status"], "untested")
         self.assertEqual(updates["amass"]["status"], "unsupported")
         self.assertIn({"provider": "subfinder", "version": "2.999.0"}, matrix)
-        self.assertNotIn({"provider": "amass", "version": "5.1.1"}, matrix)
+        self.assertIn({"provider": "amass", "version": "5.1.1"}, matrix)
+        self.assertIn({"provider": "subfinder", "version": "2.13.0"}, matrix)
+        self.assertEqual(updates["subfinder"]["requested"], "2.13.0")
         for tool, spec in PROVIDERS.items():
             self.assertIn({"provider": tool, "version": spec["baseline"]}, matrix)
         self.assertEqual(json.dumps(PROVIDERS, sort_keys=True), before)
+
+    def test_report_requires_both_platforms_before_proposing_promotion(self):
+        manifest = {"matrix": [{"provider": "subfinder", "version": "2.17.0"}]}
+        evidence = [
+            {"provider": "subfinder", "expected_version": "2.17.0", "platform": platform,
+             "architecture": "AMD64" if platform == "Windows" else "x86_64",
+             "status": "passed", "classification": "approved"}
+            for platform in ("Linux", "Windows")
+        ]
+        report = summarize(manifest, evidence, "success")
+        registry = json.loads(json.dumps(PROVIDERS))
+        self.assertEqual(report["results"][0]["classification"], "approved")
+        self.assertEqual(
+            propose_promotions(report, registry),
+            [{"provider": "subfinder", "version": "2.17.0"}],
+        )
+        limited = summarize(manifest, evidence[:1], "success")
+        self.assertEqual(limited["results"][0]["classification"], "limited")
+        self.assertEqual(propose_promotions(limited, json.loads(json.dumps(PROVIDERS))), [])
+        evidence[0].update(status="failed", classification="incompatible")
+        incompatible = summarize(manifest, evidence, "success")
+        self.assertEqual(incompatible["results"][0]["classification"], "incompatible")
+        unsupported = {"results": [{
+            "provider": "amass", "version": "5.1.1", "classification": "approved",
+        }]}
+        self.assertEqual(propose_promotions(unsupported, json.loads(json.dumps(PROVIDERS))), [])
 
     def test_release_api_failure_preserves_existing_manifest(self):
         from scripts.provider_updates import main

@@ -9,17 +9,18 @@ they have not been added to this version policy yet.
 1. Resolve every selected executable before starting any process.
 2. Run each tool's registered version and help commands locally. Both commands
    share at most 10 seconds, deducted from that provider's process budget.
-3. Reject unreadable/ambiguous versions, prereleases, unknown major versions,
-   failed/timed-out commands, and missing required CLI options before enumeration.
-4. A version listed in `tested_versions` is reported as **tested**. Other stable
-   versions in `supported_majors` are **untested**: warn on stderr, including in
-   quiet mode, and continue only if the required CLI options are present. This
-   allows updates within supported majors without claiming their output is verified.
+3. Warn on stderr for unreadable, ambiguous, prerelease, unknown-major, and
+   otherwise unsupported versions, including in quiet mode, then continue when
+   the required CLI options are present.
+4. Stop before enumeration when the help command fails or a required CLI option
+   is absent. A version listed in `tested_versions` is **tested**; another stable
+   version in `supported_majors` is **untested** until CI evidence is reviewed.
 
 Installed executables remain separately managed. Startup does not query GitHub
 or update binaries. Existing execution-time checks and process cleanup remain in
-place. Missing tools, unsupported versions, and failed startup checks leave
-existing reports intact. JSON provider entries gain an optional `compatibility`
+place. Missing tools and required-option failures leave existing reports intact.
+An unsupported provider can fail its own run without suppressing completed
+evidence from other selected providers. JSON provider entries gain an optional `compatibility`
 object containing `version`, `status`, and `executable`; existing fields retain
 their meanings. The recorded version is the startup observation.
 
@@ -35,29 +36,50 @@ These are **integration contract baselines**, not guarantees that every remote
 data source works. Subfinder/Amass output parsing, provider combinations, errors,
 timeouts, cancellation, and partial evidence are covered by the offline suite
 using controlled processes/fixtures. No public-domain enumeration is part of the
-scheduled checks. Amass 3.x remains supported with an untested-version warning;
-Amass 5.x remains blocked pending its engine/session integration.
+scheduled checks. Amass 3.x remains supported with an untested-version warning.
+Amass 5.x versions retaining the registered legacy flags warn during startup,
+then their provider run reports that the separate engine/session integration is
+unsupported. A version missing those required flags fails startup.
 
 ## Release monitoring and review
 
 `.github/workflows/provider-compatibility.yml` runs daily and can be dispatched
-manually. It queries each registry repository's latest stable GitHub release,
-then tests the baseline and any different latest version within a supported
-major on Linux and Windows. Unsupported releases appear in the manifest but are
-not installed or treated as successful compatibility checks. API failures fail
-detection without replacing the previous manifest.
+manually. Every run queries each registry repository's latest stable GitHub
+release and tests both the baseline and latest version on Ubuntu amd64 and
+Windows amd64, including unsupported latest releases. A manual dispatch can add
+one historical provider/version pair, such as `subfinder` and `2.13.0`. API
+failures fail detection without replacing the previous manifest.
 
-The workflow runs the offline regression suite on both operating systems and
-saves real-binary results as artifacts. It prepares one reusable PR branch,
-`automation/provider-compatibility`, updating only:
+The workflow runs the offline regression suite on both operating systems. It
+uses only reserved domains, localhost, controlled fixtures, and captured output;
+it never enumerates a real domain. Each real binary check records the exact
+version, required options, exit behavior, and provider-specific controlled
+checks. The offline suite covers normal and empty output, duplicates, errors,
+timeouts, Hylianscan parsing, provider combinations, and TXT/JSON reporting.
+
+The review job classifies each provider/version automatically:
+
+- **approved**: all mandatory checks passed on both required amd64 platforms and
+  the cross-platform regression suite passed.
+- **limited**: evidence is missing, installation or timeout prevented a complete
+  result, or the regression suite failed.
+- **incompatible**: a mandatory version, option, output, or behavior check failed.
+
+Approved stable versions inside an already supported major are proposed in
+`tested_versions`. Unsupported majors are never added to `supported_majors`
+automatically. The workflow preserves all available evidence and prepares one
+reusable PR branch, `automation/provider-compatibility`, updating:
 
 - `docs/provider_updates.json`: observed releases and current policy status.
 - `docs/provider_update_checks.json`: actual regression/smoke outcomes and evidence.
+- `modules/provider_compatibility.json`: reviewed promotion proposals for versions
+  classified as approved.
 
-Failed checks still produce a review PR when detection succeeds. Missing evidence
-is not a passing check. The workflow never promotes a version into the runtime
-registry or automatically merges a PR. Repeated identical results produce no new
-change. Review the linked run logs for installation failures and artifact issues.
+Failed checks leave the workflow failed but still produce a review PR when
+detection succeeds. Missing evidence is never a passing check. Registry changes
+require merging the PR; the workflow never merges it. Repeated identical results
+produce no new change. Live checks against explicitly authorized targets remain
+manual or belong in a separate explicitly authorized workflow.
 
 ### Enable in GitHub
 
@@ -71,12 +93,11 @@ own test evidence before creating the PR. Dispatch validation again after change
 
 ### Promote a release
 
-Review the official changelog and the evidence scope above. If command arguments,
-output formats, or process lifecycle changed, update the affected provider and
-add a focused regression fixture. Run the real-binary check and offline suite;
-then deliberately update `baseline`, `tested_versions`, and capabilities in the
-registry, with documentation in the same PR. Major versions require integration
-review, not just adding their number to `supported_majors`.
+Review the official changelog and the generated evidence. An approved PR may add
+an exact version to `tested_versions`; merge it after review. If arguments,
+output formats, or process lifecycle changed, update the integration and a
+focused captured fixture before rerunning the workflow. Changes to `baseline`,
+capabilities, or `supported_majors` remain deliberate manual registry changes.
 
 ### Local maintenance commands
 
@@ -84,6 +105,7 @@ From the repository root, with Python 3.12:
 
 ```sh
 python scripts/provider_updates.py monitor --output /path/to/provider-updates.json
+python scripts/provider_updates.py monitor --provider subfinder --version 2.13.0 --output /path/to/provider-updates.json
 python scripts/provider_updates.py install subfinder 2.16.0 --destination /path/to/isolated-tools
 python scripts/check_provider.py subfinder 2.16.0 --executable /path/to/isolated-tools/subfinder --output /path/to/check.json
 python -m unittest discover -s tests -p "test_*.py" -v

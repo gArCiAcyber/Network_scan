@@ -382,9 +382,10 @@ def run_passive_subdomain_discovery(
         timeouts[provider] -= time.monotonic() - started
         if timeouts[provider] <= 0:
             raise ValueError(f"{provider} process budget exhausted during compatibility checks.")
-        if compatibility[provider]["status"] == "untested":
-            print(f"Warning: {provider} {compatibility[provider]['version']} is untested; "
-                  "required CLI options are present, but output compatibility is unverified.", file=sys.stderr)
+        if compatibility[provider]["status"] != "tested":
+            reason = compatibility[provider].get("reason", "Output compatibility is unverified.")
+            print(f"Warning: {provider} {compatibility[provider]['version']} is "
+                  f"{compatibility[provider]['status']}; {reason}", file=sys.stderr)
     if not quiet:
         show_passive_providers(providers)
     telemetry = None if quiet else PassiveActivityTelemetry()

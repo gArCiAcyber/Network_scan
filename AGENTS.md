@@ -50,13 +50,13 @@ These are current contracts. Change them deliberately only when the task calls f
 - TLS probe contexts intentionally disable trust enforcement to collect evidence from invalid certificates. Keep this confined to recon collection; a successful handshake does not establish certificate trust.
 - Reuse passive executable resolution and provider execution helpers where applicable. Build subprocess commands as argument lists with shell execution disabled; validate targets and options rather than relying on quoting alone.
 - Validate every selected Subfinder/Amass/DNSx executable before announcing providers or starting discovery; preserve execution-time checks too. DNSx must validate availability even with no candidates. Unselected tools remain optional.
-- Keep version/capability policy in the packaged `modules/provider_compatibility.json` registry. Startup version/help checks share at most 10 seconds per provider, deducted from its budget. Untested supported stable versions warn; unsupported/unknown versions and missing required options stop before enumeration. Release monitoring is a separate maintenance workflow and never promotes versions automatically; see `docs/provider_compatibility.md`.
+- Keep version/capability policy in the packaged `modules/provider_compatibility.json` registry. Startup version/help checks share at most 10 seconds per provider, deducted from its budget. Untested, unsupported, and unknown versions warn and continue; missing required options stop before enumeration. Release monitoring proposes evidence-backed `tested_versions` changes in a review PR; see `docs/provider_compatibility.md`.
 - External tools remain optional, separately installed executables. Check the relevant tool's actual help/version and official documentation before changing its flags or parser assumptions.
 - Handle missing executables, nonzero exits, timeouts, and interruption explicitly. Drain captured stdout/stderr without deadlocks and ensure child processes and reader threads finish during cleanup.
 - Passive providers currently execute sequentially. Evaluate combined resource use, telemetry, and cancellation before introducing parallel execution.
 - Passive execution returns `ProviderRunResult` with explicit completion/error status. Preserve partial evidence on timeout and `ProviderInterrupted` on Ctrl+C; an empty list alone cannot prove successful enumeration with no findings.
 - Passive provider I/O uses temporary files with incremental output reads, not reader threads over pipes. Keep process waits bounded and preserve POSIX process-group cleanup and Windows fallbacks.
-- Amass 3.x hostname and 4.x graph output are supported. Reject Amass 5.x before enumeration until a tested engine/session integration exists. Provider budgets include the bounded Amass version check.
+- Amass 3.x hostname and 4.x graph output are supported. Amass 5.x versions retaining the required legacy flags warn during startup and their provider run reports the unsupported engine/session lifecycle; missing required flags remain a startup error. Provider budgets include the bounded Amass version check.
 
 ## Scope and evidence quality
 
