@@ -19,7 +19,7 @@ def classify_version(provider: str, version: str) -> str:
     return "tested" if version in spec["tested_versions"] else "untested"
 
 
-def missing_flags(provider: str, help_output: str) -> list[str]:
+def missing_flags(provider: str, help_output: str, required: list[str] | None = None) -> list[str]:
     """Match complete option tokens, so -aaaa cannot satisfy -a."""
     flags = set(re.findall(r"(?<![\w-])--?[a-zA-Z][\w-]*(?![\w-])", help_output))
-    return sorted(set(PROVIDERS[provider]["required_flags"]) - flags)
+    return sorted(set(required if required is not None else PROVIDERS[provider]["required_flags"]) - flags)

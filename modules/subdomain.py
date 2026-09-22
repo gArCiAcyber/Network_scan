@@ -1,6 +1,7 @@
 """Passive subdomain discovery integration for hylianscan."""
 
 import json
+import http.client
 import math
 import re
 import os
@@ -331,8 +332,25 @@ def inspect_provider_compatibility(
     elif status == "unsupported":
         reasons.append(spec.get("unsupported_reason", "Version is outside supported majors."))
 
-    help_output, help_error = capture(spec["help_args"])
-    missing = missing_flags(provider, help_output)
+    commands = ""
+    if provider == "amass" and (version.startswith("5.") or version == "unknown"):
+        commands, commands_error = capture(["-h"])
+        if commands_error:
+            raise ValueError(f"Unable to verify Amass subcommands: {commands_error}")
+    v5_help = provider == "amass" and (version.startswith("5.") or
+                                         (version == "unknown" and "engine" in commands and "subs" in commands))
+    if v5_help:
+        missing_commands = [name for name in spec["required_subcommands_v5"]
+                            if not re.search(rf"\b{name}\b", commands)]
+        if missing_commands:
+            raise ValueError(f"Amass {version} is missing required subcommands: "
+                             f"{', '.join(missing_commands)}.")
+        help_output, help_error = capture(["subs", "-h"])
+        required = spec["required_flags_v5"]
+    else:
+        help_output, help_error = capture(spec["help_args"])
+        required = None
+    missing = missing_flags(provider, help_output, required)
     if help_error:
         raise ValueError(f"Unable to verify {spec['name']} required options: {help_error}")
     if missing:
@@ -393,13 +411,15 @@ def run_amass(
     if classify_version("amass", version.group(1)) == "unsupported":
         return ProviderRunResult(
             [], "failed", reason=(
-                f"Amass {version.group(0)} is unsupported. Use Amass 3.x or 4.x "
-                "with --amass-path; Amass 5 requires a separate engine/session integration."
+                f"Amass {version.group(0)} is unsupported. Use Amass 3.x, 4.x, or 5.x "
+                "with --amass-path."
             ),
         )
     remaining = timeout - (time.monotonic() - started)
     if remaining <= 0:
         return ProviderRunResult([], "timed_out", reason=f"Timed out after {timeout:g} seconds.")
+    if version.group(1).startswith("5."):
+        return _run_amass_v5(domain, executable, remaining, telemetry_callback)
 
     def parse_amass_line(line: str) -> list[str]:
         # Both ends may contain in-scope names (e.g. CNAME relationships).
@@ -413,6 +433,137 @@ def run_amass(
         timeout=remaining,
         output_parser=parse_amass_line,
     )
+
+
+def _amass_engine_ready() -> bool:
+    """Recognize the local Amass GraphQL engine without touching other services."""
+    connection = http.client.HTTPConnection("127.0.0.1", 4000, timeout=0.25)
+    try:
+        connection.request("POST", "/graphql", '{"query":"{__typename}"}',
+                           {"Content-Type": "application/json"})
+        response = json.loads(connection.getresponse().read(2048))
+        return isinstance(response, dict) and isinstance(response.get("data"), dict)
+    except (OSError, ValueError, http.client.HTTPException):
+        return False
+    finally:
+        connection.close()
+
+
+def _amass_v5_config() -> Path:
+    """Use Amass's own config while rejecting active enumeration settings."""
+    configured = os.environ.get("AMASS_CONFIG")
+    if configured:
+        config = Path(configured).expanduser()
+    elif os.name == "nt":
+        config = Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")) / "amass/config.yaml"
+    else:
+        config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "amass/config.yaml"
+    if not config.is_file():
+        raise ValueError(f"Amass 5 configuration was not found: {config}.")
+    settings = "\n".join(line.split("#", 1)[0] for line in config.read_text(encoding="utf-8").splitlines())
+    if re.search(r"(?im)(?:^|[,{])[ \t]*[\"']?(?:engine|database)[\"']?[ \t]*:", settings):
+        raise ValueError("Amass 5 configuration uses an external engine or database; local isolated runs require defaults.")
+    for match in re.finditer(r"(?im)(?:^|[,{])[ \t]*[\"']?active[\"']?[ \t]*:[ \t]*([^,\s}#]*)", settings):
+        if match.group(1).lower() != "false":
+            raise ValueError("Amass 5 configuration enables or ambiguously sets active enumeration.")
+    section = None
+    indentation = 0
+    for line in settings.splitlines():
+        if not line.strip():
+            continue
+        depth = len(line) - len(line.lstrip(" \t"))
+        if section and depth <= indentation:
+            section = None
+        key, separator, value = line.strip().partition(":")
+        if key in {"bruteforce", "alterations"} and separator:
+            section, indentation = key, depth
+        elif section and key == "enabled" and value.strip().lower() != "false":
+            raise ValueError(f"Amass 5 configuration enables or ambiguously sets {section}.")
+    return config.resolve()
+
+
+def _run_amass_v5(
+    domain: str, executable: str, timeout: float,
+    telemetry_callback: TelemetryCallback | None,
+) -> ProviderRunResult:
+    """Use a managed engine and read v5 findings from its per-run graph database."""
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryFile() as engine_log:
+        engine = None
+        try:
+            if not _amass_engine_ready():
+                try:
+                    engine_command = [executable, "engine"]
+                    # Amass 5 uses ':' in engine log filenames; -log-dir fails on Windows.
+                    if os.name != "nt":
+                        engine_command.extend(["-log-dir", directory])
+                    engine = subprocess.Popen(
+                        engine_command,
+                        stdin=subprocess.DEVNULL, stdout=engine_log, stderr=engine_log,
+                        start_new_session=os.name == "posix",
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                    )
+                except OSError as error:
+                    return ProviderRunResult([], "failed", reason=f"Unable to start Amass engine: {error}")
+                while not _amass_engine_ready():
+                    if engine.poll() is not None:
+                        engine_log.seek(0)
+                        detail = clean_terminal_text(engine_log.read(2000).decode("utf-8", "replace"))
+                        return ProviderRunResult([], "failed", reason=f"Amass engine stopped: {detail}")
+                    if time.monotonic() - started >= min(timeout, 10):
+                        return ProviderRunResult([], "timed_out", reason="Amass engine did not become ready.")
+                    time.sleep(0.1)
+
+            # The v5 -passive switch does not override active settings in YAML.
+            try:
+                config = _amass_v5_config()
+            except (OSError, ValueError) as error:
+                return ProviderRunResult([], "failed", reason=str(error))
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                return ProviderRunResult([], "timed_out", reason="Amass process budget exhausted.")
+            interrupted = False
+            try:
+                enumeration = run_passive_provider(
+                    domain, "Amass", [executable, "enum", "-passive", "-d", domain,
+                                      "-dir", directory, "-config", str(config), "-nocolor"],
+                    telemetry_callback=telemetry_callback, timeout=remaining,
+                )
+            except ProviderInterrupted as error:
+                enumeration, interrupted = error.result, True
+            except ValueError as error:
+                enumeration = ProviderRunResult([], "failed", reason=str(error))
+
+            # The engine writes names to its graph, including after a timed-out enum.
+            query_timeout = (max(timeout - (time.monotonic() - started), PROVIDER_SHUTDOWN_GRACE_SECONDS)
+                             if enumeration.status == "completed" else PROVIDER_SHUTDOWN_GRACE_SECONDS)
+            try:
+                names = run_passive_provider(
+                    domain, "Amass results", [executable, "subs", "-names", "-d", domain,
+                                             "-dir", directory, "-config", str(config), "-nocolor"],
+                    telemetry_callback=telemetry_callback, timeout=query_timeout,
+                )
+            except ProviderInterrupted as error:
+                names, interrupted = error.result, True
+            except ValueError as error:
+                names = ProviderRunResult([], "failed", reason=str(error))
+            status = enumeration.status if enumeration.status != "completed" else names.status
+            reason = enumeration.reason if enumeration.status != "completed" else names.reason
+            diagnostics = enumeration.diagnostics + names.diagnostics
+            if names.status != "completed" and names.reason:
+                diagnostics += (f"Amass results: {names.reason}",)
+            result = ProviderRunResult(
+                sorted(set(enumeration.subdomains + names.subdomains)), status,
+                enumeration.exit_code if enumeration.status != "completed" else names.exit_code,
+                reason, diagnostics=diagnostics,
+                elapsed_seconds=round(time.monotonic() - started, 3),
+            )
+            if interrupted:
+                raise ProviderInterrupted(result)
+            return result
+        finally:
+            if engine is not None:
+                stop_provider(engine)
 
 
 def run_dnsx(

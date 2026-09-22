@@ -30,7 +30,8 @@ class CompatibilityTests(unittest.TestCase):
                 self.assertEqual(classify_version(tool, f"{major}.999.0"), "untested")
                 self.assertEqual(classify_version(tool, "99.0.0"), "unsupported")
                 self.assertEqual(classify_version(tool, spec["baseline"] + "-rc.1"), "unsupported")
-        self.assertEqual(classify_version("amass", "5.1.1"), "unsupported")
+        self.assertEqual(classify_version("amass", "5.0.0"), "tested")
+        self.assertEqual(classify_version("amass", "5.1.1"), "untested")
         self.assertIn("-a", missing_flags("dnsx", "-aaaa -silent"))
 
     def test_real_runner_reads_version_and_help_from_both_streams(self):
@@ -47,11 +48,40 @@ class CompatibilityTests(unittest.TestCase):
                     self.assertEqual(result["version"], spec["baseline"])
                     self.assertEqual(result["status"], "tested")
 
+    def test_amass_v5_preflight_checks_safe_help_without_starting_engine(self):
+        commands = []
+
+        def run(*args, **kwargs):
+            command = args[2]
+            commands.append(command)
+            output = ("v5.0.0" if "-version" in command else
+                      "engine enum subs" if command == ["amass", "-h"] else
+                      "-config -d -dir -names -nocolor")
+            kwargs["output_parser"](output)
+            return ProviderRunResult([], "completed", 0)
+
+        with patch("modules.subdomain.run_passive_provider", side_effect=run):
+            result = inspect_provider_compatibility("amass", "amass")
+        self.assertEqual(result["status"], "tested")
+        self.assertEqual(commands, [["amass", "-version"], ["amass", "-h"],
+                                    ["amass", "subs", "-h"]])
+
+    def test_amass_v5_preflight_rejects_missing_names_flag(self):
+        def run(*args, **kwargs):
+            output = ("v5.0.0" if "-version" in args[2] else "engine enum subs"
+                      if args[2] == ["amass", "-h"] else "-config -d -dir -nocolor")
+            kwargs["output_parser"](output)
+            return ProviderRunResult([], "completed", 0)
+
+        with patch("modules.subdomain.run_passive_provider", side_effect=run), \
+                self.assertRaisesRegex(ValueError, "missing required options: -names"):
+            inspect_provider_compatibility("amass", "amass")
+
     def test_bad_versions_warn_but_missing_flags_fail_closed(self):
         for output, help_output, status, expected in (
             ("unknown", "-d -passive", "unverified", "missing or ambiguous"),
             ("4.2.0 3.23.3", "-d -passive", "unverified", "missing or ambiguous"),
-            ("5.1.1", "-d -passive", "unsupported", "engine/session"),
+            ("6.1.1", "-d -passive", "unsupported", "outside supported majors"),
         ):
             with self.subTest(output=output, help=help_output):
                 def run(*args, **kwargs):
@@ -89,7 +119,7 @@ class CompatibilityTests(unittest.TestCase):
                 patch("hylianscan.resolve_provider_executable", side_effect=lambda **kw: kw["default_command"]),
                 patch("hylianscan.inspect_provider_compatibility", side_effect=[
                     {"status": "tested", "version": "2.16.0"},
-                    {"status": "unsupported", "version": "5.1.1", "reason": "Amass 5 needs integration."},
+                    {"status": "unsupported", "version": "6.1.1", "reason": "Amass 6 needs integration."},
                 ]),
                 patch("hylianscan.run_subfinder", return_value=ProviderRunResult(
                     ["www.example.test"], "completed", 0,
@@ -144,7 +174,7 @@ class ReleaseMonitorTests(unittest.TestCase):
             check_subfinder(Path("subfinder"))
 
     def test_monitor_checks_baseline_latest_and_requested_history(self):
-        releases = {"subfinder": "v2.999.0", "amass": "v5.1.1", "dnsx": "v1.3.1"}
+        releases = {"subfinder": "v2.999.0", "amass": "v6.1.1", "dnsx": "v1.3.1"}
         before = json.dumps(PROVIDERS, sort_keys=True)
         with patch("scripts.provider_updates.github_json", side_effect=lambda repo, endpoint:
                    {"tag_name": releases[repo.split('/')[-1]], "draft": False, "prerelease": False}):
@@ -152,7 +182,7 @@ class ReleaseMonitorTests(unittest.TestCase):
         self.assertEqual(updates["subfinder"]["status"], "untested")
         self.assertEqual(updates["amass"]["status"], "unsupported")
         self.assertIn({"provider": "subfinder", "version": "2.999.0"}, matrix)
-        self.assertIn({"provider": "amass", "version": "5.1.1"}, matrix)
+        self.assertIn({"provider": "amass", "version": "6.1.1"}, matrix)
         self.assertIn({"provider": "subfinder", "version": "2.13.0"}, matrix)
         self.assertEqual(updates["subfinder"]["requested"], "2.13.0")
         for tool, spec in PROVIDERS.items():
@@ -181,7 +211,7 @@ class ReleaseMonitorTests(unittest.TestCase):
         incompatible = summarize(manifest, evidence, "success")
         self.assertEqual(incompatible["results"][0]["classification"], "incompatible")
         unsupported = {"results": [{
-            "provider": "amass", "version": "5.1.1", "classification": "approved",
+            "provider": "amass", "version": "6.1.1", "classification": "approved",
         }]}
         self.assertEqual(propose_promotions(unsupported, json.loads(json.dumps(PROVIDERS))), [])
 

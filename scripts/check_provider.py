@@ -109,7 +109,9 @@ def main() -> None:
             raise ValueError(f"Expected {args.version}, got {checked['version']}")
         if checked["status"] in {"unsupported", "unverified", "incompatible"}:
             raise ValueError(checked.get("reason", f"Compatibility is {checked['status']}"))
-        result["required_flags"] = PROVIDERS[args.provider]["required_flags"]
+        spec = PROVIDERS[args.provider]
+        result["required_flags"] = (spec["required_flags_v5"] if args.provider == "amass"
+                                    and args.version.startswith("5.") else spec["required_flags"])
         result["checks"].extend(["version", "required CLI options"])
         if args.provider == "subfinder":
             result["subfinder"] = check_subfinder(args.executable.resolve())

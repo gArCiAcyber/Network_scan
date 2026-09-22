@@ -646,15 +646,98 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             self.assertEqual(output.read_text().splitlines(), ["api.example.com"])
             self.assertIn("source timeout", (Path(directory)/"subdomains_providers.log").read_text())
 
-    def test_amass_v5_rejected_before_enumeration(self) -> None:
-        with (patch("modules.subdomain.resolve_provider_executable", return_value="amass"),
-              patch("modules.subdomain.run_passive_provider", return_value=ProviderRunResult(
-                  [], "completed", 0, diagnostics=("v5.1.1",))) as provider):
-            result = run_amass("example.com")
+    def test_amass_v5_reads_isolated_graph_and_stops_owned_engine(self) -> None:
+        popen = subprocess.Popen
+        commands = []
+        engines = []
+
+        def launch(command, **kwargs):
+            commands.append(command)
+            if "-version" in command:
+                script = "print('v5.0.0')"
+            elif command[1] == "engine":
+                script = "import time; time.sleep(30)"
+            elif command[1] == "enum":
+                config = Path(command[command.index("-config") + 1])
+                self.assertIn("active: false", config.read_text())
+                script = "print('www.example.com')"
+            else:
+                script = "print('api.example.com'); print('elsewhere.test')"
+            process = popen([sys.executable, "-u", "-c", script], **kwargs)
+            if command[1] == "engine":
+                engines.append(process)
+            return process
+
+        def stop_engine(process):
+            process.terminate()
+            process.wait(timeout=5)
+
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.yaml"
+            config.write_text("options:\n  active: false\n", encoding="utf-8")
+            with (patch("modules.subdomain.resolve_provider_executable", return_value="amass"),
+                  patch("modules.subdomain._amass_engine_ready", side_effect=[False, True]),
+                  patch("modules.subdomain._amass_v5_config", return_value=config),
+                  patch("modules.subdomain.subprocess.Popen", side_effect=launch),
+                  patch("modules.subdomain.stop_provider", side_effect=stop_engine) as stop):
+                result = run_amass("example.com")
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.subdomains, ["api.example.com", "www.example.com"])
+        self.assertEqual([command[1] for command in commands], ["-version", "engine", "enum", "subs"])
+        self.assertEqual(commands[2][commands[2].index("-dir") + 1],
+                         commands[3][commands[3].index("-dir") + 1])
+        stop.assert_called_once_with(engines[0])
+        self.assertIsNotNone(engines[0].poll())
+
+    def test_amass_v5_rejects_active_config(self) -> None:
+        from modules.subdomain import _amass_v5_config
+
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.yaml"
+            config.write_text("options:\n  active: true\n", encoding="utf-8")
+            with patch.dict(os.environ, {"AMASS_CONFIG": str(config)}), \
+                    self.assertRaisesRegex(ValueError, "active enumeration"):
+                _amass_v5_config()
+            config.write_text("options: {active: false}\n", encoding="utf-8")
+            with patch.dict(os.environ, {"AMASS_CONFIG": str(config)}):
+                self.assertEqual(_amass_v5_config(), config.resolve())
+            config.write_text("options:\n  bruteforce:\n    enabled: true\n", encoding="utf-8")
+            with patch.dict(os.environ, {"AMASS_CONFIG": str(config)}), \
+                    self.assertRaisesRegex(ValueError, "bruteforce"):
+                _amass_v5_config()
+            config.write_text("options:\n  database: 'postgres://example.invalid/test'\n", encoding="utf-8")
+            with patch.dict(os.environ, {"AMASS_CONFIG": str(config)}), \
+                    self.assertRaisesRegex(ValueError, "external engine or database"):
+                _amass_v5_config()
+
+    def test_amass_v5_queries_partial_graph_after_timeout(self) -> None:
+        from modules.subdomain import _run_amass_v5
+
+        engine = unittest.mock.Mock()
+        engine.poll.return_value = None
+        enumeration = ProviderRunResult([], "timed_out", reason="Timed out after 1 seconds.")
+        names = ProviderRunResult(["api.example.com"], "completed", 0)
+        with (patch("modules.subdomain._amass_engine_ready", side_effect=[False, True]),
+              patch("modules.subdomain._amass_v5_config", return_value=Path("config.yaml")),
+              patch("modules.subdomain.subprocess.Popen", return_value=engine),
+              patch("modules.subdomain.run_passive_provider", side_effect=[enumeration, names]) as run,
+              patch("modules.subdomain.stop_provider") as stop):
+            result = _run_amass_v5("example.com", "amass", 1, None)
+        self.assertEqual(result.status, "timed_out")
+        self.assertEqual(result.subdomains, ["api.example.com"])
+        self.assertEqual(run.call_count, 2)
+        stop.assert_called_once_with(engine)
+        with (patch("modules.subdomain._amass_engine_ready", return_value=True),
+              patch("modules.subdomain._amass_v5_config", return_value=Path("config.yaml")),
+              patch("modules.subdomain.run_passive_provider", side_effect=[
+                  ProviderRunResult(["www.example.com"], "completed", 0),
+                  ValueError("Unable to start Amass results"),
+              ]), patch("modules.subdomain.stop_provider") as stop):
+            result = _run_amass_v5("example.com", "amass", 1, None)
         self.assertEqual(result.status, "failed")
-        self.assertIn("Amass 5", result.reason)
-        self.assertEqual(provider.call_count, 1)
-        self.assertEqual(provider.call_args.args[2], ["amass", "-version"])
+        self.assertEqual(result.subdomains, ["www.example.com"])
+        stop.assert_not_called()
 
     def test_discovery_combinations_use_real_runner_and_merge_amass_graph(self) -> None:
         popen = subprocess.Popen

@@ -13,12 +13,13 @@
     "name": "Amass",
     "repository": "owasp-amass/amass",
     "baseline": "4.2.0",
-    "tested_versions": ["4.2.0"],
-    "supported_majors": [3, 4],
+    "tested_versions": ["4.2.0", "5.0.0"],
+    "supported_majors": [3, 4, 5],
     "version_args": ["-version"],
     "help_args": ["enum", "-h"],
     "required_flags": ["-d", "-passive"],
-    "unsupported_reason": "Amass 5 requires a separate engine/session integration."
+    "required_subcommands_v5": ["engine", "enum", "subs"],
+    "required_flags_v5": ["-config", "-d", "-dir", "-names", "-nocolor"]
   },
   "dnsx": {
     "name": "DNSx",

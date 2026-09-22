@@ -7,8 +7,9 @@ they have not been added to this version policy yet.
 ## Startup policy
 
 1. Resolve every selected executable before starting any process.
-2. Run each tool's registered version and help commands locally. Both commands
+2. Run each tool's registered version and help commands locally. These checks
    share at most 10 seconds, deducted from that provider's process budget.
+   Amass 5 checks top-level and `subs` help; invoking `enum -h` would start an engine.
 3. Warn on stderr for unreadable, ambiguous, prerelease, unknown-major, and
    otherwise unsupported versions, including in quiet mode, then continue when
    the required CLI options are present.
@@ -29,7 +30,7 @@ their meanings. The recorded version is the startup observation.
 | Provider | Baseline | Supported majors | Real-binary checks |
 | --- | --- | --- | --- |
 | Subfinder | 2.16.0 | 2 | Version and required CLI options |
-| Amass | 4.2.0 | 3, 4 | Version and passive enumeration CLI options |
+| Amass | 4.2.0 | 3, 4, 5 | 4.x version/flags; 5.0.0 version, commands, engine readiness, empty graph query |
 | DNSx | 1.3.1 | 1 | Version/options; localhost A/AAAA, JSON, NXDOMAIN, empty input |
 
 These are **integration contract baselines**, not guarantees that every remote
@@ -37,9 +38,18 @@ data source works. Subfinder/Amass output parsing, provider combinations, errors
 timeouts, cancellation, and partial evidence are covered by the offline suite
 using controlled processes/fixtures. No public-domain enumeration is part of the
 scheduled checks. Amass 3.x remains supported with an untested-version warning.
-Amass 5.x versions retaining the registered legacy flags warn during startup,
-then their provider run reports that the separate engine/session integration is
-unsupported. A version missing those required flags fails startup.
+Amass 5.0.0 is listed as tested for the packaged CLI contract. It starts a
+managed local engine when needed, enumerates into a temporary graph database,
+then reads scoped hostnames with `subs -names`; an existing local engine is reused.
+The temporary database is removed after the run. The normal Amass configuration
+is used for source credentials and transformations; active enumeration, brute
+forcing, alterations, and external engine/database settings are rejected.
+Amass 5.0.0's Windows engine cannot create a
+log file with `-log-dir`, so Hylianscan captures its stdout instead. Local checks
+covered the official Windows binary's version, help, engine startup, and empty
+graph query. Populated real-domain output and Linux binary behavior remain
+unverified; the offline suite checks orchestration, parsing, and partial results.
+Other 5.x versions warn as untested until evidence is reviewed.
 
 ## Release monitoring and review
 
