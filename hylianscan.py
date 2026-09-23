@@ -59,6 +59,7 @@ from core.passive_display import (
     PassiveDiscoveryDisplay,
     build_passive_subdomain_summary,
     format_relative_output_path,
+    show_passive_providers,
 )
 from core.tcp_live_display import TCPScanDisplay
 from core.terminal import (
@@ -360,6 +361,8 @@ def run_passive_subdomain_discovery(
     """Run selected passive discovery providers and return a clean summary."""
     if scoped_subdomain(domain, domain) is None:
         raise ValueError("Passive discovery requires a valid DNS domain name.")
+    if not quiet:
+        show_passive_providers(providers)
     executable_paths = provider_paths or {}
     executables = {}
     for provider in providers:

@@ -4,16 +4,16 @@ import os
 import threading
 from pathlib import Path
 
-from core.colors import HACKER_GREEN, RESET
+from core.colors import HACKER_GREEN, LIGHT_BLUE, RESET, TRIFORCE_BLUE, TRIFORCE_RED
 from core.nmap_live_display import NMAP_SPINNER_INTERVAL_SECONDS, select_spinner_frames
 from core.terminal import clear_dynamic_line, print_safe, write_dynamic_line
 
 
 PASSIVE_PROVIDER_LABELS = {
-    "subfinder": "Subfinder",
-    "amass": "Amass",
-    "dnsx": "DNSx",
-    "httpx": "HTTPx",
+    "subfinder": ("Subfinder", TRIFORCE_BLUE),
+    "amass": ("Amass", TRIFORCE_RED),
+    "dnsx": ("DNSx", LIGHT_BLUE),
+    "httpx": ("HTTPx", TRIFORCE_BLUE),
 }
 
 
@@ -48,17 +48,17 @@ class PassiveDiscoveryDisplay:
         if self._thread is not None:
             self._thread.join(timeout=NMAP_SPINNER_INTERVAL_SECONDS * 2)
             self._thread = None
-        label = PASSIVE_PROVIDER_LABELS[self._provider]
+        label, color = PASSIVE_PROVIDER_LABELS[self._provider]
         if status == "completed":
-            line = f"[+] {label} concluído · {count} encontrados"
+            line = f"{HACKER_GREEN}[+]{RESET} {color}{label}{RESET} completed · {count} found"
         else:
             state = {
                 "timed_out": "timeout",
-                "interrupted": "cancelado",
-                "failed": "falhou",
-                "skipped": "ignorado",
+                "interrupted": "cancelled",
+                "failed": "failed",
+                "skipped": "skipped",
             }.get(status, status)
-            line = f"[!] {label} {state} · {count} encontrados"
+            line = f"{HACKER_GREEN}[!]{RESET} {color}{label}{RESET} {state} · {count} found"
         print_safe(line)
 
     def stop(self) -> None:
@@ -73,9 +73,17 @@ class PassiveDiscoveryDisplay:
             with self._lock:
                 frame = self._frames[self._frame_index % len(self._frames)]
                 self._frame_index += 1
-                line = f"[>] {PASSIVE_PROVIDER_LABELS[self._provider]} {frame} {self._count} até agora"
+                label, color = PASSIVE_PROVIDER_LABELS[self._provider]
+                line = f"{HACKER_GREEN}[>]{RESET} {color}{label}{RESET} {frame} {self._count} so far"
             write_dynamic_line(line)
             self._stop_event.wait(NMAP_SPINNER_INTERVAL_SECONDS)
+
+
+def show_passive_providers(providers: list[str]) -> None:
+    """Show enabled passive providers with their established colors."""
+    for provider in providers:
+        label, color = PASSIVE_PROVIDER_LABELS[provider]
+        print_safe(f"{HACKER_GREEN}[+]{RESET} {color}{label}{RESET} enabled")
 
 
 def format_relative_output_path(output_path: Path) -> str:

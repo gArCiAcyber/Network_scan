@@ -29,6 +29,27 @@ from modules.subdomain import (
 class PassiveProviderExecutableTests(unittest.TestCase):
     """Validate provider executable resolution without running external tools."""
 
+    def test_enabled_provider_notice_precedes_compatibility_checks(self) -> None:
+        events = []
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            with (
+                patch("hylianscan.show_passive_providers",
+                      side_effect=lambda providers: events.append("enabled")),
+                patch("hylianscan.inspect_provider_compatibility",
+                      side_effect=lambda *args, **kwargs: events.append("compatibility")
+                      or {"status": "tested"}),
+                patch("hylianscan.run_subfinder",
+                      return_value=ProviderRunResult([], "completed", 0)),
+                redirect_stdout(io.StringIO()),
+            ):
+                hylianscan.run_passive_subdomain_discovery(
+                    "example.com", ["subfinder"], Path(temporary_dir) / "subdomains.txt",
+                    provider_paths={"subfinder": sys.executable},
+                )
+
+        self.assertEqual(events[0], "enabled")
+        self.assertEqual(events[1], "compatibility")
+
     @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
     def test_provider_diagnostics_are_hidden_by_default_and_shown_when_verbose(self, compatibility) -> None:
         for verbose in (False, True):

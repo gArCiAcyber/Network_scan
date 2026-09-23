@@ -43,9 +43,10 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
             display.update_count(42)
             display.finish_provider("completed", 57)
             self.assertIsNone(display._thread)
-        rendered = output.getvalue()
+        rendered = ANSI_PATTERN.sub("", output.getvalue())
         self.assertIn("[>] Amass", rendered)
-        self.assertIn("[+] Amass concluído · 57 encontrados", rendered)
+        self.assertIn("42 so far", rendered)
+        self.assertIn("[+] Amass completed · 57 found", rendered)
 
     def test_timeout_reports_partial_count_and_stops_spinner(self) -> None:
         output = io.StringIO()
@@ -53,8 +54,21 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
         with redirect_stdout(output):
             display.start_provider("dnsx")
             display.finish_provider("timed_out", 42)
-        self.assertIn("[!] DNSx timeout · 42 encontrados", output.getvalue())
+        self.assertIn("[!] DNSx timeout · 42 found", ANSI_PATTERN.sub("", output.getvalue()))
         self.assertIsNone(display._thread)
+
+    def test_enabled_providers_keep_their_colors(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            passive_display.show_passive_providers(["subfinder", "amass", "dnsx"])
+
+        raw = output.getvalue()
+        rendered = ANSI_PATTERN.sub("", raw)
+        for label in ("Subfinder enabled", "Amass enabled", "DNSx enabled"):
+            self.assertIn(label, rendered)
+        self.assertIn(passive_display.PASSIVE_PROVIDER_LABELS["subfinder"][1], raw)
+        self.assertIn(passive_display.PASSIVE_PROVIDER_LABELS["amass"][1], raw)
+        self.assertIn(passive_display.PASSIVE_PROVIDER_LABELS["dnsx"][1], raw)
 
     def test_passive_summary_uses_raw_unique_counts_and_relative_path(self) -> None:
         output_path = Path("output") / "example.com" / "20260628_120000" / "subdomains.txt"
