@@ -185,7 +185,8 @@ def parse_arguments() -> argparse.Namespace:
         "-a",
         "--amass",
         action="store_true",
-        help="Enable Amass discovery after local version and CLI compatibility checks.",
+        help=("Enable Amass discovery after local version and CLI compatibility checks. "
+              "Amass 5 requires port 4000 free for its isolated engine."),
     )
     integrations_group.add_argument(
         "--amass-path",

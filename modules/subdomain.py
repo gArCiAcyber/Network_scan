@@ -24,6 +24,10 @@ from modules.provider_compatibility import PROVIDERS, VERSION_PATTERN, classify_
 TelemetryCallback = Callable[[str], None]
 
 ANSI_PATTERN = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
+# Amass 5's pb/v3 default bar has no separators when stderr is not a terminal.
+AMASS_PROGRESS_PATTERN = re.compile(
+    rb"\d+ / \d+ \[[=>_\- ]+\]\s+\d+(?:\.\d+)?% (?:\?|\d+(?:\.\d+)?[kMGTPEZY]?) p/s"
+)
 DEFAULT_PROVIDER_TIMEOUT_SECONDS = 180.0
 PROVIDER_SHUTDOWN_GRACE_SECONDS = 5.0
 
@@ -163,6 +167,8 @@ def run_passive_provider(
     input_text: str | None = None,
     output_parser: Callable[[str], str | Iterable[str] | None] | None = None,
     stderr_callback: Callable[[str], None] | None = None,
+    stderr_filter: Callable[[bytes], bytes] | None = None,
+    deferred_results: bool = False,
 ) -> ProviderRunResult:
     """Poll file-backed output so input and inherited pipes cannot block a deadline."""
     if not math.isfinite(timeout) or timeout <= 0:
@@ -178,6 +184,9 @@ def run_passive_provider(
     def emit(message: str) -> None:
         if telemetry_callback is not None and not interrupted:
             telemetry_callback(message)
+
+    def candidate_status() -> str:
+        return "count pending graph query" if deferred_results else f"{len(seen)} candidates"
 
     def handle_line(line: str, stderr: bool) -> None:
         nonlocal next_diagnostic
@@ -227,7 +236,10 @@ def run_passive_provider(
                     if not chunk:
                         break
                     remaining -= len(chunk)
-                    lines = (pending[index] + chunk).split(b"\n")
+                    buffered = pending[index] + chunk
+                    if index and stderr_filter is not None:
+                        buffered = stderr_filter(buffered)
+                    lines = re.split(rb"[\r\n]", buffered)
                     pending[index] = lines.pop()
                     for line in lines:
                         handle_line(line.decode("utf-8", errors="replace"), bool(index))
@@ -261,7 +273,7 @@ def run_passive_provider(
                     reason = f"Timed out after {timeout:g} seconds."
                     break
                 if now >= next_progress:
-                    emit(f"{provider_name} progress: {now - started:.0f}s / {timeout:g}s; {len(seen)} candidates")
+                    emit(f"{provider_name} progress: {now - started:.0f}s / {timeout:g}s; {candidate_status()}")
                     next_progress = now + 5
                 time.sleep(min(0.05, max(0, timeout - (now - started))))
         except KeyboardInterrupt:
@@ -293,7 +305,7 @@ def run_passive_provider(
             print(warning, file=sys.stderr)
         emit(f"{provider_name} provider {status}: {reason}")
     else:
-        emit(f"{provider_name} provider completed: exit 0; {len(seen)} candidates")
+        emit(f"{provider_name} provider completed: exit 0; {candidate_status()}")
     if interrupted:
         raise ProviderInterrupted(result)
     return result
@@ -451,6 +463,8 @@ def _amass_engine_ready() -> bool:
 
 def _amass_v5_config() -> Path:
     """Use Amass's own config while rejecting active enumeration settings."""
+    if any(name.startswith(("AMASS_DB_", "AMASS_ENGINE_")) for name in os.environ):
+        raise ValueError("Amass 5 engine/database environment overrides prevent an isolated local run.")
     configured = os.environ.get("AMASS_CONFIG")
     if configured:
         config = Path(configured).expanduser()
@@ -488,37 +502,48 @@ def _run_amass_v5(
 ) -> ProviderRunResult:
     """Use a managed engine and read v5 findings from its per-run graph database."""
     started = time.monotonic()
+    # The v5 -passive switch does not override active settings in YAML.
+    try:
+        config = _amass_v5_config()
+    except (OSError, ValueError) as error:
+        return ProviderRunResult([], "failed", reason=str(error))
     with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryFile() as engine_log:
         engine = None
         try:
-            if not _amass_engine_ready():
-                try:
-                    engine_command = [executable, "engine"]
-                    # Amass 5 uses ':' in engine log filenames; -log-dir fails on Windows.
-                    if os.name != "nt":
-                        engine_command.extend(["-log-dir", directory])
-                    engine = subprocess.Popen(
-                        engine_command,
-                        stdin=subprocess.DEVNULL, stdout=engine_log, stderr=engine_log,
-                        start_new_session=os.name == "posix",
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                    )
-                except OSError as error:
-                    return ProviderRunResult([], "failed", reason=f"Unable to start Amass engine: {error}")
-                while not _amass_engine_ready():
-                    if engine.poll() is not None:
-                        engine_log.seek(0)
-                        detail = clean_terminal_text(engine_log.read(2000).decode("utf-8", "replace"))
-                        return ProviderRunResult([], "failed", reason=f"Amass engine stopped: {detail}")
-                    if time.monotonic() - started >= min(timeout, 10):
-                        return ProviderRunResult([], "timed_out", reason="Amass engine did not become ready.")
-                    time.sleep(0.1)
-
-            # The v5 -passive switch does not override active settings in YAML.
+            if _amass_engine_ready():
+                return ProviderRunResult([], "failed", reason=(
+                    "An Amass engine is already running on 127.0.0.1:4000. "
+                    "Stop it before retrying; Amass 5 cannot isolate this run on an existing engine."
+                ))
+            # v5 omits Config.Dir from its session JSON. The engine therefore uses
+            # its own config home for assetdb.db, regardless of enum's -dir.
+            graph_directory = Path(directory) / "amass"
+            graph_directory.mkdir()
+            engine_environment = os.environ.copy()
+            engine_environment["APPDATA" if os.name == "nt" else "XDG_CONFIG_HOME"] = directory
             try:
-                config = _amass_v5_config()
-            except (OSError, ValueError) as error:
-                return ProviderRunResult([], "failed", reason=str(error))
+                engine_command = [executable, "engine"]
+                # Amass 5 uses ':' in engine log filenames; -log-dir fails on Windows.
+                if os.name != "nt":
+                    engine_command.extend(["-log-dir", directory])
+                engine = subprocess.Popen(
+                    engine_command,
+                    stdin=subprocess.DEVNULL, stdout=engine_log, stderr=engine_log,
+                    start_new_session=os.name == "posix",
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                    env=engine_environment,
+                )
+            except OSError as error:
+                return ProviderRunResult([], "failed", reason=f"Unable to start Amass engine: {error}")
+            while not _amass_engine_ready():
+                if engine.poll() is not None:
+                    engine_log.seek(0)
+                    detail = clean_terminal_text(engine_log.read(2000).decode("utf-8", "replace"))
+                    return ProviderRunResult([], "failed", reason=f"Amass engine stopped: {detail}")
+                if time.monotonic() - started >= min(timeout, 10):
+                    return ProviderRunResult([], "timed_out", reason="Amass engine did not become ready.")
+                time.sleep(0.1)
+
             remaining = timeout - (time.monotonic() - started)
             if remaining <= 0:
                 return ProviderRunResult([], "timed_out", reason="Amass process budget exhausted.")
@@ -526,8 +551,10 @@ def _run_amass_v5(
             try:
                 enumeration = run_passive_provider(
                     domain, "Amass", [executable, "enum", "-passive", "-d", domain,
-                                      "-dir", directory, "-config", str(config), "-nocolor"],
+                                      "-dir", str(graph_directory), "-config", str(config), "-nocolor"],
                     telemetry_callback=telemetry_callback, timeout=remaining,
+                    stderr_filter=lambda data: AMASS_PROGRESS_PATTERN.sub(b"", data),
+                    deferred_results=True,
                 )
             except ProviderInterrupted as error:
                 enumeration, interrupted = error.result, True
@@ -540,7 +567,7 @@ def _run_amass_v5(
             try:
                 names = run_passive_provider(
                     domain, "Amass results", [executable, "subs", "-names", "-d", domain,
-                                             "-dir", directory, "-config", str(config), "-nocolor"],
+                                             "-dir", str(graph_directory), "-config", str(config), "-nocolor"],
                     telemetry_callback=telemetry_callback, timeout=query_timeout,
                 )
             except ProviderInterrupted as error:
@@ -552,6 +579,32 @@ def _run_amass_v5(
             diagnostics = enumeration.diagnostics + names.diagnostics
             if names.status != "completed" and names.reason:
                 diagnostics += (f"Amass results: {names.reason}",)
+            if engine is not None:
+                stop_provider(engine)
+                engine = None
+            # Read only after stopping our writer: inherited stdout shares its offset.
+            with ExitStack() as logs:
+                sources = [("engine output", engine_log)]
+                for path in sorted([*Path(directory).glob("*.log"), *graph_directory.glob("*.log")]):
+                    try:
+                        sources.append((path.name, logs.enter_context(path.open("rb"))))
+                    except OSError as error:
+                        diagnostics += (f"Amass log unavailable: {error}",)
+                for label, stream in sources:
+                    try:
+                        stream.seek(0, os.SEEK_END)
+                        size = stream.tell()
+                        stream.seek(max(0, size - 40000))
+                        tail = stream.read(40000).decode("utf-8", "replace").splitlines()
+                    except OSError as error:
+                        diagnostics += (f"Amass {label} unavailable: {error}",)
+                        continue
+                    if size > 40000:
+                        tail = tail[1:]
+                    diagnostics += tuple(
+                        f"Amass {label}: {clean_terminal_text(line)[:2000]}"
+                        for line in tail[-20:] if clean_terminal_text(line)
+                    )
             result = ProviderRunResult(
                 sorted(set(enumeration.subdomains + names.subdomains)), status,
                 enumeration.exit_code if enumeration.status != "completed" else names.exit_code,

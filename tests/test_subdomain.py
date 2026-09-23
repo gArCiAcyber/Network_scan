@@ -603,6 +603,23 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         self.assertEqual(len(result.diagnostics), 20)
         self.assertIn("upstream timeout", result.diagnostics)
 
+    def test_provider_carriage_returns_do_not_join_records(self) -> None:
+        messages = []
+        script = (
+            "import sys,time; "
+            "sys.stdout.buffer.write(b'api.example.com\\r'); sys.stdout.flush(); "
+            "sys.stderr.buffer.write(b'first warning\\r'); sys.stderr.flush(); "
+            "time.sleep(.1); "
+            "sys.stdout.buffer.write(b'\\nwww.example.com\\rlast.example.com'); "
+            "sys.stderr.buffer.write(b'\\nsecond warning\\rfinal warning')"
+        )
+        result = run_passive_provider("example.com", "Fake",
+                                      [sys.executable, "-u", "-c", script],
+                                      telemetry_callback=messages.append)
+        self.assertEqual(result.subdomains, ["api.example.com", "last.example.com", "www.example.com"])
+        self.assertEqual(result.diagnostics, ("first warning", "second warning", "final warning"))
+        self.assertTrue(any("3 candidates" in message for message in messages))
+
     def test_amass_v3_hostname_output(self) -> None:
         popen = subprocess.Popen
 
@@ -650,19 +667,38 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         popen = subprocess.Popen
         commands = []
         engines = []
+        graph_directories = []
+        messages = []
 
         def launch(command, **kwargs):
             commands.append(command)
             if "-version" in command:
                 script = "print('v5.0.0')"
             elif command[1] == "engine":
-                script = "import time; time.sleep(30)"
+                environment = kwargs["env"]
+                graph_directories.append(Path(environment["APPDATA" if os.name == "nt"
+                                                          else "XDG_CONFIG_HOME"]) / "amass")
+                script = "import time; print('engine diagnostic', flush=True); time.sleep(30)"
             elif command[1] == "enum":
                 config = Path(command[command.index("-config") + 1])
                 self.assertIn("active: false", config.read_text())
-                script = "print('www.example.com')"
+                # Model v5's engine-side default graph location, not enum's -dir.
+                (graph_directories[0] / "names.txt").write_text(
+                    "api.example.com\nelsewhere.test\n", encoding="utf-8")
+                # pb/v3 writes adjacent bars with no CR/LF to non-terminal stderr.
+                # Split a frame across reads, then exceed the runner's 64 KiB chunks.
+                bar = "0 / 1 [" + "_" * 80 + "] 0.00% ? p/s"
+                script = (
+                    "import sys,time; "
+                    f"sys.stderr.write({bar[:35]!r}); sys.stderr.flush(); time.sleep(.1); "
+                    f"sys.stderr.write({bar[35:]!r} + {bar!r} * 12000); "
+                    "sys.stderr.write('source unavailable\\n'); "
+                    "sys.stderr.write('1 / 2 [==>___] 50.00% 12.34 p/s'); "
+                    "sys.stderr.write('final warning'); print('www.example.com')"
+                )
             else:
-                script = "print('api.example.com'); print('elsewhere.test')"
+                graph = Path(command[command.index("-dir") + 1]) / "names.txt"
+                script = f"from pathlib import Path; print(Path({str(graph)!r}).read_text())"
             process = popen([sys.executable, "-u", "-c", script], **kwargs)
             if command[1] == "engine":
                 engines.append(process)
@@ -680,15 +716,24 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                   patch("modules.subdomain._amass_v5_config", return_value=config),
                   patch("modules.subdomain.subprocess.Popen", side_effect=launch),
                   patch("modules.subdomain.stop_provider", side_effect=stop_engine) as stop):
-                result = run_amass("example.com")
+                result = run_amass("example.com", telemetry_callback=messages.append)
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.subdomains, ["api.example.com", "www.example.com"])
         self.assertEqual([command[1] for command in commands], ["-version", "engine", "enum", "subs"])
         self.assertEqual(commands[2][commands[2].index("-dir") + 1],
                          commands[3][commands[3].index("-dir") + 1])
-        stop.assert_called_once_with(engines[0])
+        self.assertEqual(Path(commands[3][commands[3].index("-dir") + 1]), graph_directories[0])
+        self.assertFalse(graph_directories[0].exists())
+        stop.assert_any_call(engines[0])
         self.assertIsNotNone(engines[0].poll())
+        self.assertIn("source unavailable", result.diagnostics)
+        self.assertIn("final warning", result.diagnostics)
+        self.assertIn("Amass engine output: engine diagnostic", result.diagnostics)
+        self.assertNotIn("p/s", "\n".join([*messages, *result.diagnostics]))
+        self.assertTrue(any("count pending graph query" in message for message in messages))
+        self.assertFalse(any(message.startswith("Amass progress:") and "0 candidates" in message
+                             for message in messages))
 
     def test_amass_v5_rejects_active_config(self) -> None:
         from modules.subdomain import _amass_v5_config
@@ -702,6 +747,9 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             config.write_text("options: {active: false}\n", encoding="utf-8")
             with patch.dict(os.environ, {"AMASS_CONFIG": str(config)}):
                 self.assertEqual(_amass_v5_config(), config.resolve())
+            with patch.dict(os.environ, {"AMASS_CONFIG": str(config), "AMASS_DB_USER": "test"}), \
+                    self.assertRaisesRegex(ValueError, "environment overrides"):
+                _amass_v5_config()
             config.write_text("options:\n  bruteforce:\n    enabled: true\n", encoding="utf-8")
             with patch.dict(os.environ, {"AMASS_CONFIG": str(config)}), \
                     self.assertRaisesRegex(ValueError, "bruteforce"):
@@ -718,18 +766,32 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         engine.poll.return_value = None
         enumeration = ProviderRunResult([], "timed_out", reason="Timed out after 1 seconds.")
         names = ProviderRunResult(["api.example.com"], "completed", 0)
+
+        def provider(domain, label, command, **kwargs):
+            if command[1] == "enum":
+                directory = Path(command[command.index("-dir") + 1])
+                (directory / "amass_engine_test.log").write_text(
+                    "old record\n" * 5000 + "\033[31mengine source timeout\033[0m\n", encoding="utf-8")
+                (directory / "session-test.log").write_text("session diagnostic\n", encoding="utf-8")
+                return enumeration
+            return names
+
         with (patch("modules.subdomain._amass_engine_ready", side_effect=[False, True]),
               patch("modules.subdomain._amass_v5_config", return_value=Path("config.yaml")),
               patch("modules.subdomain.subprocess.Popen", return_value=engine),
-              patch("modules.subdomain.run_passive_provider", side_effect=[enumeration, names]) as run,
+              patch("modules.subdomain.run_passive_provider", side_effect=provider) as run,
               patch("modules.subdomain.stop_provider") as stop):
             result = _run_amass_v5("example.com", "amass", 1, None)
         self.assertEqual(result.status, "timed_out")
         self.assertEqual(result.subdomains, ["api.example.com"])
         self.assertEqual(run.call_count, 2)
         stop.assert_called_once_with(engine)
-        with (patch("modules.subdomain._amass_engine_ready", return_value=True),
+        self.assertIn("Amass amass_engine_test.log: engine source timeout", result.diagnostics)
+        self.assertIn("Amass session-test.log: session diagnostic", result.diagnostics)
+        self.assertEqual(len(result.diagnostics), 21)
+        with (patch("modules.subdomain._amass_engine_ready", side_effect=[False, True]),
               patch("modules.subdomain._amass_v5_config", return_value=Path("config.yaml")),
+              patch("modules.subdomain.subprocess.Popen", return_value=engine),
               patch("modules.subdomain.run_passive_provider", side_effect=[
                   ProviderRunResult(["www.example.com"], "completed", 0),
                   ValueError("Unable to start Amass results"),
@@ -737,7 +799,41 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             result = _run_amass_v5("example.com", "amass", 1, None)
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.subdomains, ["www.example.com"])
+        stop.assert_called_once_with(engine)
+
+    def test_amass_v5_does_not_reuse_or_stop_an_existing_engine(self) -> None:
+        from modules.subdomain import _run_amass_v5
+
+        with (patch("modules.subdomain._amass_engine_ready", return_value=True),
+              patch("modules.subdomain._amass_v5_config", return_value=Path("config.yaml")),
+              patch("modules.subdomain.subprocess.Popen") as launch,
+              patch("modules.subdomain.run_passive_provider") as run,
+              patch("modules.subdomain.stop_provider") as stop):
+            result = _run_amass_v5("example.com", "amass", 1, None)
+        self.assertEqual(result.status, "failed")
+        self.assertIn("already running", result.reason)
+        launch.assert_not_called()
+        run.assert_not_called()
         stop.assert_not_called()
+
+    def test_amass_v5_interrupt_keeps_graph_names_and_reaps_engine(self) -> None:
+        from modules.subdomain import _run_amass_v5
+
+        engine = unittest.mock.Mock()
+        partial = ProviderRunResult([], "interrupted", reason="Interrupted by user.",
+                                    diagnostics=("source warning",))
+        with (patch("modules.subdomain._amass_engine_ready", side_effect=[False, True]),
+              patch("modules.subdomain._amass_v5_config", return_value=Path("config.yaml")),
+              patch("modules.subdomain.subprocess.Popen", return_value=engine),
+              patch("modules.subdomain.run_passive_provider", side_effect=[
+                  ProviderInterrupted(partial), ProviderRunResult(["api.example.com"], "completed", 0),
+              ]), patch("modules.subdomain.stop_provider") as stop,
+              self.assertRaises(ProviderInterrupted) as context):
+            _run_amass_v5("example.com", "amass", 1, None)
+        self.assertEqual(context.exception.result.status, "interrupted")
+        self.assertEqual(context.exception.result.subdomains, ["api.example.com"])
+        self.assertIn("source warning", context.exception.result.diagnostics)
+        stop.assert_called_once_with(engine)
 
     def test_discovery_combinations_use_real_runner_and_merge_amass_graph(self) -> None:
         popen = subprocess.Popen

@@ -30,7 +30,7 @@ their meanings. The recorded version is the startup observation.
 | Provider | Baseline | Supported majors | Real-binary checks |
 | --- | --- | --- | --- |
 | Subfinder | 2.16.0 | 2 | Version and required CLI options |
-| Amass | 4.2.0 | 3, 4, 5 | 4.x version/flags; 5.0.0 version, commands, engine readiness, empty graph query |
+| Amass | 4.2.0 | 3, 4, 5 | 4.x version/flags; 5.0.0 version, commands, engine readiness, isolated empty session/database query |
 | DNSx | 1.3.1 | 1 | Version/options; localhost A/AAAA, JSON, NXDOMAIN, empty input |
 
 These are **integration contract baselines**, not guarantees that every remote
@@ -39,17 +39,33 @@ timeouts, cancellation, and partial evidence are covered by the offline suite
 using controlled processes/fixtures. No public-domain enumeration is part of the
 scheduled checks. Amass 3.x remains supported with an untested-version warning.
 Amass 5.0.0 is listed as tested for the packaged CLI contract. It starts a
-managed local engine when needed, enumerates into a temporary graph database,
-then reads scoped hostnames with `subs -names`; an existing local engine is reused.
+managed local engine with a temporary configuration home, enumerates into its
+graph database, then reads scoped hostnames with `subs -names` from that same
+directory. The engine needs its own temporary home because v5 omits `Config.Dir`
+from the session configuration sent by `enum`. An already-running local engine
+is rejected without stopping it: stop that instance manually before retrying.
 The temporary database is removed after the run. The normal Amass configuration
 is used for source credentials and transformations; active enumeration, brute
-forcing, alterations, and external engine/database settings are rejected.
+forcing, alterations, and external engine/database settings are rejected,
+including `AMASS_ENGINE_*` and `AMASS_DB_*` environment overrides.
 Amass 5.0.0's Windows engine cannot create a
 log file with `-log-dir`, so Hylianscan captures its stdout instead. Local checks
-covered the official Windows binary's version, help, engine startup, and empty
-graph query. Populated real-domain output and Linux binary behavior remain
+covered the official Windows binary's version, help, engine startup, empty
+session creation/termination, isolated database location, and empty graph query
+(no enumeration assets submitted). Populated real-domain output and Linux binary behavior remain
 unverified; the offline suite checks orchestration, parsing, and partial results.
 Other 5.x versions warn as untested until evidence is reviewed.
+
+Amass 5's native progress bars are not hostname counts. Hylianscan filters the
+known `pb/v3` bar format, including adjacent frames without CR/LF when captured
+to a file, while retaining stderr warnings. Its own candidate count is pending
+until `subs` runs. Live rows are clipped to the terminal size; saved diagnostics
+are independent of that clipping. On completion, timeout, or interruption,
+captured engine output and available run-local `.log` files contribute bounded
+tails to `<stem>_providers.log` and optional JSON (20 lines from at most 40 KB per
+source). Logs sent only to system logging, or owned by an existing external
+engine, are not collected. Filtering progress output does not resolve an engine
+or data-source timeout; provider deadlines and partial-result status are unchanged.
 
 ## Release monitoring and review
 

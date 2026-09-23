@@ -56,7 +56,8 @@ These are current contracts. Change them deliberately only when the task calls f
 - Passive providers currently execute sequentially. Evaluate combined resource use, telemetry, and cancellation before introducing parallel execution.
 - Passive execution returns `ProviderRunResult` with explicit completion/error status. Preserve partial evidence on timeout and `ProviderInterrupted` on Ctrl+C; an empty list alone cannot prove successful enumeration with no findings.
 - Passive provider I/O uses temporary files with incremental output reads, not reader threads over pipes. Keep process waits bounded and preserve POSIX process-group cleanup and Windows fallbacks.
-- Amass 3.x hostname and 4.x graph output are supported. Amass 5.0.0 uses an owned local engine when needed, an isolated graph directory, and `subs -names`; never run `enum -h` as a v5 help check because it starts an engine. Keep its configuration passive and stop only owned engine processes. Other 5.x versions warn as untested. Provider budgets include the bounded Amass version check.
+- Handle CR/LF records and Amass 5's delimiter-free progress bars without losing real diagnostics. Keep live rows within terminal dimensions; Amass 5 candidate counts remain pending until the graph query, and bounded captured engine/run-log tails survive cleanup.
+- Amass 3.x hostname and 4.x graph output are supported. Amass 5.0.0 uses an owned local engine with a temporary config home and queries that same isolated graph directory via `subs -names`; `enum -dir` alone does not set the engine's database path. Reject existing engines without stopping them and reject engine/database environment overrides. Never run `enum -h` as a v5 help check because it starts an engine. Keep its configuration passive and stop only owned engine processes. Other 5.x versions warn as untested. Provider budgets include the bounded Amass version check.
 
 ## Scope and evidence quality
 

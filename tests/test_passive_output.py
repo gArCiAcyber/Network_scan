@@ -1,13 +1,16 @@
 """Tests for passive discovery terminal output helpers."""
 
 import io
+import os
 import re
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from core import passive_display
 from core.passive_telemetry import PassiveActivityTelemetry
+from core.terminal import DynamicBlockRenderer
 
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -16,6 +19,23 @@ FORBIDDEN_CHARACTER_NAMES = ("Zelda", "Navi", "Impa", "Din", "Link", "Skull Kid"
 
 class PassiveDiscoveryOutputTests(unittest.TestCase):
     """Validate passive discovery output remains provider-focused."""
+
+    def test_live_block_clips_wrapping_rows_and_limits_height(self) -> None:
+        output = io.StringIO()
+        renderer = DynamicBlockRenderer()
+        with (redirect_stdout(output), patch("core.terminal.shutil.get_terminal_size",
+                                             return_value=os.terminal_size((20, 3)))):
+            lines = ["older activity", "\033[92m" + "x" * 2000 + "\033[0m",
+                     "\033[31m" + "界e\u0301" * 20 + "\033[0m"]
+            renderer.render(lines)
+            renderer.render(lines)
+            renderer.clear()
+        raw = output.getvalue()
+        rendered = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", raw).replace("\r", "")
+        self.assertEqual(rendered.splitlines(), ["x" * 19, "界e\u0301" * 6] * 2)
+        self.assertEqual(raw.count("\033[2A"), 2)
+        self.assertIn("\033[92m", raw)
+        self.assertNotIn("older activity", raw)
 
     def test_upstream_timeout_does_not_consume_process_timeout_event(self) -> None:
         telemetry = PassiveActivityTelemetry()
