@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 import sys
+import tempfile
 import time
 
 from core.banner import show_banner
@@ -379,11 +380,13 @@ def run_passive_subdomain_discovery(
     for provider in providers:
         started = time.monotonic()
         compatibility[provider] = inspect_provider_compatibility(
-            provider, executables[provider], timeout=min(timeouts[provider], 10.0),
+            provider, executables[provider],
+            timeout=min(timeouts[provider], 10.0) if timeouts[provider] is not None else 10.0,
         )
-        timeouts[provider] -= time.monotonic() - started
-        if timeouts[provider] <= 0:
-            raise ValueError(f"{provider} process budget exhausted during compatibility checks.")
+        if timeouts[provider] is not None:
+            timeouts[provider] -= time.monotonic() - started
+            if timeouts[provider] <= 0:
+                raise ValueError(f"{provider} process budget exhausted during compatibility checks.")
         if compatibility[provider]["status"] != "tested":
             reason = compatibility[provider].get("reason", "Output compatibility is unverified.")
             print(f"Warning: {provider} {compatibility[provider]['version']} is "
@@ -398,6 +401,21 @@ def run_passive_subdomain_discovery(
     httpx_output_path: Path | None = None
     discovery_providers = [provider for provider in providers if provider != "dnsx"]
     provider = ""
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        observed = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", prefix=f"{output_path.stem}_observed_",
+            suffix=".tsv", dir=output_path.parent, delete=False,
+        )
+    except OSError as error:
+        raise ValueError(f"Unable to create observed-name checkpoint: {error}") from error
+
+    def record_candidate(name: str) -> None:
+        try:
+            observed.write(f"{provider}\t{name}\n")
+            observed.flush()
+        except OSError as error:
+            raise ValueError(f"Unable to checkpoint observed subdomain: {error}") from error
 
     def save_progress() -> list[str]:
         for name, result in provider_results.items():
@@ -450,6 +468,7 @@ def run_passive_subdomain_discovery(
                     telemetry_callback=telemetry_callback,
                     executable_path=executable_paths.get("subfinder"),
                     timeout=timeouts[provider],
+                    candidate_callback=record_candidate,
                 )
             elif provider == "amass":
                 provider_results[provider] = run_amass(
@@ -457,6 +476,8 @@ def run_passive_subdomain_discovery(
                     telemetry_callback=telemetry_callback,
                     executable_path=executable_paths.get("amass"),
                     timeout=timeouts[provider],
+                    graph_parent=output_path.parent,
+                    candidate_callback=record_candidate,
                 )
 
             if display is not None:
@@ -488,6 +509,7 @@ def run_passive_subdomain_discovery(
                 retry=dnsx_retry,
                 auto_wildcard=dnsx_auto_wildcard,
                 json_output=dnsx_json,
+                candidate_callback=record_candidate,
             )
 
             if display is not None:
@@ -549,6 +571,7 @@ def run_passive_subdomain_discovery(
         save_progress()
         raise
     finally:
+        observed.close()
         if display is not None:
             display.stop()
 

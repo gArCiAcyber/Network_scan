@@ -28,7 +28,7 @@ ANSI_PATTERN = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1
 AMASS_PROGRESS_PATTERN = re.compile(
     rb"\d+ / \d+ \[[=>_\- ]+\]\s+\d+(?:\.\d+)?% (?:\?|\d+(?:\.\d+)?[kMGTPEZY]?) p/s"
 )
-DEFAULT_PROVIDER_TIMEOUT_SECONDS = 180.0
+DEFAULT_PROVIDER_TIMEOUT_SECONDS = None
 PROVIDER_SHUTDOWN_GRACE_SECONDS = 5.0
 
 
@@ -163,15 +163,16 @@ def run_passive_provider(
     provider_name: str,
     command: list[str],
     telemetry_callback: TelemetryCallback | None = None,
-    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    timeout: float | None = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     input_text: str | None = None,
     output_parser: Callable[[str], str | Iterable[str] | None] | None = None,
     stderr_callback: Callable[[str], None] | None = None,
     stderr_filter: Callable[[bytes], bytes] | None = None,
     deferred_results: bool = False,
+    candidate_callback: Callable[[str], None] | None = None,
 ) -> ProviderRunResult:
-    """Poll file-backed output so input and inherited pipes cannot block a deadline."""
-    if not math.isfinite(timeout) or timeout <= 0:
+    """Poll file-backed output without blocking on provider pipes."""
+    if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
         raise ValueError("Provider timeout must be a finite positive number.")
     if domain and scoped_subdomain(domain, domain) is None:
         raise ValueError("Passive discovery requires a valid DNS domain name.")
@@ -208,6 +209,8 @@ def run_passive_provider(
             hostname = scoped_subdomain(candidate, domain)
             if hostname and hostname not in seen:
                 seen.add(hostname)
+                if candidate_callback is not None:
+                    candidate_callback(hostname)
                 if len(seen) == 1:
                     emit(f"{provider_name} first result observed")
 
@@ -268,14 +271,16 @@ def run_passive_provider(
                 return_code = process.poll()
                 if return_code is not None:
                     break
-                if now - started >= timeout:
+                if timeout is not None and now - started >= timeout:
                     status = "timed_out"
                     reason = f"Timed out after {timeout:g} seconds."
                     break
                 if now >= next_progress:
-                    emit(f"{provider_name} progress: {now - started:.0f}s / {timeout:g}s; {candidate_status()}")
+                    limit = f"{timeout:g}s" if timeout is not None else "no limit"
+                    emit(f"{provider_name} progress: {now - started:.0f}s / {limit}; {candidate_status()}")
                     next_progress = now + 5
-                time.sleep(min(0.05, max(0, timeout - (now - started))))
+                time.sleep(min(0.05, max(0, timeout - (now - started)))
+                           if timeout is not None else 0.05)
         except KeyboardInterrupt:
             status, reason = "interrupted", "Interrupted by user."
             interrupted = True
@@ -377,8 +382,9 @@ def inspect_provider_compatibility(
 def run_subfinder(
     domain: str,
     telemetry_callback: TelemetryCallback | None = None,
-    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    timeout: float | None = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     executable_path: str | None = None,
+    candidate_callback: Callable[[str], None] | None = None,
 ) -> ProviderRunResult:
     """Run Subfinder passive discovery and return clean subdomain results."""
     executable = resolve_provider_executable(
@@ -394,14 +400,17 @@ def run_subfinder(
         command=[executable, "-d", domain, "-silent"],
         telemetry_callback=telemetry_callback,
         timeout=timeout,
+        candidate_callback=candidate_callback,
     )
 
 
 def run_amass(
     domain: str,
     telemetry_callback: TelemetryCallback | None = None,
-    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    timeout: float | None = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     executable_path: str | None = None,
+    graph_parent: Path | None = None,
+    candidate_callback: Callable[[str], None] | None = None,
 ) -> ProviderRunResult:
     """Run Amass passive discovery and return clean subdomain results."""
     executable = resolve_provider_executable(
@@ -414,7 +423,8 @@ def run_amass(
     version_lines: list[str] = []
     version_result = run_passive_provider(
         "", "Amass version", [executable, "-version"],
-        timeout=min(timeout, 10), output_parser=lambda line: version_lines.append(line),
+        timeout=min(timeout, 10) if timeout is not None else 10,
+        output_parser=lambda line: version_lines.append(line),
     )
     version = VERSION_PATTERN.search("\n".join([*version_lines, *version_result.diagnostics]))
     if version_result.status != "completed" or version is None:
@@ -427,11 +437,12 @@ def run_amass(
                 "with --amass-path."
             ),
         )
-    remaining = timeout - (time.monotonic() - started)
-    if remaining <= 0:
+    remaining = timeout - (time.monotonic() - started) if timeout is not None else None
+    if remaining is not None and remaining <= 0:
         return ProviderRunResult([], "timed_out", reason=f"Timed out after {timeout:g} seconds.")
     if version.group(1).startswith("5."):
-        return _run_amass_v5(domain, executable, remaining, telemetry_callback)
+        return _run_amass_v5(domain, executable, remaining, telemetry_callback,
+                             graph_parent, candidate_callback)
 
     def parse_amass_line(line: str) -> list[str]:
         # Both ends may contain in-scope names (e.g. CNAME relationships).
@@ -444,6 +455,7 @@ def run_amass(
         telemetry_callback=telemetry_callback,
         timeout=remaining,
         output_parser=parse_amass_line,
+        candidate_callback=candidate_callback,
     )
 
 
@@ -497,8 +509,10 @@ def _amass_v5_config() -> Path:
 
 
 def _run_amass_v5(
-    domain: str, executable: str, timeout: float,
+    domain: str, executable: str, timeout: float | None,
     telemetry_callback: TelemetryCallback | None,
+    graph_parent: Path | None = None,
+    candidate_callback: Callable[[str], None] | None = None,
 ) -> ProviderRunResult:
     """Use a managed engine and read v5 findings from its per-run graph database."""
     started = time.monotonic()
@@ -507,20 +521,29 @@ def _run_amass_v5(
         config = _amass_v5_config()
     except (OSError, ValueError) as error:
         return ProviderRunResult([], "failed", reason=str(error))
-    with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryFile() as engine_log:
+    if _amass_engine_ready():
+        return ProviderRunResult([], "failed", reason=(
+            "An Amass engine is already running on 127.0.0.1:4000. "
+            "Stop it before retrying; Amass 5 cannot isolate this run on an existing engine."
+        ))
+    with ExitStack() as stack:
+        if graph_parent is None:
+            directory = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+        else:
+            try:
+                graph_parent.mkdir(parents=True, exist_ok=True)
+                directory = Path(tempfile.mkdtemp(prefix="amass_v5_", dir=graph_parent))
+            except OSError as error:
+                return ProviderRunResult([], "failed", reason=f"Unable to prepare Amass graph: {error}")
+        engine_log = stack.enter_context(tempfile.TemporaryFile())
         engine = None
         try:
-            if _amass_engine_ready():
-                return ProviderRunResult([], "failed", reason=(
-                    "An Amass engine is already running on 127.0.0.1:4000. "
-                    "Stop it before retrying; Amass 5 cannot isolate this run on an existing engine."
-                ))
             # v5 omits Config.Dir from its session JSON. The engine therefore uses
             # its own config home for assetdb.db, regardless of enum's -dir.
-            graph_directory = Path(directory) / "amass"
+            graph_directory = directory / "amass"
             graph_directory.mkdir()
             engine_environment = os.environ.copy()
-            engine_environment["APPDATA" if os.name == "nt" else "XDG_CONFIG_HOME"] = directory
+            engine_environment["APPDATA" if os.name == "nt" else "XDG_CONFIG_HOME"] = str(directory)
             try:
                 engine_command = [executable, "engine"]
                 # Amass 5 uses ':' in engine log filenames; -log-dir fails on Windows.
@@ -535,17 +558,18 @@ def _run_amass_v5(
                 )
             except OSError as error:
                 return ProviderRunResult([], "failed", reason=f"Unable to start Amass engine: {error}")
+            startup_limit = min(timeout, 10) if timeout is not None else 10
             while not _amass_engine_ready():
                 if engine.poll() is not None:
                     engine_log.seek(0)
                     detail = clean_terminal_text(engine_log.read(2000).decode("utf-8", "replace"))
                     return ProviderRunResult([], "failed", reason=f"Amass engine stopped: {detail}")
-                if time.monotonic() - started >= min(timeout, 10):
+                if time.monotonic() - started >= startup_limit:
                     return ProviderRunResult([], "timed_out", reason="Amass engine did not become ready.")
                 time.sleep(0.1)
 
-            remaining = timeout - (time.monotonic() - started)
-            if remaining <= 0:
+            remaining = timeout - (time.monotonic() - started) if timeout is not None else None
+            if remaining is not None and remaining <= 0:
                 return ProviderRunResult([], "timed_out", reason="Amass process budget exhausted.")
             interrupted = False
             try:
@@ -554,7 +578,7 @@ def _run_amass_v5(
                                       "-dir", str(graph_directory), "-config", str(config), "-nocolor"],
                     telemetry_callback=telemetry_callback, timeout=remaining,
                     stderr_filter=lambda data: AMASS_PROGRESS_PATTERN.sub(b"", data),
-                    deferred_results=True,
+                    deferred_results=True, candidate_callback=candidate_callback,
                 )
             except ProviderInterrupted as error:
                 enumeration, interrupted = error.result, True
@@ -562,13 +586,19 @@ def _run_amass_v5(
                 enumeration = ProviderRunResult([], "failed", reason=str(error))
 
             # The engine writes names to its graph, including after a timed-out enum.
-            query_timeout = (max(timeout - (time.monotonic() - started), PROVIDER_SHUTDOWN_GRACE_SECONDS)
-                             if enumeration.status == "completed" else PROVIDER_SHUTDOWN_GRACE_SECONDS)
+            if enumeration.status != "completed":
+                query_timeout = PROVIDER_SHUTDOWN_GRACE_SECONDS
+            elif timeout is None:
+                query_timeout = None
+            else:
+                query_timeout = max(timeout - (time.monotonic() - started),
+                                    PROVIDER_SHUTDOWN_GRACE_SECONDS)
             try:
                 names = run_passive_provider(
                     domain, "Amass results", [executable, "subs", "-names", "-d", domain,
                                              "-dir", str(graph_directory), "-config", str(config), "-nocolor"],
                     telemetry_callback=telemetry_callback, timeout=query_timeout,
+                    candidate_callback=candidate_callback,
                 )
             except ProviderInterrupted as error:
                 names, interrupted = error.result, True
@@ -585,7 +615,7 @@ def _run_amass_v5(
             # Read only after stopping our writer: inherited stdout shares its offset.
             with ExitStack() as logs:
                 sources = [("engine output", engine_log)]
-                for path in sorted([*Path(directory).glob("*.log"), *graph_directory.glob("*.log")]):
+                for path in sorted([*directory.glob("*.log"), *graph_directory.glob("*.log")]):
                     try:
                         sources.append((path.name, logs.enter_context(path.open("rb"))))
                     except OSError as error:
@@ -611,6 +641,11 @@ def _run_amass_v5(
                 reason, diagnostics=diagnostics,
                 elapsed_seconds=round(time.monotonic() - started, 3),
             )
+            if graph_parent is not None:
+                result = replace(result, diagnostics=(
+                    *result.diagnostics, f"Amass graph retained at {graph_directory}"
+                ), reason=(f"{result.reason or result.status} Graph retained at {graph_directory}."
+                           if result.status != "completed" else None))
             if interrupted:
                 raise ProviderInterrupted(result)
             return result
@@ -622,7 +657,7 @@ def _run_amass_v5(
 def run_dnsx(
     subdomains: list[str],
     telemetry_callback: TelemetryCallback | None = None,
-    timeout: float = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    timeout: float | None = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     executable_path: str | None = None,
     address_family: str = "dual-stack",
     resolver: str | None = None,
@@ -632,6 +667,7 @@ def run_dnsx(
     retry: int | None = None,
     auto_wildcard: bool = False,
     json_output: bool = False,
+    candidate_callback: Callable[[str], None] | None = None,
 ) -> ProviderRunResult:
     """Return hostnames with DNSx-confirmed A and/or AAAA records."""
     metadata: list[dict[str, object]] | None = [] if json_output else None
@@ -698,6 +734,7 @@ def run_dnsx(
             input_text="\n".join(subdomains) + "\n",
             output_parser=(parse_json_line if json_output else
                            lambda line: line if clean_subdomain(line) in candidates else None),
+            candidate_callback=candidate_callback,
         )
     except ProviderInterrupted as error:
         raise ProviderInterrupted(replace(error.result, metadata=metadata)) from error

@@ -393,6 +393,9 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             sys.executable,
         )
         self.assertEqual(amass.call_args.kwargs["executable_path"], sys.executable)
+        self.assertIsNone(subfinder.call_args.kwargs["timeout"])
+        self.assertIsNone(amass.call_args.kwargs["timeout"])
+        self.assertEqual(amass.call_args.kwargs["graph_parent"], output_path.parent)
         lookup.assert_not_called()
 
     def test_cli_rejects_unavailable_tools_before_any_provider_starts(self) -> None:
@@ -546,6 +549,18 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         self.assertIsNone(result.exit_code)
         self.assertEqual(result.reason, "Timed out after 0.5 seconds.")
         self.assertIn("timed out", errors.getvalue())
+
+    def test_provider_without_process_limit_waits_for_completion(self) -> None:
+        messages = []
+        result = run_passive_provider(
+            "example.com", "Fake",
+            [sys.executable, "-u", "-c",
+             "import time; time.sleep(.1); print('api.example.com')"],
+            telemetry_callback=messages.append,
+        )
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.subdomains, ["api.example.com"])
+        self.assertTrue(any("no limit" in message for message in messages))
 
     def test_passive_provider_can_consume_stdin(self) -> None:
         command = [
@@ -711,6 +726,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         engines = []
         graph_directories = []
         messages = []
+        observed = []
 
         def launch(command, **kwargs):
             commands.append(command)
@@ -758,10 +774,12 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                   patch("modules.subdomain._amass_v5_config", return_value=config),
                   patch("modules.subdomain.subprocess.Popen", side_effect=launch),
                   patch("modules.subdomain.stop_provider", side_effect=stop_engine) as stop):
-                result = run_amass("example.com", telemetry_callback=messages.append)
+                result = run_amass("example.com", telemetry_callback=messages.append,
+                                   candidate_callback=observed.append)
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.subdomains, ["api.example.com", "www.example.com"])
+        self.assertEqual(set(observed), {"api.example.com", "www.example.com"})
         self.assertEqual([command[1] for command in commands], ["-version", "engine", "enum", "subs"])
         self.assertEqual(commands[2][commands[2].index("-dir") + 1],
                          commands[3][commands[3].index("-dir") + 1])
@@ -843,6 +861,29 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         self.assertEqual(result.subdomains, ["www.example.com"])
         stop.assert_called_once_with(engine)
 
+    def test_amass_v5_retains_graph_when_results_query_fails(self) -> None:
+        from modules.subdomain import _run_amass_v5
+
+        engine = unittest.mock.Mock()
+        engine.poll.return_value = None
+        with (tempfile.TemporaryDirectory() as directory,
+              patch("modules.subdomain._amass_engine_ready", side_effect=[False, True]),
+              patch("modules.subdomain._amass_v5_config", return_value=Path("config.yaml")),
+              patch("modules.subdomain.subprocess.Popen", return_value=engine),
+              patch("modules.subdomain.run_passive_provider", side_effect=[
+                  ProviderRunResult([], "completed", 0),
+                  ProviderRunResult([], "failed", 1, "Graph query failed."),
+              ]) as run,
+              patch("modules.subdomain.stop_provider")):
+            result = _run_amass_v5("example.com", "amass", None, None, Path(directory))
+            graph = Path(run.call_args_list[1].args[2][run.call_args_list[1].args[2].index("-dir") + 1])
+            self.assertTrue(graph.is_dir())
+            self.assertIn(str(graph), result.reason)
+            self.assertIn(f"Amass graph retained at {graph}", result.diagnostics)
+            self.assertIsNone(run.call_args_list[0].kwargs["timeout"])
+            self.assertIsNone(run.call_args_list[1].kwargs["timeout"])
+            self.assertEqual(result.status, "failed")
+
     def test_amass_v5_does_not_reuse_or_stop_an_existing_engine(self) -> None:
         from modules.subdomain import _run_amass_v5
 
@@ -912,6 +953,12 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                 if "amass" in providers:
                     expected.update(['api.example.com', 'alias.example.com'])
                 self.assertEqual(output.read_text().splitlines(), sorted(expected))
+                journals = list(Path(directory).glob("subdomains_observed_*.tsv"))
+                self.assertEqual(len(journals), 1)
+                records = [line.split("\t") for line in journals[0].read_text().splitlines()]
+                self.assertEqual({name for source, name in records if source != "dnsx"}, expected)
+                if "dnsx" in providers:
+                    self.assertEqual({name for source, name in records if source == "dnsx"}, expected)
                 document = json.loads(report.read_text())
                 self.assertTrue(all(p['status']=='completed' for p in document['providers']))
 

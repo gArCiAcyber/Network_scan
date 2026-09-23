@@ -241,7 +241,7 @@ def parse_arguments() -> argparse.Namespace:
                              ("--dnsx-process-timeout", "DNSx")):
         performance_group.add_argument(
             option, type=float, metavar="SEC",
-            help=f"Total {provider} process budget in seconds (default: 180), plus bounded cleanup.",
+            help=f"Optional {provider} process limit in seconds (default: no limit), plus bounded cleanup.",
         )
     performance_group.add_argument(
         "--dnsx-retry",
