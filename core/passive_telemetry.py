@@ -40,7 +40,18 @@ class PassiveActivityTelemetry:
         # The runner tags stderr before it reaches this mapper. Never interpret
         # upstream messages as our own process completion or timeout events.
         if output.lower().startswith(f"{provider.lower()} stderr: "):
-            return f"{label} diagnostic: {output.split(': ', 1)[1]}"
+            diagnostic = output.split(": ", 1)[1]
+            if (provider.lower() == "amass"
+                    and "could not find parser model file of known type" in diagnostic.lower()):
+                message = (
+                    "Amass warning: libpostal parser model is unavailable. On Kali, "
+                    "repair it with `sudo libpostal_data download all /var/lib/libpostal`."
+                )
+                if message in self.seen_messages:
+                    return None
+                self.seen_messages.add(message)
+                return message
+            return f"{label} diagnostic: {diagnostic}"
         if output.lower().startswith(f"{provider.lower()} progress: "):
             return output
         for status in ("timed_out", "failed", "interrupted", "completed"):
