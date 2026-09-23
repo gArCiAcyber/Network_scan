@@ -9,12 +9,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core import passive_display
-from core.passive_telemetry import PassiveActivityTelemetry
 from core.terminal import DynamicBlockRenderer
 
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
-FORBIDDEN_CHARACTER_NAMES = ("Zelda", "Navi", "Impa", "Din", "Link", "Skull Kid")
 
 
 class PassiveDiscoveryOutputTests(unittest.TestCase):
@@ -37,54 +35,26 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
         self.assertIn("\033[92m", raw)
         self.assertNotIn("older activity", raw)
 
-    def test_upstream_timeout_does_not_consume_process_timeout_event(self) -> None:
-        telemetry = PassiveActivityTelemetry()
-        raw = telemetry.map_provider_output("amass", "Amass stderr: upstream timeout; retrying")
-        actual = telemetry.map_provider_output("amass", "Amass provider timed_out: Timed out after 180 seconds.")
-        self.assertIn("diagnostic", raw)
-        self.assertNotIn("preserving partial results", raw)
-        self.assertIn("provider timed out", actual)
-        spoof = telemetry.map_provider_output("amass", "Amass stderr: Amass provider completed: exit 0")
-        self.assertIn("diagnostic", spoof)
-
-    def test_progress_and_completion_are_visible(self) -> None:
-        telemetry = PassiveActivityTelemetry()
-        self.assertIn("15s / 180s; 42 candidates", telemetry.map_provider_output(
-            "amass", "Amass progress: 15s / 180s; 42 candidates"))
-        self.assertIn("exit 0", telemetry.map_provider_output(
-            "amass", "Amass provider completed: exit 0; 42 candidates"))
-
-    def test_show_passive_providers_marks_enabled_tools(self) -> None:
+    def test_provider_status_stops_spinner_and_reports_final_count(self) -> None:
         output = io.StringIO()
-
+        display = passive_display.PassiveDiscoveryDisplay()
         with redirect_stdout(output):
-            passive_display.show_passive_providers(["subfinder", "amass"])
+            display.start_provider("amass")
+            display.update_count(42)
+            display.finish_provider("completed", 57)
+            self.assertIsNone(display._thread)
+        rendered = output.getvalue()
+        self.assertIn("[>] Amass", rendered)
+        self.assertIn("[+] Amass concluído · 57 encontrados", rendered)
 
-        rendered = ANSI_PATTERN.sub("", output.getvalue())
-
-        self.assertIn("[*] Passive Discovery Providers:", rendered)
-        self.assertIn("[+] Subfinder enabled", rendered)
-        self.assertIn("[+] Amass enabled", rendered)
-
-    def test_passive_telemetry_uses_provider_focused_messages(self) -> None:
-        telemetry = PassiveActivityTelemetry()
-
-        messages = [
-            telemetry.map_lifecycle_event("provider started", "subfinder"),
-            telemetry.map_provider_output("subfinder", "subfinder first result observed"),
-            telemetry.map_lifecycle_event("provider timeout", "amass"),
-            telemetry.map_merge_activity(),
-        ]
-
-        rendered = "\n".join(message for message in messages if message)
-
-        self.assertIn("Running Subfinder passive enumeration", rendered)
-        self.assertIn("Subfinder returned the first candidate", rendered)
-        self.assertIn("Amass timed out; preserving partial results", rendered)
-        self.assertIn("Normalizing provider results", rendered)
-
-        for character_name in FORBIDDEN_CHARACTER_NAMES:
-            self.assertNotIn(character_name, rendered)
+    def test_timeout_reports_partial_count_and_stops_spinner(self) -> None:
+        output = io.StringIO()
+        display = passive_display.PassiveDiscoveryDisplay()
+        with redirect_stdout(output):
+            display.start_provider("dnsx")
+            display.finish_provider("timed_out", 42)
+        self.assertIn("[!] DNSx timeout · 42 encontrados", output.getvalue())
+        self.assertIsNone(display._thread)
 
     def test_passive_summary_uses_raw_unique_counts_and_relative_path(self) -> None:
         output_path = Path("output") / "example.com" / "20260628_120000" / "subdomains.txt"
@@ -105,17 +75,6 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
             rendered,
         )
         self.assertNotIn(str(Path.cwd()), rendered)
-
-    def test_passive_activity_line_uses_status_marker_for_duplicate_removal(self) -> None:
-        rendered = ANSI_PATTERN.sub(
-            "",
-            passive_display.format_passive_activity_line(
-                "[*] Removing duplicate subdomains..."
-            ),
-        )
-
-        self.assertEqual(rendered, "[*] Removing duplicate subdomains...")
-
 
 if __name__ == "__main__":
     unittest.main()

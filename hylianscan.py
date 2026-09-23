@@ -59,10 +59,7 @@ from core.passive_display import (
     PassiveDiscoveryDisplay,
     build_passive_subdomain_summary,
     format_relative_output_path,
-    format_passive_provider_count_message,
-    show_passive_providers,
 )
-from core.passive_telemetry import PassiveActivityTelemetry
 from core.tcp_live_display import TCPScanDisplay
 from core.terminal import (
     clear_dynamic_line,
@@ -357,6 +354,8 @@ def run_passive_subdomain_discovery(
     httpx_binary: str | None = None,
     quiet: bool = False,
     provider_timeouts: Mapping[str, float | None] | None = None,
+    verbose: bool = False,
+    debug: bool = False,
 ) -> str:
     """Run selected passive discovery providers and return a clean summary."""
     if scoped_subdomain(domain, domain) is None:
@@ -386,10 +385,7 @@ def run_passive_subdomain_discovery(
             reason = compatibility[provider].get("reason", "Output compatibility is unverified.")
             print(f"Warning: {provider} {compatibility[provider]['version']} is "
                   f"{compatibility[provider]['status']}; {reason}", file=sys.stderr)
-    if not quiet:
-        show_passive_providers(providers)
-    telemetry = None if quiet else PassiveActivityTelemetry()
-    display = None if quiet else PassiveDiscoveryDisplay(domain)
+    display = None if quiet else PassiveDiscoveryDisplay()
     provider_results = {
         provider: ProviderRunResult([], "skipped", reason="Provider has not started.")
         for provider in providers
@@ -426,17 +422,24 @@ def run_passive_subdomain_discovery(
             save_report("\n".join(diagnostics), output_path.with_name(f"{output_path.stem}_providers.log"))
         return final
 
-    if display is not None:
-        display.start()
+    def handle_provider_output(output: str) -> None:
+        if display is None:
+            return
+        if " progress: " in output:
+            try:
+                count = int(output.rsplit("; ", 1)[1].split(" ", 1)[0])
+            except (IndexError, ValueError):
+                pass
+            else:
+                display.update_count(count)
+        if verbose or debug:
+            print_safe(f"[i] {output}")
 
     try:
         for provider in discovery_providers:
-            telemetry_callback = None
-
-            if display is not None and telemetry is not None:
-                telemetry_callback = lambda output, provider=provider: display.add_activity(
-                    telemetry.map_provider_output(provider, output)
-                )
+            telemetry_callback = handle_provider_output if display is not None else None
+            if display is not None:
+                display.start_provider(provider)
 
             if provider == "subfinder":
                 provider_results[provider] = run_subfinder(
@@ -453,26 +456,21 @@ def run_passive_subdomain_discovery(
                     timeout=timeouts[provider],
                 )
 
-            save_progress()
-
             if display is not None:
-                display.add_activity(
-                    format_passive_provider_count_message(
-                        provider,
-                        len(provider_results[provider].subdomains),
-                    )
+                display.finish_provider(
+                    provider_results[provider].status,
+                    len(provider_results[provider].subdomains),
                 )
+
+            save_progress()
 
         if "dnsx" in providers:
             provider = "dnsx"
+            if display is not None:
+                display.start_provider(provider)
             candidate_subdomains = [name for name in merge_subdomain_results(provider_results)
                                     if scoped_subdomain(name, domain)]
-            telemetry_callback = None
-
-            if display is not None and telemetry is not None:
-                telemetry_callback = lambda output: display.add_activity(
-                    telemetry.map_provider_output("dnsx", output)
-                )
+            telemetry_callback = handle_provider_output if display is not None else None
 
             provider_results["dnsx"] = run_dnsx(
                 candidate_subdomains,
@@ -490,16 +488,10 @@ def run_passive_subdomain_discovery(
             )
 
             if display is not None:
-                display.add_activity(
-                    format_passive_provider_count_message(
-                        "dnsx",
-                        len(provider_results["dnsx"].subdomains),
-                    )
+                display.finish_provider(
+                    provider_results["dnsx"].status,
+                    len(provider_results["dnsx"].subdomains),
                 )
-
-        if display is not None and telemetry is not None:
-            display.add_activity(telemetry.map_merge_activity())
-            display.add_activity("[*] Removing duplicate subdomains...")
 
         subdomains = save_progress()
 
@@ -508,15 +500,11 @@ def run_passive_subdomain_discovery(
             for provider in discovery_providers
         )
 
-        if display is not None:
-            display.add_activity("[*] Writing passive discovery output...")
-
         if httpx_enabled:
+            provider = "httpx"
             httpx_targets = [domain, *subdomains]
             if display is not None:
-                display.add_activity(
-                    f"[*] Probing {len(httpx_targets)} web targets with HTTPx..."
-                )
+                display.start_provider("httpx")
 
             try:
                 httpx_arguments = {}
@@ -531,18 +519,29 @@ def run_passive_subdomain_discovery(
                 write_httpx_jsonl(httpx_result, httpx_output_path)
 
             if display is not None:
-                display.add_activity(
-                    f"[+] HTTPx returned {len(httpx_result.findings)} live services"
+                display.finish_provider(
+                    httpx_result.status,
+                    len(httpx_result.findings),
                 )
 
             save_progress()
     except (KeyboardInterrupt, ValueError) as error:
         if isinstance(error, ProviderInterrupted):
             provider_results[provider] = error.result
-        elif provider and provider_results[provider].status == "skipped":
+        elif provider in provider_results and provider_results[provider].status == "skipped":
             provider_results[provider] = ProviderRunResult(
                 [], "interrupted" if isinstance(error, KeyboardInterrupt) else "failed",
                 reason=str(error) or "Interrupted by user.",
+            )
+        if display is not None and provider in provider_results and provider_results[provider].status != "completed":
+            display.finish_provider(
+                provider_results[provider].status,
+                len(provider_results[provider].subdomains),
+            )
+        elif display is not None and provider == "httpx":
+            display.finish_provider(
+                "interrupted" if isinstance(error, KeyboardInterrupt) else "failed",
+                len(httpx_result.findings) if httpx_result is not None else 0,
             )
         save_progress()
         raise
@@ -730,6 +729,8 @@ def main() -> None:
                 httpx_enabled=getattr(args, "httpx", False),
                 httpx_binary=getattr(args, "httpx_path", None),
                 quiet=quiet,
+                verbose=getattr(args, "verbose", False),
+                debug=getattr(args, "debug", False),
             )
             print(final_panel)
         else:

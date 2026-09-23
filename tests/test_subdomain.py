@@ -29,6 +29,28 @@ from modules.subdomain import (
 class PassiveProviderExecutableTests(unittest.TestCase):
     """Validate provider executable resolution without running external tools."""
 
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_provider_diagnostics_are_hidden_by_default_and_shown_when_verbose(self, compatibility) -> None:
+        for verbose in (False, True):
+            with self.subTest(verbose=verbose), tempfile.TemporaryDirectory() as temporary_dir:
+                output = io.StringIO()
+
+                def run_provider(domain, telemetry_callback, **kwargs):
+                    telemetry_callback("Subfinder stderr: source detail")
+                    return ProviderRunResult(["www.example.com"], "completed", 0)
+
+                with (
+                    patch("hylianscan.run_subfinder", side_effect=run_provider),
+                    redirect_stdout(output),
+                ):
+                    hylianscan.run_passive_subdomain_discovery(
+                        "example.com", ["subfinder"], Path(temporary_dir) / "subdomains.txt",
+                        provider_paths={"subfinder": sys.executable},
+                        verbose=verbose,
+                    )
+
+                self.assertEqual("source detail" in output.getvalue(), verbose)
+
     def test_provider_command_resolution_uses_default_command_from_path(self) -> None:
         with patch("modules.subdomain.shutil.which", return_value="/usr/bin/subfinder"):
             executable = resolve_provider_executable(
@@ -378,7 +400,6 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                             patch("hylianscan.resolve_subdomain_json_output_path", return_value=report),
                             patch("hylianscan.clear_screen"),
                             patch("hylianscan.show_banner"),
-                            patch("hylianscan.show_passive_providers") as announcement,
                             patch("hylianscan.PassiveDiscoveryDisplay") as display,
                             patch("hylianscan.run_subfinder") as subfinder,
                             patch("hylianscan.run_amass") as amass,
@@ -390,7 +411,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                         self.assertEqual(context.exception.code, 1)
                         self.assertIn(f"--{unavailable}-path", terminal.getvalue())
                         self.assertIn("executable", terminal.getvalue())
-                        for operation in (subfinder, amass, dnsx, display, announcement):
+                        for operation in (subfinder, amass, dnsx, display):
                             operation.assert_not_called()
                         for path in (output, report):
                             self.assertEqual(path.read_text(encoding="utf-8"), "existing evidence")

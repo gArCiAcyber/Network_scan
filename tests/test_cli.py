@@ -431,6 +431,13 @@ class CLIHelperTests(unittest.TestCase):
         self.assertTrue(args.quiet)
         self.assertIsNone(args.stance)
 
+    def test_parse_arguments_accepts_verbose_and_debug_flags(self) -> None:
+        with patch("sys.argv", ["hylianscan", "example.com", "--verbose", "--debug"]):
+            args = parse_arguments()
+
+        self.assertTrue(args.verbose)
+        self.assertTrue(args.debug)
+
     def test_help_starts_with_task_oriented_examples(self) -> None:
         output = io.StringIO()
 

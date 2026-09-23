@@ -329,6 +329,16 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Reduce terminal output for scripting and automation.",
     )
+    output_group.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show passive provider diagnostics while discovery runs.",
+    )
+    output_group.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show detailed passive provider diagnostics while discovery runs.",
+    )
     parser.set_defaults(
         address_family="dual-stack",
         host_discovery=None,
