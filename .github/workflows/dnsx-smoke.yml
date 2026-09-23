@@ -5,12 +5,18 @@ on:
     branches: [main]
     paths:
       - "modules/subdomain.py"
+      - "modules/provider_compatibility*"
+      - "tests/fixtures/dns_server.py"
       - "scripts/check_dnsx.py"
+      - "scripts/provider_updates.py"
       - ".github/workflows/dnsx-smoke.yml"
   pull_request:
     paths:
       - "modules/subdomain.py"
+      - "modules/provider_compatibility*"
+      - "tests/fixtures/dns_server.py"
       - "scripts/check_dnsx.py"
+      - "scripts/provider_updates.py"
       - ".github/workflows/dnsx-smoke.yml"
   workflow_dispatch:
 
@@ -27,19 +33,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: "1.25.x"
-          cache: false
-
-      - name: Install DNSx 1.3.1
+      - name: Install registry baseline
         env:
-          GOBIN: ${{ runner.temp }}/dnsx-bin
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$GOBIN"
-          go install github.com/projectdiscovery/dnsx/cmd/dnsx@v1.3.1
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          version=$(python -c "from modules.provider_compatibility import PROVIDERS; print(PROVIDERS['dnsx']['baseline'])")
+          python scripts/provider_updates.py install dnsx "$version" --destination "$RUNNER_TEMP/dnsx-bin"
+          echo "$RUNNER_TEMP/dnsx-bin" >> "$GITHUB_PATH"
 
       - name: Run DNSx smoke check
         run: python scripts/check_dnsx.py

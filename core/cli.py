@@ -1,6 +1,7 @@
 """Command-line parsing and argument normalization."""
 
 import argparse
+import math
 
 from core.version import APP_NAME, APP_VERSION
 from modules.ports import TOP_400_TCP_PORTS
@@ -173,7 +174,7 @@ def parse_arguments() -> argparse.Namespace:
         "-s",
         "--subfinder",
         action="store_true",
-        help="Enable passive subdomain discovery using Subfinder.",
+        help="Enable Subfinder discovery after local version and CLI compatibility checks.",
     )
     integrations_group.add_argument(
         "--subfinder-path",
@@ -184,7 +185,8 @@ def parse_arguments() -> argparse.Namespace:
         "-a",
         "--amass",
         action="store_true",
-        help="Enable passive subdomain discovery using Amass.",
+        help=("Enable Amass discovery after local version and CLI compatibility checks. "
+              "Amass 5 requires port 4000 free for its isolated engine."),
     )
     integrations_group.add_argument(
         "--amass-path",
@@ -204,7 +206,7 @@ def parse_arguments() -> argparse.Namespace:
     passive_group.add_argument(
         "--dnsx",
         action="store_true",
-        help="Resolve discovered passive subdomains using DNSx.",
+        help="Resolve passive subdomains using DNSx after local compatibility checks.",
     )
     integrations_group.add_argument(
         "--dnsx-path",
@@ -234,6 +236,13 @@ def parse_arguments() -> argparse.Namespace:
         metavar="SEC",
         help="DNSx timeout per DNS query in seconds.",
     )
+    for option, provider in (("--subfinder-timeout", "Subfinder"),
+                             ("--amass-timeout", "Amass"),
+                             ("--dnsx-process-timeout", "DNSx")):
+        performance_group.add_argument(
+            option, type=float, metavar="SEC",
+            help=f"Optional {provider} process limit in seconds (default: no limit), plus bounded cleanup.",
+        )
     performance_group.add_argument(
         "--dnsx-retry",
         type=int,
@@ -319,6 +328,16 @@ def parse_arguments() -> argparse.Namespace:
         "--quiet",
         action="store_true",
         help="Reduce terminal output for scripting and automation.",
+    )
+    output_group.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show passive provider diagnostics while discovery runs.",
+    )
+    output_group.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show detailed passive provider diagnostics while discovery runs.",
     )
     parser.set_defaults(
         address_family="dual-stack",
@@ -643,6 +662,16 @@ def get_passive_providers(args: argparse.Namespace) -> list[str]:
 def validate_mode(args: argparse.Namespace) -> None:
     """Prevent ambiguous mode combinations."""
     passive_providers = get_passive_providers(args)
+    for name, attribute in (("subfinder", "subfinder_timeout"),
+                            ("amass", "amass_timeout"),
+                            ("dnsx", "dnsx_process_timeout")):
+        value = getattr(args, attribute, None)
+        option = "--" + attribute.replace("_", "-")
+        if value is not None:
+            if name not in passive_providers:
+                raise ValueError(f"Use {option} only together with --{name}.")
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{option} must be a finite positive number.")
     ports = getattr(args, "ports", None)
     top_ports = getattr(args, "top_ports", None)
     port_profile = getattr(args, "port_profile", None)
@@ -723,7 +752,7 @@ def validate_mode(args: argparse.Namespace) -> None:
         ("--dnsx-timeout", dnsx_timeout),
         ("--dnsx-retry", dnsx_retry),
     ):
-        if value is not None and value <= 0:
+        if value is not None and (not math.isfinite(value) or value <= 0):
             raise ValueError(f"{option} must be greater than zero.")
 
     if nmap_path and not nmap:
