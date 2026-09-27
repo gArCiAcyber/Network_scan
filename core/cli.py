@@ -263,7 +263,7 @@ def parse_arguments() -> argparse.Namespace:
         "--timeout",
         type=float,
         metavar="SEC",
-        help="Override the socket-operation timeout in seconds; not a total scan deadline.",
+        help="Override the socket-operation timeout in seconds; timed-out ports remain unconfirmed. Not a total scan deadline.",
     )
     performance_group.add_argument(
         "--max-rate",

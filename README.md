@@ -137,7 +137,7 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Custom port lists, ranges, top-port presets, and full TCP range support.
 * Multi-threaded TCP scanning.
 * Optional pacing with `--max-rate`.
-* `--timeout` limits individual socket operations; `--probe-timeout` limits a service probe to 10 seconds by default. `--resolve-timeout` optionally bounds DNS resolution, including reverse lookups. Neither option controls Nmap or passive providers.
+* `--timeout` limits individual socket operations; timed-out port scans are partial, while timed-out TCP host discovery leaves addresses unconfirmed. `--probe-timeout` limits a service probe to 10 seconds by default. `--resolve-timeout` optionally bounds DNS resolution, including reverse lookups. Neither option controls Nmap or passive providers.
 * Protocol-aware probes for common services.
 * HTTP status, header, content-type, and URL hints.
 * STARTTLS/STLS/AUTH TLS upgrade checks for supported services.

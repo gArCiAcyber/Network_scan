@@ -145,7 +145,10 @@ def discover_open_port(
                 return None
     except OSError as error:
         if outcome_callback is not None:
-            outcome_callback("error", error.errno)
+            outcome_callback(
+                "timeout" if isinstance(error, TimeoutError) else connection_outcome(error.errno or None),
+                error.errno,
+            )
         return None
 
     service_name = get_service_name(port)
@@ -293,13 +296,13 @@ def _build_worker_count(port_count: int, max_workers: int) -> int:
     return max(1, min(max_workers, port_count))
 
 
-def connection_outcome(code: int) -> str:
+def connection_outcome(code: int | None) -> str:
     """Classify connection observations without inferring remote port states."""
     if code == 0:
         return "open"
     if code in (errno.ECONNREFUSED, 10061):
         return "refused"
-    if code in (errno.ETIMEDOUT, 10060):
+    if code in (errno.ETIMEDOUT, errno.EWOULDBLOCK, 10060, 10035):
         return "timeout"
     if code in (errno.ENETUNREACH, errno.EHOSTUNREACH, 10051, 10065):
         return "unreachable"

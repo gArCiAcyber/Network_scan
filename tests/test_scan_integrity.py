@@ -108,8 +108,20 @@ class ScanIntegrityTests(unittest.TestCase):
         client = MagicMock()
         client.__enter__.return_value = client
         for code, state in ((errno.ECONNREFUSED, "refused"), (errno.ETIMEDOUT, "timeout"),
-                            (errno.ENETUNREACH, "unreachable"), (errno.EMFILE, "error")):
+                            (errno.EWOULDBLOCK, "timeout"), (10035, "timeout"),
+                            (errno.ENETUNREACH, "unreachable"),
+                            (errno.EMFILE, "error")):
             client.connect_ex.return_value = code
+            with patch("modules.tcp_scanner.socket.socket", return_value=client):
+                result = scan_tcp_ports("localhost", "127.0.0.1", [443])
+            self.assertEqual(result.outcomes, {state: 1})
+            self.assertEqual(result.status, "completed" if state == "refused" else "partial")
+            self.assertEqual(result.errors, {str(code): 1} if state in {"error", "unreachable"} else {})
+
+        for error, state in ((TimeoutError("timed out"), "timeout"),
+                             (ConnectionRefusedError(errno.ECONNREFUSED, "refused"), "refused"),
+                             (OSError(0, "unknown"), "error")):
+            client.connect_ex.side_effect = error
             with patch("modules.tcp_scanner.socket.socket", return_value=client):
                 result = scan_tcp_ports("localhost", "127.0.0.1", [443])
             self.assertEqual(result.outcomes, {state: 1})

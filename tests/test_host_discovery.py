@@ -48,6 +48,25 @@ class HostDiscoveryTests(unittest.TestCase):
         fake_socket.connect_ex.assert_called_once_with(("2001:db8::10", 443, 0, 0))
         self.assertTrue(result.is_up)
 
+    def test_tcp_discovery_keeps_pending_connections_unconfirmed(self) -> None:
+        address = ResolvedAddress("127.0.0.1", socket.AF_INET)
+        fake_socket = MagicMock()
+        fake_socket.__enter__.return_value = fake_socket
+
+        for outcome in (errno.EWOULDBLOCK, 10035, TimeoutError("timed out")):
+            fake_socket.connect_ex.side_effect = outcome if isinstance(outcome, OSError) else None
+            fake_socket.connect_ex.return_value = outcome if isinstance(outcome, int) else None
+            with patch("modules.host_discovery.socket.socket", return_value=fake_socket):
+                result = discover_host(address, "tcp", tcp_ports=(443,))
+            self.assertFalse(result.is_up)
+            self.assertEqual(result.state, "unconfirmed")
+            self.assertEqual(result.ports, (443,))
+
+        fake_socket.connect_ex.side_effect = ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+        with patch("modules.host_discovery.socket.socket", return_value=fake_socket):
+            result = discover_host(address, "tcp", tcp_ports=(443,))
+        self.assertTrue(result.is_up)
+
     def test_icmp_discovery_uses_shell_free_ping(self) -> None:
         address = ResolvedAddress("192.0.2.10", socket.AF_INET)
         completed = MagicMock(returncode=0)

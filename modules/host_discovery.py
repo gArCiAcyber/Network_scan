@@ -52,8 +52,12 @@ def _discover_tcp(
                 client.settimeout(timeout)
                 result = client.connect_ex(address.socket_address(port))
         except OSError as error:
-            failures.append(str(error))
-            continue
+            if isinstance(error, TimeoutError):
+                continue
+            if not error.errno:
+                failures.append(str(error))
+                continue
+            result = error.errno
 
         if result in (0, errno.ECONNREFUSED, 10061):
             return HostDiscoveryResult(
@@ -65,7 +69,7 @@ def _discover_tcp(
                 response_time=time.perf_counter() - started_at,
             )
 
-        if result not in (errno.ETIMEDOUT, 10060):
+        if result not in (errno.ETIMEDOUT, errno.EWOULDBLOCK, 10060, 10035):
             failures.append(f"connect_ex: {result}")
 
     return HostDiscoveryResult(
