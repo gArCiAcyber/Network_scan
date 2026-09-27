@@ -15,6 +15,12 @@ PASSIVE_PROVIDER_LABELS = {
     "dnsx": ("DNSx", LIGHT_BLUE),
     "httpx": ("HTTPx", TRIFORCE_BLUE),
 }
+PASSIVE_STAGE_UNITS = {
+    "subfinder": "candidates",
+    "amass": "candidates",
+    "dnsx": "names with address records",
+    "httpx": "HTTP findings",
+}
 
 
 class PassiveDiscoveryDisplay:
@@ -29,8 +35,16 @@ class PassiveDiscoveryDisplay:
         self._count = 0
         self._lock = threading.Lock()
 
-    def start_provider(self, provider: str) -> None:
+    def start_provider(self, provider: str, show_stage: bool = False, input_count: int | None = None) -> None:
         self.stop()
+        if show_stage:
+            label, color = PASSIVE_PROVIDER_LABELS[provider]
+            action = (
+                f"checking {input_count} unique candidates for address records"
+                if provider == "dnsx" and input_count is not None
+                else "discovering candidates"
+            )
+            print_safe(f"{color}{label}{RESET}: {action}")
         with self._lock:
             self._provider = provider
             self._count = 0
@@ -43,14 +57,21 @@ class PassiveDiscoveryDisplay:
         with self._lock:
             self._count = count
 
+    def show_result(self, name: str) -> None:
+        print_safe(
+            f"{HACKER_GREEN}\033]8;;https://{name}\033\\{name}"
+            f"\033]8;;\033\\{RESET}"
+        )
+
     def finish_provider(self, status: str, count: int) -> None:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=NMAP_SPINNER_INTERVAL_SECONDS * 2)
             self._thread = None
         label, color = PASSIVE_PROVIDER_LABELS[self._provider]
+        unit = PASSIVE_STAGE_UNITS[self._provider]
         if status == "completed":
-            line = f"{HACKER_GREEN}[+]{RESET} {color}{label}{RESET} completed · {count} found"
+            line = f"{HACKER_GREEN}[+]{RESET} {color}{label}{RESET} completed · {count} {unit}"
         else:
             state = {
                 "timed_out": "timeout",
@@ -58,7 +79,7 @@ class PassiveDiscoveryDisplay:
                 "failed": "failed",
                 "skipped": "skipped",
             }.get(status, status)
-            line = f"{HACKER_GREEN}[!]{RESET} {color}{label}{RESET} {state} · {count} found"
+            line = f"{HACKER_GREEN}[!]{RESET} {color}{label}{RESET} {state} · {count} {unit}"
         print_safe(line)
 
     def stop(self) -> None:
@@ -74,13 +95,14 @@ class PassiveDiscoveryDisplay:
                 frame = self._frames[self._frame_index % len(self._frames)]
                 self._frame_index += 1
                 label, color = PASSIVE_PROVIDER_LABELS[self._provider]
-                line = f"{HACKER_GREEN}[>]{RESET} {color}{label}{RESET} {frame} {self._count} so far"
+                line = f"{HACKER_GREEN}[>]{RESET} {color}{label}{RESET} {frame} {self._count} {PASSIVE_STAGE_UNITS[self._provider]} so far"
             write_dynamic_line(line)
             self._stop_event.wait(NMAP_SPINNER_INTERVAL_SECONDS)
 
 
-def show_passive_providers(providers: list[str]) -> None:
-    """Show enabled passive providers with their established colors."""
+def show_passive_providers(providers: list[str], domain: str) -> None:
+    """Show the passive target and enabled providers."""
+    print_safe(f"{HACKER_GREEN}[+]{RESET} Target: {domain}")
     for provider in providers:
         label, color = PASSIVE_PROVIDER_LABELS[provider]
         print_safe(f"{HACKER_GREEN}[+]{RESET} {color}{label}{RESET} enabled")
@@ -91,7 +113,7 @@ def format_relative_output_path(output_path: Path) -> str:
     try:
         display_path = str(output_path.resolve().relative_to(Path.cwd().resolve()))
     except ValueError:
-        display_path = output_path.name
+        display_path = str(output_path.resolve())
     except Exception:
         display_path = str(output_path)
 
@@ -104,15 +126,18 @@ def build_passive_subdomain_summary(
     unique_subdomain_count: int,
     output_path: Path,
     quiet: bool = False,
+    candidate_count: int | None = None,
 ) -> str:
     """Build the final passive discovery summary."""
     display_output_path = format_relative_output_path(output_path)
+    result_label = "DNSx Confirmed" if candidate_count is not None else "Unique Candidates"
     if quiet:
         return "\n".join(
             [
                 f"Target: {domain}",
-                f"Raw Discoveries: {raw_discovery_count}",
-                f"Unique Subdomains: {unique_subdomain_count}",
+                f"Raw Candidates: {raw_discovery_count}",
+                *([f"Unique Candidates: {candidate_count}"] if candidate_count is not None else []),
+                f"{result_label}: {unique_subdomain_count}",
                 f"Output Path: {display_output_path}",
             ]
         )
@@ -124,8 +149,10 @@ def build_passive_subdomain_summary(
             separator,
             f"{HACKER_GREEN}[+] SHEIKAH MAP UPDATED{RESET}",
             f"{HACKER_GREEN}[+] Target Realm       : {domain}{RESET}",
-            f"{HACKER_GREEN}[+] Raw Discoveries    : {raw_discovery_count}{RESET}",
-            f"{HACKER_GREEN}[+] Unique Subdomains  : {unique_subdomain_count}{RESET}",
+            f"{HACKER_GREEN}[+] Raw Candidates     : {raw_discovery_count}{RESET}",
+            *([f"{HACKER_GREEN}[+] Unique Candidates  : {candidate_count}{RESET}"]
+              if candidate_count is not None else []),
+            f"{HACKER_GREEN}[+] {result_label:<19}: {unique_subdomain_count}{RESET}",
             f"{HACKER_GREEN}[+] Slate Database     : {display_output_path}{RESET}",
             separator,
         ]

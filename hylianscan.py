@@ -363,7 +363,7 @@ def run_passive_subdomain_discovery(
     if scoped_subdomain(domain, domain) is None:
         raise ValueError("Passive discovery requires a valid DNS domain name.")
     if not quiet:
-        show_passive_providers(providers)
+        show_passive_providers(providers, domain)
     executable_paths = provider_paths or {}
     executables = {}
     for provider in providers:
@@ -416,6 +416,8 @@ def run_passive_subdomain_discovery(
             observed.flush()
         except OSError as error:
             raise ValueError(f"Unable to checkpoint observed subdomain: {error}") from error
+        if display is not None and (verbose or debug):
+            display.show_result(name)
 
     def save_progress() -> list[str]:
         for name, result in provider_results.items():
@@ -453,14 +455,14 @@ def run_passive_subdomain_discovery(
                 pass
             else:
                 display.update_count(count)
-        if verbose or debug:
+        if debug:
             print_safe(f"[i] {output}")
 
     try:
         for provider in discovery_providers:
             telemetry_callback = handle_provider_output if display is not None else None
             if display is not None:
-                display.start_provider(provider)
+                display.start_provider(provider, show_stage=verbose or debug)
 
             if provider == "subfinder":
                 provider_results[provider] = run_subfinder(
@@ -469,6 +471,7 @@ def run_passive_subdomain_discovery(
                     executable_path=executable_paths.get("subfinder"),
                     timeout=timeouts[provider],
                     candidate_callback=record_candidate,
+                    live_results=(verbose or debug) and not quiet,
                 )
             elif provider == "amass":
                 provider_results[provider] = run_amass(
@@ -490,10 +493,13 @@ def run_passive_subdomain_discovery(
 
         if "dnsx" in providers:
             provider = "dnsx"
-            if display is not None:
-                display.start_provider(provider)
             candidate_subdomains = [name for name in merge_subdomain_results(provider_results)
                                     if scoped_subdomain(name, domain)]
+            if display is not None:
+                display.start_provider(
+                    provider, show_stage=verbose or debug,
+                    input_count=len(candidate_subdomains),
+                )
             telemetry_callback = handle_provider_output if display is not None else None
 
             provider_results["dnsx"] = run_dnsx(
@@ -598,6 +604,7 @@ def run_passive_subdomain_discovery(
         len(subdomains),
         output_path,
         quiet,
+        candidate_count=len(candidate_subdomains) if "dnsx" in providers else None,
     )
 
     if httpx_result is not None:

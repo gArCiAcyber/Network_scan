@@ -1,0 +1,21 @@
+subfinder: <button type="button" id="cf-footer-ip-reveal" class="cf-footer-ip-reveal-btn">Click to reveal</button>
+subfinder: <span class="hidden" id="cf-footer-ip">191.177.194.113</span>
+subfinder: <span class="cf-footer-separator sm:hidden">&bull;</span>
+subfinder: </span>
+subfinder: <span class="cf-footer-item sm:block sm:mb-1"><span>Performance &amp; security by</span> <a rel="noopener noreferrer" href="https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_523&#38;utm_campaign=api.sub.md" id="brand_link" target="_blank">Cloudflare</a></span>
+subfinder: </p>
+subfinder: <script>(function(){function d(){var b=a.getElementById("cf-footer-item-ip"),c=a.getElementById("cf-footer-ip-reveal");b&&"classList"in b&&(b.classList.remove("hidden"),c.addEventListener("click",function(){c.classList.add("hidden");a.getElementById("cf-footer-ip").classList.remove("hidden")}))}var a=document;document.addEventListener&&a.addEventListener("DOMContentLoaded",d)})();</script>
+subfinder: </div><!-- /.error-footer -->
+subfinder: </div>
+subfinder: </div>
+subfinder: </body>
+subfinder: </html>
+subfinder: [WRN] Encountered an error with source submd: unexpected status code 523 received from https://api.sub.md/v1/search?apex=airbnb.com
+subfinder: [WRN] Encountered an error with source leakix: Get "https://leakix.net/api/subdomains/airbnb.com": dial tcp 78.46.102.241:443: connectex: Uma tentativa de conexão falhou porque o componente conectado não respondeu
+subfinder: corretamente após um período de tempo ou a conexão estabelecida falhou
+subfinder: porque o host conectado não respondeu.
+subfinder: [WRN] Encountered an error with source crtsh: dial tcp 91.199.212.73:5432: connectex: Uma tentativa de conexão falhou porque o componente conectado não respondeu
+subfinder: corretamente após um período de tempo ou a conexão estabelecida falhou
+subfinder: porque o host conectado não respondeu.
+subfinder: [INF] Found 359 subdomains for airbnb.com in 33 seconds 544 milliseconds
+dnsx: [WRN] 1 domains failed to resolve (consider increasing -retry or reducing -threads)

@@ -170,6 +170,7 @@ def run_passive_provider(
     stderr_filter: Callable[[bytes], bytes] | None = None,
     deferred_results: bool = False,
     candidate_callback: Callable[[str], None] | None = None,
+    stderr_result_parser: Callable[[str], str | None] | None = None,
 ) -> ProviderRunResult:
     """Poll file-backed output without blocking on provider pipes."""
     if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
@@ -189,12 +190,26 @@ def run_passive_provider(
     def candidate_status() -> str:
         return "count pending graph query" if deferred_results else f"{len(seen)} candidates"
 
+    def record_results(parsed: str | Iterable[str] | None) -> None:
+        for candidate in ([parsed] if isinstance(parsed, str) else parsed or []):
+            hostname = scoped_subdomain(candidate, domain)
+            if hostname and hostname not in seen:
+                seen.add(hostname)
+                if candidate_callback is not None:
+                    candidate_callback(hostname)
+                if len(seen) == 1:
+                    emit(f"{provider_name} first result observed")
+
     def handle_line(line: str, stderr: bool) -> None:
         nonlocal next_diagnostic
         line = clean_terminal_text(line)
         if not line:
             return
         if stderr:
+            result = stderr_result_parser(line) if stderr_result_parser is not None else None
+            if result is not None:
+                record_results(result)
+                return
             if stderr_callback is not None:
                 stderr_callback(line)
             diagnostics.append(line[:2000])
@@ -204,15 +219,7 @@ def run_passive_provider(
                 emit(f"{provider_name} stderr: {line[:2000]}")
                 next_diagnostic = now + 1
             return
-        parsed = output_parser(line) if output_parser else line
-        for candidate in ([parsed] if isinstance(parsed, str) else parsed or []):
-            hostname = scoped_subdomain(candidate, domain)
-            if hostname and hostname not in seen:
-                seen.add(hostname)
-                if candidate_callback is not None:
-                    candidate_callback(hostname)
-                if len(seen) == 1:
-                    emit(f"{provider_name} first result observed")
+        record_results(output_parser(line) if output_parser else line)
 
     with ExitStack() as stack:
         stdin = stack.enter_context(tempfile.TemporaryFile())
@@ -385,6 +392,7 @@ def run_subfinder(
     timeout: float | None = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     executable_path: str | None = None,
     candidate_callback: Callable[[str], None] | None = None,
+    live_results: bool = False,
 ) -> ProviderRunResult:
     """Run Subfinder passive discovery and return clean subdomain results."""
     executable = resolve_provider_executable(
@@ -394,13 +402,22 @@ def run_subfinder(
         explicit_path=executable_path,
     )
 
+    def parse_live_result(line: str) -> str | None:
+        source, separator, hostname = line.partition("] ")
+        if separator and source.startswith("[") and source[1:].upper() not in {
+            "INF", "DBG", "WRN", "ERR", "VER",
+        }:
+            return scoped_subdomain(hostname, domain)
+        return None
+
     return run_passive_provider(
         domain=domain,
         provider_name="Subfinder",
-        command=[executable, "-d", domain, "-silent"],
+        command=[executable, "-d", domain, "-v" if live_results else "-silent"],
         telemetry_callback=telemetry_callback,
         timeout=timeout,
         candidate_callback=candidate_callback,
+        stderr_result_parser=parse_live_result if live_results else None,
     )
 
 

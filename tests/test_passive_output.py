@@ -45,8 +45,9 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
             self.assertIsNone(display._thread)
         rendered = ANSI_PATTERN.sub("", output.getvalue())
         self.assertIn("[>] Amass", rendered)
-        self.assertIn("42 so far", rendered)
-        self.assertIn("[+] Amass completed · 57 found", rendered)
+        self.assertIn("42 candidates so far", rendered)
+        self.assertIn("57 candidates", rendered)
+        self.assertNotIn("57 found", rendered)
 
     def test_timeout_reports_partial_count_and_stops_spinner(self) -> None:
         output = io.StringIO()
@@ -54,21 +55,35 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
         with redirect_stdout(output):
             display.start_provider("dnsx")
             display.finish_provider("timed_out", 42)
-        self.assertIn("[!] DNSx timeout · 42 found", ANSI_PATTERN.sub("", output.getvalue()))
+        self.assertIn("DNSx timeout", ANSI_PATTERN.sub("", output.getvalue()))
+        self.assertIn("42 names with address records", ANSI_PATTERN.sub("", output.getvalue()))
         self.assertIsNone(display._thread)
 
     def test_enabled_providers_keep_their_colors(self) -> None:
         output = io.StringIO()
         with redirect_stdout(output):
-            passive_display.show_passive_providers(["subfinder", "amass", "dnsx"])
+            passive_display.show_passive_providers(["subfinder", "amass", "dnsx"], "example.com")
 
         raw = output.getvalue()
         rendered = ANSI_PATTERN.sub("", raw)
+        self.assertLess(rendered.index("[+] Target: example.com"), rendered.index("Subfinder enabled"))
         for label in ("Subfinder enabled", "Amass enabled", "DNSx enabled"):
             self.assertIn(label, rendered)
         self.assertIn(passive_display.PASSIVE_PROVIDER_LABELS["subfinder"][1], raw)
         self.assertIn(passive_display.PASSIVE_PROVIDER_LABELS["amass"][1], raw)
         self.assertIn(passive_display.PASSIVE_PROVIDER_LABELS["dnsx"][1], raw)
+
+    def test_live_result_is_only_a_green_clickable_hostname(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            passive_display.PassiveDiscoveryDisplay().show_result("www.example.com")
+
+        raw = output.getvalue()
+        self.assertIn("\033[92m\033]8;;https://www.example.com\033\\", raw)
+        self.assertIn("www.example.com\033]8;;\033\\\033[0m", raw)
+        rendered = re.sub(r"\x1b\]8;;[^\x1b]*\x1b\\", "", raw)
+        rendered = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", rendered)
+        self.assertEqual(rendered.strip(), "www.example.com")
 
     def test_passive_summary_uses_raw_unique_counts_and_relative_path(self) -> None:
         output_path = Path("output") / "example.com" / "20260628_120000" / "subdomains.txt"
@@ -82,13 +97,35 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
         rendered = ANSI_PATTERN.sub("", summary)
 
         self.assertIn("[+] SHEIKAH MAP UPDATED", rendered)
-        self.assertIn("[+] Raw Discoveries    : 8", rendered)
-        self.assertIn("[+] Unique Subdomains  : 5", rendered)
+        self.assertIn("[+] Raw Candidates     : 8", rendered)
+        self.assertIn("[+] Unique Candidates  : 5", rendered)
         self.assertIn(
             "Slate Database     : output/example.com/20260628_120000/subdomains.txt",
             rendered,
         )
         self.assertNotIn(str(Path.cwd()), rendered)
+
+    def test_dnsx_stage_and_summary_explain_filtering(self) -> None:
+        output = io.StringIO()
+        display = passive_display.PassiveDiscoveryDisplay()
+        with redirect_stdout(output):
+            display.start_provider("dnsx", show_stage=True, input_count=8)
+            display.finish_provider("completed", 5)
+        rendered = ANSI_PATTERN.sub("", output.getvalue())
+        self.assertIn("DNSx: checking 8 unique candidates for address records", rendered)
+        self.assertIn("DNSx completed", rendered)
+        self.assertIn("5 names with address records", rendered)
+        self.assertNotIn("5 found", rendered)
+
+        summary = passive_display.build_passive_subdomain_summary(
+            "example.com", 10, 5, Path("reports/scan.txt"),
+            candidate_count=8,
+        )
+        rendered_summary = ANSI_PATTERN.sub("", summary)
+        self.assertIn("Raw Candidates     : 10", rendered_summary)
+        self.assertIn("Unique Candidates  : 8", rendered_summary)
+        self.assertIn("DNSx Confirmed     : 5", rendered_summary)
+        self.assertIn("Slate Database     : reports/scan.txt", rendered_summary)
 
 if __name__ == "__main__":
     unittest.main()

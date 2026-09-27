@@ -431,6 +431,12 @@ class CLIHelperTests(unittest.TestCase):
         self.assertTrue(args.quiet)
         self.assertIsNone(args.stance)
 
+    def test_output_flag_distinguishes_default_from_explicit_name(self) -> None:
+        with patch("sys.argv", ["hylianscan", "example.com", "-o"]):
+            self.assertEqual(parse_arguments().output, "")
+        with patch("sys.argv", ["hylianscan", "example.com", "-o", "hylianscan_results.txt"]):
+            self.assertEqual(parse_arguments().output, "hylianscan_results.txt")
+
     def test_parse_arguments_accepts_verbose_and_debug_flags(self) -> None:
         with patch("sys.argv", ["hylianscan", "example.com", "--verbose", "--debug"]):
             args = parse_arguments()

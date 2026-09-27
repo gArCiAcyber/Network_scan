@@ -313,9 +313,9 @@ def parse_arguments() -> argparse.Namespace:
         "-o",
         "--output",
         nargs="?",
-        const="hylianscan_results.txt",
+        const="",
         metavar="PATH",
-        help="Save TXT reports for TCP scans, passive discovery, or Nmap XML import.",
+        help="Save TXT to PATH exactly. Without PATH, use the default report path; passive discovery always saves TXT.",
     )
     output_group.add_argument(
         "--json-output",
@@ -332,12 +332,12 @@ def parse_arguments() -> argparse.Namespace:
     output_group.add_argument(
         "--verbose",
         action="store_true",
-        help="Show passive provider diagnostics while discovery runs.",
+        help="Show found subdomains as green clickable hostnames.",
     )
     output_group.add_argument(
         "--debug",
         action="store_true",
-        help="Show detailed passive provider diagnostics while discovery runs.",
+        help="Show live passive subdomains and technical provider diagnostics.",
     )
     parser.set_defaults(
         address_family="dual-stack",

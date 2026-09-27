@@ -52,7 +52,7 @@ def collect_updates(provider: str | None = None, version: str | None = None) -> 
             "baseline": spec["baseline"], "latest": latest, "status": status,
             "release": f"https://github.com/{spec['repository']}/releases/tag/{release['tag_name']}",
         }
-        versions = [spec["baseline"], latest]
+        versions = [spec["baseline"], *spec["tested_versions"], latest]
         matrix.extend({"provider": name, "version": candidate} for candidate in dict.fromkeys(versions))
     if provider is not None and version is not None:
         historical = {"provider": provider, "version": version}

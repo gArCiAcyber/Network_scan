@@ -67,9 +67,9 @@ These are current contracts. Change them deliberately only when the task calls f
 - Separate observations from conclusions. Port-based service names, banners, missing headers, and TLS indicators do not by themselves prove an exploitable vulnerability.
 - Preserve collected banner evidence, provider attribution, probe method, and error/unavailable states. Avoid inventing values when collection fails.
 - Treat exported JSON field names, types, and meanings as compatibility contracts. Review consumers and schema-version impact before breaking them; update exporter tests with intentional changes.
-- Use `core/output.py` for path semantics. Default TCP/passive workspaces use `output/<target>/<UTC timestamp>/` under the runtime working directory. XML import and explicit output arguments have different existing rules; check output tests before changing them.
+- Use `core/output.py` for path semantics. Default TCP/passive workspaces use `output/<target>/<UTC timestamp>/` under the runtime working directory. Bare `-o` uses each mode's default TXT path; `-o PATH` selects that exact TXT file in TCP, passive, and XML import modes. Check output tests before changing these rules.
 - Passive TXT saving is mandatory in the current workflow; TCP and XML report saving is opt-in. Avoid overwriting existing evidence during development checks.
-- Passive checkpoints preserve discovery candidates before DNSx in `<TXT stem>_candidates.txt`; an append-only `<TXT stem>_observed_*.tsv` journal captures provider names during long runs. Final TXT remains DNS-confirmed results. JSON preserves candidates, provider statuses (including `interrupted`), and optional elapsed time/diagnostics. Keep the candidate path helper in `core/output.py`.
+- Passive checkpoints preserve discovery candidates before DNSx in `<TXT stem>_candidates.txt`; an append-only `<TXT stem>_observed_*.tsv` journal captures provider names during long runs. With DNSx enabled, final TXT contains names with address records; otherwise it contains deduplicated discovery candidates. JSON preserves candidates, provider statuses (including `interrupted`), and optional elapsed time/diagnostics. Keep the candidate path helper in `core/output.py`.
 
 ## Validation
 

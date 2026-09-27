@@ -71,10 +71,10 @@ or data-source timeout; provider deadlines and partial-result status are unchang
 
 `.github/workflows/provider-compatibility.yml` runs daily and can be dispatched
 manually. Every run queries each registry repository's latest stable GitHub
-release and tests both the baseline and latest version on Ubuntu amd64 and
-Windows amd64, including unsupported latest releases. A manual dispatch can add
-one historical provider/version pair, such as `subfinder` and `2.13.0`. API
-failures fail detection without replacing the previous manifest.
+release and tests the baseline, every tested version, and the latest version on
+Ubuntu amd64 and Windows amd64, including unsupported latest releases. A manual
+dispatch can add one historical provider/version pair, such as `subfinder` and
+`2.13.0`. API failures fail detection without replacing the previous manifest.
 
 The workflow runs the offline regression suite on both operating systems. It
 uses only reserved domains, localhost, controlled fixtures, and captured output;

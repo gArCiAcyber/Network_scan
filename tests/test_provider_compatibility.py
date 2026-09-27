@@ -23,6 +23,7 @@ from scripts.provider_updates import collect_updates, install_release, stable_ve
 class CompatibilityTests(unittest.TestCase):
     def test_policy_keeps_new_versions_unverified_and_rejects_unknown_majors(self):
         self.assertEqual(classify_version("subfinder", "2.13.0"), "tested")
+        self.assertEqual(classify_version("subfinder", "2.14.0"), "tested")
         for tool, spec in PROVIDERS.items():
             with self.subTest(tool=tool):
                 self.assertEqual(classify_version(tool, spec["baseline"]), "tested")
@@ -173,7 +174,7 @@ class ReleaseMonitorTests(unittest.TestCase):
                 self.assertRaises(LimitedEvidence):
             check_subfinder(Path("subfinder"))
 
-    def test_monitor_checks_baseline_latest_and_requested_history(self):
+    def test_monitor_checks_tested_latest_and_requested_history(self):
         releases = {"subfinder": "v2.999.0", "amass": "v6.1.1", "dnsx": "v1.3.1"}
         before = json.dumps(PROVIDERS, sort_keys=True)
         with patch("scripts.provider_updates.github_json", side_effect=lambda repo, endpoint:
@@ -187,6 +188,8 @@ class ReleaseMonitorTests(unittest.TestCase):
         self.assertEqual(updates["subfinder"]["requested"], "2.13.0")
         for tool, spec in PROVIDERS.items():
             self.assertIn({"provider": tool, "version": spec["baseline"]}, matrix)
+            for tested in spec["tested_versions"]:
+                self.assertIn({"provider": tool, "version": tested}, matrix)
         self.assertEqual(json.dumps(PROVIDERS, sort_keys=True), before)
 
     def test_report_requires_both_platforms_before_proposing_promotion(self):

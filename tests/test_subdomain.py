@@ -4,6 +4,7 @@ import argparse
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -34,7 +35,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_dir:
             with (
                 patch("hylianscan.show_passive_providers",
-                      side_effect=lambda providers: events.append("enabled")),
+                      side_effect=lambda providers, domain: events.append("enabled")),
                 patch("hylianscan.inspect_provider_compatibility",
                       side_effect=lambda *args, **kwargs: events.append("compatibility")
                       or {"status": "tested"}),
@@ -51,13 +52,20 @@ class PassiveProviderExecutableTests(unittest.TestCase):
         self.assertEqual(events[1], "compatibility")
 
     @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
-    def test_provider_diagnostics_are_hidden_by_default_and_shown_when_verbose(self, compatibility) -> None:
-        for verbose in (False, True):
-            with self.subTest(verbose=verbose), tempfile.TemporaryDirectory() as temporary_dir:
+    def test_passive_output_levels_separate_findings_and_diagnostics(self, compatibility) -> None:
+        for verbose, debug, quiet in ((False, False, False), (True, False, False),
+                                      (False, True, False), (True, True, True)):
+            with self.subTest(verbose=verbose, debug=debug, quiet=quiet), \
+                    tempfile.TemporaryDirectory() as temporary_dir:
                 output = io.StringIO()
+                output_path = Path(temporary_dir) / "subdomains.txt"
 
-                def run_provider(domain, telemetry_callback, **kwargs):
-                    telemetry_callback("Subfinder stderr: source detail")
+                def run_provider(domain, telemetry_callback, candidate_callback,
+                                 live_results, **kwargs):
+                    self.assertEqual(live_results, (verbose or debug) and not quiet)
+                    candidate_callback("www.example.com")
+                    if telemetry_callback is not None:
+                        telemetry_callback("Subfinder stderr: source detail")
                     return ProviderRunResult(["www.example.com"], "completed", 0)
 
                 with (
@@ -65,12 +73,48 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                     redirect_stdout(output),
                 ):
                     hylianscan.run_passive_subdomain_discovery(
-                        "example.com", ["subfinder"], Path(temporary_dir) / "subdomains.txt",
+                        "example.com", ["subfinder"], output_path,
                         provider_paths={"subfinder": sys.executable},
                         verbose=verbose,
+                        debug=debug,
+                        quiet=quiet,
                     )
 
-                self.assertEqual("source detail" in output.getvalue(), verbose)
+                rendered = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", output.getvalue())
+                rendered = re.sub(r"\x1b\]8;;[^\x1b]*\x1b\\", "", rendered)
+                self.assertEqual(rendered.splitlines().count("www.example.com"),
+                                 int((verbose or debug) and not quiet))
+                self.assertEqual("source detail" in rendered, debug and not quiet)
+                self.assertEqual(output_path.read_text(), "www.example.com\n")
+
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_verbose_prints_raw_names_from_discovery_and_dnsx(self, compatibility) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            output_path = Path(temporary_dir) / "subdomains.txt"
+            output = io.StringIO()
+
+            def discover(domain, candidate_callback, **kwargs):
+                candidate_callback("www.example.com")
+                return ProviderRunResult(["www.example.com"], "completed", 0)
+
+            def resolve(subdomains, candidate_callback, **kwargs):
+                candidate_callback("www.example.com")
+                return ProviderRunResult(["www.example.com"], "completed", 0)
+
+            with (patch("hylianscan.resolve_provider_executable", return_value=sys.executable),
+                  patch("hylianscan.run_subfinder", side_effect=discover),
+                  patch("hylianscan.run_dnsx", side_effect=resolve),
+                  redirect_stdout(output)):
+                hylianscan.run_passive_subdomain_discovery(
+                    "example.com", ["subfinder", "dnsx"], output_path, verbose=True,
+                )
+
+            rendered = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", output.getvalue())
+            rendered = re.sub(r"\x1b\]8;;[^\x1b]*\x1b\\", "", rendered)
+            self.assertEqual(rendered.splitlines().count("www.example.com"), 2)
+            self.assertNotIn("candidate:", rendered)
+            self.assertNotIn("confirmed:", rendered)
+            self.assertEqual(output_path.read_text(), "www.example.com\n")
 
     def test_provider_command_resolution_uses_default_command_from_path(self) -> None:
         with patch("modules.subdomain.shutil.which", return_value="/usr/bin/subfinder"):
@@ -159,6 +203,36 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             provider.call_args.kwargs["command"],
             ["/opt/tools/subfinder", "-d", "example.com", "-silent"],
         )
+
+    def test_subfinder_verbose_streams_findings_before_final_output(self) -> None:
+        real_popen = subprocess.Popen
+        observed = []
+        launched = []
+        script = (
+            "import sys, time; "
+            "print('[crtsh] www.example.com', file=sys.stderr, flush=True); "
+            "print('[WRN] source unavailable', file=sys.stderr, flush=True); "
+            "time.sleep(.3); "
+            "print('www.example.com'); print('api.example.com')"
+        )
+
+        def launch(command, **kwargs):
+            self.assertEqual(command[-1], "-v")
+            process = real_popen([sys.executable, "-u", "-c", script], **kwargs)
+            launched.append(process)
+            return process
+
+        with patch("modules.subdomain.subprocess.Popen", side_effect=launch):
+            result = run_subfinder(
+                "example.com", executable_path=sys.executable, live_results=True,
+                candidate_callback=lambda name: observed.append((name, launched[0].poll())),
+            )
+
+        self.assertEqual(result.subdomains, ["api.example.com", "www.example.com"])
+        self.assertEqual([name for name, _ in observed],
+                         ["www.example.com", "api.example.com"])
+        self.assertIsNone(observed[0][1])
+        self.assertEqual(result.diagnostics, ("[WRN] source unavailable",))
 
     def test_run_amass_builds_command_with_resolved_executable(self) -> None:
         with (
@@ -386,8 +460,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                     quiet=True,
                 )
 
-        self.assertIn("Raw Discoveries: 2", summary)
-        self.assertIn("Unique Subdomains: 2", summary)
+        self.assertIn("Raw Candidates: 2", summary)
+        self.assertIn("Unique Candidates: 2", summary)
         self.assertEqual(
             subfinder.call_args.kwargs["executable_path"],
             sys.executable,
@@ -409,7 +483,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                         for path in (output, report):
                             path.write_text("existing evidence", encoding="utf-8")
                         argv = ["hylianscan", "example.test", "-s", "-a", "--dnsx",
-                                "--output", directory, "--json-output", "subdomains.json"]
+                                "--output", str(output), "--json-output", "subdomains.json"]
                         if quiet:
                             argv.append("--quiet")
                         if path_kind != "PATH":

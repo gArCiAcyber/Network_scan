@@ -48,7 +48,17 @@ def resolve_output_workspace(
 
 def is_default_tcp_text_output_request(output_value: str | None) -> bool:
     """Return True when TCP text output was requested without an explicit path."""
-    return output_value in ("", DEFAULT_TCP_TEXT_ARGUMENT)
+    return output_value == ""
+
+
+def resolve_explicit_text_output_path(output_value: str) -> Path:
+    """Resolve an explicit TXT filename without changing its directory or name."""
+    if output_value.endswith(("/", "\\")):
+        raise ValueError("--output expects a file path, not a directory.")
+    output_path = Path(output_value).expanduser()
+    if output_path.is_dir():
+        raise ValueError("--output expects a file path, not a directory.")
+    return output_path if output_path.is_absolute() else Path.cwd() / output_path
 
 
 def is_default_tcp_json_output_request(output_value: str | None) -> bool:
@@ -82,15 +92,16 @@ def resolve_output_path(
     output_value: str | None,
     workspace_dir: Path | None = None,
 ) -> Path | None:
-    """Resolve a TCP text output filename inside the local output directory."""
+    """Resolve the optional TCP TXT output file."""
     if output_value is None:
         return None
 
     if workspace_dir is not None and is_default_tcp_text_output_request(output_value):
         return workspace_dir / TCP_REPORT_FILENAME
 
-    safe_filename = Path(output_value).name or DEFAULT_TCP_TEXT_ARGUMENT
-    return resolve_output_dir() / safe_filename
+    if is_default_tcp_text_output_request(output_value):
+        return resolve_output_dir() / DEFAULT_TCP_TEXT_ARGUMENT
+    return resolve_explicit_text_output_path(output_value)
 
 
 def resolve_json_output_path(
@@ -147,15 +158,9 @@ def resolve_subdomain_output_path(
     if output_value is None:
         return resolve_output_dir() / "hylianscan_subdomains.txt"
 
-    if output_value == DEFAULT_TCP_TEXT_ARGUMENT:
+    if is_default_tcp_text_output_request(output_value):
         return resolve_output_dir() / SUBDOMAIN_REPORT_FILENAME
-
-    requested_dir = Path(output_value).expanduser()
-
-    if not requested_dir.is_absolute():
-        requested_dir = Path.cwd() / requested_dir
-
-    return requested_dir / "subdomains.txt"
+    return resolve_explicit_text_output_path(output_value)
 
 
 def resolve_nmap_import_output_path(output_value: str | None) -> Path | None:
@@ -163,12 +168,9 @@ def resolve_nmap_import_output_path(output_value: str | None) -> Path | None:
     if output_value is None:
         return None
 
-    safe_filename = Path(output_value).name or NMAP_IMPORT_REPORT_FILENAME
-
-    if safe_filename == DEFAULT_TCP_TEXT_ARGUMENT:
-        safe_filename = NMAP_IMPORT_REPORT_FILENAME
-
-    return resolve_output_dir() / safe_filename
+    if is_default_tcp_text_output_request(output_value):
+        return resolve_output_dir() / NMAP_IMPORT_REPORT_FILENAME
+    return resolve_explicit_text_output_path(output_value)
 
 
 def resolve_nmap_import_json_output_path(output_value: str | None) -> Path | None:
