@@ -11,15 +11,12 @@ from uuid import uuid4
 from core.banner import show_banner
 from core.cli import (
     get_passive_providers,
-    get_scan_profile,
-    has_explicit_stance,
     is_quiet_mode,
     is_information_command,
     is_nmap_xml_import_command,
     parse_arguments,
     parse_match_codes,
     parse_ports_list,
-    resolve_port_profile_label,
     resolve_host_discovery,
     resolve_http_probing,
     resolve_max_rate,
@@ -31,9 +28,6 @@ from core.colors import (
     ALERT_RED,
     INFO_BLUE,
     RESET,
-    TRIFORCE_BLUE,
-    TRIFORCE_GREEN,
-    TRIFORCE_RED,
 )
 from core.info_commands import build_information_command_output
 from core.nmap_live_display import NmapServiceScanDisplay
@@ -108,56 +102,6 @@ from modules.target import TargetInfo, resolve_target
 from modules.tcp_scanner import ScanResult, scan_tcp_ports
 
 
-STANCE_ALIAS_COLORS = {
-    "Din": TRIFORCE_RED,
-    "Nayru": TRIFORCE_BLUE,
-    "Farore": TRIFORCE_GREEN,
-}
-
-
-def has_scan_config_overrides(args: object) -> bool:
-    """Return True when explicit TCP controls override scan defaults."""
-    return any(
-        getattr(args, attribute, None) is not None
-        for attribute in (
-            "ports",
-            "top_ports",
-            "port_profile",
-            "stance",
-            "threads",
-            "timeout",
-            "max_rate",
-            "host_discovery",
-            "http_probing",
-        )
-    )
-
-
-def format_scan_config_source(
-    has_overrides: bool,
-    scan_profile_name: str | None = None,
-) -> str:
-    """Return a short label explaining how the effective scan config was chosen."""
-    if scan_profile_name and has_overrides:
-        return f"Scan Profile: {scan_profile_name} + User Overrides"
-
-    if scan_profile_name:
-        return f"Scan Profile: {scan_profile_name}"
-
-    if has_overrides:
-        return "User Overrides"
-
-    return "Default Scan Values"
-
-
-def format_max_rate_label(max_rate: float | None) -> str:
-    """Return the display label for optional TCP connection start pacing."""
-    if max_rate is None:
-        return "Unlimited"
-
-    return f"{max_rate:g}/s"
-
-
 def format_match_codes(match_codes: list[int]) -> str:
     """Return a readable HTTP status-code filter label."""
     return ", ".join(str(status_code) for status_code in match_codes)
@@ -182,87 +126,46 @@ def show_target_orientation(
     stance: ScanStance,
     port_count: int,
     max_rate: float | None = None,
-    has_overrides: bool = False,
-    show_stance: bool = True,
     nmap_enabled: bool = False,
-    port_profile_label: str | None = None,
     match_codes: list[int] | None = None,
     host_discovery: str | None = None,
-    scan_profile_name: str | None = None,
     http_probing: bool = True,
 ) -> None:
-    """Render the target orientation and effective scan configuration block."""
-    alias_color = STANCE_ALIAS_COLORS.get(stance.lore_alias, INFO_BLUE)
+    """Show the selected TCP scope and controls before scanning."""
     label_width = 14
-    lines = ["[*] Target Orientation:"]
-
-    lines.extend(
-        [
-            f"{'Host':<{label_width}}: {target.target_host}",
-            f"{'Resolved IP':<{label_width}}: {target.resolved_ip}",
-        ]
+    addresses = target.address_records
+    address_label = "Resolved IPs" if len(addresses) > 1 else "Resolved IP"
+    address_values = ", ".join(
+        f"{address.address}%{address.scope_id}" if address.scope_id else address.address
+        for address in addresses
     )
+    lines = [
+        "[*] TCP Connect Scan:",
+        f"{'Target':<{label_width}}: {target.target_host}",
+        f"{address_label:<{label_width}}: {address_values}",
+        f"{'Port Scope':<{label_width}}: {port_count} "
+        f"{'port' if port_count == 1 else 'ports'} per address",
+        f"{'Workers':<{label_width}}: {stance.workers}",
+        f"{'Timeout':<{label_width}}: {stance.timeout:.2f}s",
+    ]
 
-    if target.addresses:
-        lines.append(f"{'Address Mode':<{label_width}}: {target.address_family}")
-
-        if target.ipv4_addresses:
-            lines.append(
-                f"{'IPv4 Addresses':<{label_width}}: "
-                f"{', '.join(address.address for address in target.ipv4_addresses)}"
-            )
-
-        if target.ipv6_addresses:
-            lines.append(
-                f"{'IPv6 Addresses':<{label_width}}: "
-                f"{', '.join(address.address for address in target.ipv6_addresses)}"
-            )
-
-        reverse_dns = [
-            f"{address.address} -> {address.reverse_dns}"
-            for address in target.address_records
-            if address.reverse_dns
-        ]
-        if reverse_dns:
-            lines.append(f"{'Reverse DNS':<{label_width}}: {'; '.join(reverse_dns)}")
+    if max_rate is not None:
+        lines.append(f"{'Max Rate':<{label_width}}: {max_rate:g} connection starts/s")
 
     if host_discovery:
         lines.append(f"{'Host Discovery':<{label_width}}: {host_discovery}")
 
-    if show_stance:
-        lines.append(
-            f"{'Stance':<{label_width}}: {stance.name} "
-            f"({alias_color}{stance.lore_alias}{RESET}{INFO_BLUE})"
-        )
-
-    lines.extend(
-        [
-            f"{'Workers':<{label_width}}: {stance.workers}",
-            f"{'Timeout':<{label_width}}: {stance.timeout:.2f}s",
-            f"{'Max Rate':<{label_width}}: {format_max_rate_label(max_rate)}",
-            (
-                f"{'Config Source':<{label_width}}: "
-                f"{format_scan_config_source(has_overrides, scan_profile_name)}"
-            ),
-            f"{'HTTP Probing':<{label_width}}: {'Enabled' if http_probing else 'Disabled'}",
-        ]
-    )
+    if not http_probing:
+        lines.append(f"{'HTTP Probing':<{label_width}}: Disabled")
 
     if nmap_enabled:
-        lines.append("Nmap Enrichment : Enabled (post-scan)")
-
-    lines.append(f"{'Scan Phase':<{label_width}}: Hylian TCP Connect Scan")
-
-    if port_profile_label:
-        lines.append(f"{'Port Profile':<{label_width}}: {port_profile_label}")
+        lines.append(f"{'Nmap Enrichment':<{label_width}}: Enabled (post-scan)")
 
     if match_codes is not None:
         lines.append(
             f"{'HTTP Filter':<{label_width}}: Status codes "
             f"{format_match_codes(match_codes)}"
         )
-
-    lines.append(f"{'Port Scope':<{label_width}}: {port_count} ports")
 
     print()
     print(f"{INFO_BLUE}{chr(10).join(lines)}{RESET}")
@@ -707,12 +610,9 @@ def main() -> None:
                 match_codes,
             )
             scan_stance = resolve_scan_stance(args)
-            scan_profile = get_scan_profile(args)
             max_rate = resolve_max_rate(args)
             http_probing = resolve_http_probing(args)
-            has_overrides = has_scan_config_overrides(args)
             scan_scope = resolve_scan_scope_label(args)
-            port_profile_label = resolve_port_profile_label(args)
             resolution_started = time.perf_counter()
             target = resolve_target(
                 args.target,
@@ -740,13 +640,9 @@ def main() -> None:
                     scan_stance,
                     len(ports_to_scan),
                     max_rate=max_rate,
-                    has_overrides=has_overrides,
-                    show_stance=has_explicit_stance(args) or scan_profile is not None,
                     nmap_enabled=getattr(args, "nmap", False),
-                    port_profile_label=port_profile_label,
                     match_codes=match_codes,
                     host_discovery=host_discovery,
-                    scan_profile_name=(scan_profile.name if scan_profile else None),
                     http_probing=http_probing,
                 )
 

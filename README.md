@@ -249,6 +249,8 @@ python3 hylianscan.py -u example.com --host-discovery tcp -p 80,443
 python3 hylianscan.py -u example.com -p 80,443 --resolve-timeout 5 --probe-timeout 8
 ```
 
+The startup summary shows resolved addresses, ports selected per address, workers, and socket timeout. It lists a rate limit and optional scan stages only when selected, and notes when HTTP probing is disabled. JSON output retains PTR names and detailed run settings; the TXT report includes effective settings.
+
 ### Optional Live Nmap Enrichment
 
 Use `--nmap` when you want Hylianscan to scan first, then ask Nmap for service/version enrichment only on ports Hylianscan already found open.

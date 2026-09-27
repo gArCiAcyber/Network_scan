@@ -1,160 +1,87 @@
-"""Tests for TCP scan orientation display helpers."""
+"""Tests for the concise TCP scan header."""
 
-import argparse
 import io
 import re
+import socket
 import unittest
 from contextlib import redirect_stdout
 
 import hylianscan
 from modules.scan_stance import ScanStance
-from modules.target import TargetInfo
+from modules.target import ResolvedAddress, TargetInfo
 
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
 
-def strip_ansi(value: str) -> str:
-    """Remove ANSI escape codes from captured terminal output."""
-    return ANSI_PATTERN.sub("", value)
+def render_orientation(target: TargetInfo, port_count: int = 3, **options: object) -> str:
+    output = io.StringIO()
+    stance = ScanStance("balanced", "Nayru", 50, 1.0)
+    with redirect_stdout(output):
+        hylianscan.show_target_orientation(target, stance, port_count, **options)
+    return ANSI_PATTERN.sub("", output.getvalue())
 
 
 class ScanOrientationTests(unittest.TestCase):
-    """Validate effective TCP scan configuration display behavior."""
-
-    def test_default_stance_values_are_reported_without_overrides(self) -> None:
-        args = argparse.Namespace(threads=None, timeout=None, max_rate=None)
-
-        self.assertFalse(hylianscan.has_scan_config_overrides(args))
-        self.assertEqual(
-            hylianscan.format_scan_config_source(False),
-            "Default Scan Values",
-        )
-
-    def test_manual_threads_timeout_or_max_rate_are_custom_overrides(self) -> None:
-        override_args = (
-            argparse.Namespace(threads=200, timeout=None, max_rate=None),
-            argparse.Namespace(threads=None, timeout=0.75, max_rate=None),
-            argparse.Namespace(threads=None, timeout=None, max_rate=100.0),
-        )
-
-        for args in override_args:
-            with self.subTest(args=args):
-                self.assertTrue(hylianscan.has_scan_config_overrides(args))
-
-        self.assertEqual(
-            hylianscan.format_scan_config_source(True),
-            "User Overrides",
-        )
-
-    def test_max_rate_label_distinguishes_unlimited_and_configured_values(self) -> None:
-        self.assertEqual(hylianscan.format_max_rate_label(None), "Unlimited")
-        self.assertEqual(hylianscan.format_max_rate_label(100.0), "100/s")
-        self.assertEqual(hylianscan.format_max_rate_label(12.5), "12.5/s")
-
-    def test_target_orientation_shows_effective_scan_configuration(self) -> None:
+    def test_header_shows_actual_addresses_and_port_scope_once(self) -> None:
         target = TargetInfo(
             raw_input="example.com",
             target_host="example.com",
-            resolved_ip="93.184.216.34",
+            resolved_ip="192.0.2.10",
             is_ip_address=False,
-        )
-        stance = ScanStance(
-            name="fast",
-            lore_alias="Din",
-            workers=300,
-            timeout=0.75,
-        )
-
-        output = io.StringIO()
-        with redirect_stdout(output):
-            hylianscan.show_target_orientation(
-                target=target,
-                stance=stance,
-                port_count=1000,
-                max_rate=100.0,
-                has_overrides=True,
-                show_stance=True,
-                port_profile_label="web / sheikah",
-                match_codes=[200, 301, 302],
-            )
-
-        rendered = strip_ansi(output.getvalue())
-
-        self.assertIn("Stance        : fast (Din)", rendered)
-        self.assertIn("Workers       : 300", rendered)
-        self.assertIn("Timeout       : 0.75s", rendered)
-        self.assertIn("Max Rate      : 100/s", rendered)
-        self.assertIn("Config Source : User Overrides", rendered)
-        self.assertIn("Scan Phase    : Hylian TCP Connect Scan", rendered)
-        self.assertIn("Port Profile  : web / sheikah", rendered)
-        self.assertIn("HTTP Filter   : Status codes 200, 301, 302", rendered)
-        self.assertIn("Port Scope    : 1000 ports", rendered)
-
-    def test_target_orientation_hides_implicit_stance_but_keeps_controls(self) -> None:
-        target = TargetInfo(
-            raw_input="example.com",
-            target_host="example.com",
-            resolved_ip="93.184.216.34",
-            is_ip_address=False,
-        )
-        stance = ScanStance(
-            name="balanced",
-            lore_alias="Nayru",
-            workers=50,
-            timeout=1.0,
+            addresses=(
+                ResolvedAddress("192.0.2.10", socket.AF_INET, "ptr.example.com"),
+                ResolvedAddress("192.0.2.11", socket.AF_INET, "ptr.example.com"),
+            ),
+            address_family="dual-stack",
         )
 
-        output = io.StringIO()
-        with redirect_stdout(output):
-            hylianscan.show_target_orientation(
-                target=target,
-                stance=stance,
-                port_count=400,
-                max_rate=None,
-                has_overrides=False,
-                show_stance=False,
-            )
+        rendered = render_orientation(target)
 
-        rendered = strip_ansi(output.getvalue())
-
-        self.assertNotIn("Stance", rendered)
+        self.assertIn("[*] TCP Connect Scan:", rendered)
+        self.assertIn("Target        : example.com", rendered)
+        self.assertIn("Resolved IPs  : 192.0.2.10, 192.0.2.11", rendered)
+        self.assertIn("Port Scope    : 3 ports per address", rendered)
         self.assertIn("Workers       : 50", rendered)
         self.assertIn("Timeout       : 1.00s", rendered)
-        self.assertIn("Max Rate      : Unlimited", rendered)
-        self.assertIn("Config Source : Default Scan Values", rendered)
-        self.assertIn("Scan Phase    : Hylian TCP Connect Scan", rendered)
-        self.assertIn("Port Scope    : 400 ports", rendered)
-        self.assertNotIn("Nmap Enrichment", rendered)
+        self.assertNotIn("Address Mode", rendered)
+        self.assertNotIn("Reverse DNS", rendered)
+        self.assertNotIn("ptr.example.com", rendered)
+        self.assertNotIn("Max Rate", rendered)
+        self.assertNotIn("Config Source", rendered)
+        self.assertNotIn("HTTP Probing", rendered)
 
-    def test_target_orientation_shows_nmap_intent_only_when_enabled(self) -> None:
+    def test_header_shows_selected_optional_controls(self) -> None:
         target = TargetInfo(
-            raw_input="example.com",
-            target_host="example.com",
-            resolved_ip="93.184.216.34",
-            is_ip_address=False,
-        )
-        stance = ScanStance(
-            name="balanced",
-            lore_alias="Nayru",
-            workers=50,
-            timeout=1.0,
+            raw_input="fe80::1",
+            target_host="fe80::1",
+            resolved_ip="fe80::1",
+            is_ip_address=True,
+            addresses=(ResolvedAddress("fe80::1", socket.AF_INET6, scope_id=4),),
+            address_family="ipv6",
         )
 
-        output = io.StringIO()
-        with redirect_stdout(output):
-            hylianscan.show_target_orientation(
-                target=target,
-                stance=stance,
-                port_count=400,
-                show_stance=False,
-                nmap_enabled=True,
-            )
+        rendered = render_orientation(
+            target,
+            max_rate=12.5,
+            host_discovery="tcp",
+            http_probing=False,
+            nmap_enabled=True,
+            match_codes=[200, 301],
+        )
 
-        rendered = strip_ansi(output.getvalue())
+        self.assertIn("Resolved IP   : fe80::1%4", rendered)
+        self.assertIn("Max Rate      : 12.5 connection starts/s", rendered)
+        self.assertIn("Host Discovery: tcp", rendered)
+        self.assertIn("HTTP Probing  : Disabled", rendered)
+        self.assertIn("Nmap Enrichment: Enabled (post-scan)", rendered)
+        self.assertIn("HTTP Filter   : Status codes 200, 301", rendered)
 
-        self.assertIn("Nmap Enrichment : Enabled (post-scan)", rendered)
-        self.assertIn("Scan Phase    : Hylian TCP Connect Scan", rendered)
+    def test_header_supports_legacy_single_address_target(self) -> None:
+        target = TargetInfo("192.0.2.10", "192.0.2.10", "192.0.2.10", True)
+        rendered = render_orientation(target, port_count=1)
+        self.assertIn("Resolved IP   : 192.0.2.10", rendered)
+        self.assertIn("Port Scope    : 1 port per address", rendered)
 
 
 if __name__ == "__main__":
