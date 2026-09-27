@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from core.output import write_text_atomic
 from modules.http_cookies import parse_http_cookies, parse_set_cookie_header
 from modules.http_metadata import (
     get_first_header,
@@ -38,7 +39,13 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
         "content_type": None,
         "headers": {},
         "cookies": [],
-        "security": build_http_security_observations({}, url),
+        "security": {
+            "applicable": False,
+            "headers": {},
+            "present": [],
+            "missing": [],
+            "observations": [],
+        },
     }
 
     response_head = parse_http_response_head(banner)
@@ -58,9 +65,11 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
             "content_type": get_first_header(headers, "content-type"),
             "headers": headers,
             "cookies": parse_http_cookies(headers),
-            "security": build_http_security_observations(headers, url),
         }
     )
+
+    if response_head.headers_complete:
+        metadata["security"] = build_http_security_observations(headers, url)
 
     return metadata
 
@@ -306,7 +315,6 @@ def write_tcp_json_report(
     host_discovery_results: Sequence[HostDiscoveryResult] | None = None,
 ) -> None:
     """Write TCP scan results as pretty JSON."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     document = build_tcp_scan_document(
         scan_result,
         report_filters=report_filters,
@@ -314,9 +322,9 @@ def write_tcp_json_report(
         native_open_port_count=native_open_port_count,
         host_discovery_results=host_discovery_results,
     )
-    output_path.write_text(
+    write_text_atomic(
+        output_path,
         json.dumps(document, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
     )
 
 
@@ -470,16 +478,15 @@ def write_subdomain_json_report(
     final_subdomains: Sequence[str] | None = None,
 ) -> None:
     """Write passive subdomain discovery results as provider-aware JSON."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     document = build_subdomain_discovery_document(
         target_domain,
         provider_results,
         httpx_result=httpx_result,
         final_subdomains=final_subdomains,
     )
-    output_path.write_text(
+    write_text_atomic(
+        output_path,
         json.dumps(document, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
     )
 
 
@@ -590,9 +597,8 @@ def write_nmap_xml_import_json_report(
     output_path: Path,
 ) -> None:
     """Write imported Nmap XML evidence as pretty JSON."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     document = build_nmap_xml_import_document(import_result, source_path)
-    output_path.write_text(
+    write_text_atomic(
+        output_path,
         json.dumps(document, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
     )

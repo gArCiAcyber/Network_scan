@@ -1,14 +1,66 @@
 """Tests for banner grabbing helper logic."""
 
 import unittest
-from unittest.mock import Mock, patch
+import socket
+from unittest.mock import ANY, Mock, patch
 
 from modules import banner_grabber
 from modules.probes import starttls as starttls_probe
+from modules.probes.generic import BANNER_SIZE, MAX_BANNER_SIZE, grab_banner
+from modules.http_metadata import extract_http_header
 
 
 class BannerGrabberHelperTests(unittest.TestCase):
     """Validate pure banner-grabber helpers and safe mocked dispatch."""
+
+    def test_starttls_protocols_wait_for_fragmented_complete_replies(self) -> None:
+        cases = (
+            (starttls_probe.grab_smtp_starttls_banner,
+             (b"220-mail.test\r\n220 ready\r\n",
+              b"250-mail.test\r\n250-STARTTLS\r\n250 HELP\r\n", b"220 Ready for TLS\r\n")),
+            (starttls_probe.grab_imap_starttls_banner,
+             (b"* OK ready\r\n", b"* CAPABILITY IMAP4rev1 STARTTLS\r\na001 OK done\r\n",
+              b"* OK notice\r\na002 OK start TLS\r\n")),
+            (starttls_probe.grab_pop3_stls_banner,
+             (b"+OK ready\r\n", b"+OK capabilities\r\nSTLS\r\nUSER\r\n.\r\n",
+              b"+OK start TLS\r\n")),
+            (starttls_probe.grab_ftp_auth_tls_banner,
+             (b"220-Welcome\r\n220 ready\r\n", b"234-Starting TLS\r\n234 proceed\r\n")),
+        )
+        for probe, responses in cases:
+            with self.subTest(probe=probe.__name__):
+                client = Mock()
+                client.gettimeout.return_value = 1.0
+                fragments = [bytes([value]) for response in responses for value in response]
+                client.recv.side_effect = fragments
+                with patch.object(starttls_probe, "complete_tls_upgrade_probe") as upgrade:
+                    probe(client, "mail.test")
+                upgrade.assert_called_once()
+                self.assertTrue(upgrade.call_args.args[-1]["supported"])
+                self.assertTrue(upgrade.call_args.args[-1]["attempted"])
+                self.assertEqual(client.recv.call_count, len(fragments))
+                self.assertEqual(client.sendall.call_count, len(responses) - 1)
+
+    def test_framed_reads_remain_bounded_and_preserve_timeout_evidence(self) -> None:
+        client = Mock()
+        client.gettimeout.return_value = 1.0
+        client.recv.return_value = b"x" * BANNER_SIZE
+        banner = grab_banner(client, response_complete=lambda data: False)
+        self.assertEqual(len(banner), MAX_BANNER_SIZE)
+        self.assertEqual(client.recv.call_count, MAX_BANNER_SIZE // BANNER_SIZE)
+        client.recv.side_effect = [b"250-partial\r\n", socket.timeout()]
+        self.assertEqual(grab_banner(client, response_complete=starttls_probe.numeric_response_complete),
+                         "250-partial")
+
+    def test_fragments_share_the_original_response_timeout(self) -> None:
+        client = Mock()
+        client.gettimeout.return_value = 1.0
+        client.recv.return_value = b"250-partial\r\n"
+        with patch("modules.probes.generic.time.monotonic", side_effect=[10.0, 10.1, 11.1]):
+            banner = grab_banner(client, response_complete=starttls_probe.numeric_response_complete)
+        self.assertEqual(banner, "250-partial")
+        client.recv.assert_called_once()
+        client.settimeout.assert_called_with(1.0)
 
     def test_clean_banner_decodes_bytes_and_collapses_whitespace(self) -> None:
         data = b"SSH-2.0-TestServer\r\nReady\t now\n"
@@ -27,16 +79,19 @@ class BannerGrabberHelperTests(unittest.TestCase):
 
     def test_grab_banner_reads_fragmented_http_headers(self) -> None:
         client = Mock()
+        client.gettimeout.return_value = 1.0
         client.recv.side_effect = [
             b"HTTP/1.1 200 OK\r\nServer: test\r\n",
             b"Content-Type: text/plain\r\n\r\n",
         ]
 
-        banner = banner_grabber.grab_banner(client, end_marker=b"\r\n\r\n")
+        banner = banner_grabber.grab_http_banner(client, "example.test")
 
         self.assertIn("Server: test", banner)
         self.assertIn("Content-Type: text/plain", banner)
         self.assertEqual(client.recv.call_count, 2)
+        self.assertIn("\r\n", banner)
+        self.assertEqual(extract_http_header(banner, "server"), "test")
 
     def test_merge_banner_parts_joins_unique_non_empty_parts(self) -> None:
         self.assertEqual(
@@ -436,7 +491,9 @@ class BannerGrabberHelperTests(unittest.TestCase):
                 "error": None,
             },
         )
-        probe_mock.assert_called_once_with(client, banner_grabber.IMAP_CAPABILITY_PAYLOAD)
+        probe_mock.assert_called_once_with(
+            client, banner_grabber.IMAP_CAPABILITY_PAYLOAD, response_complete=ANY,
+        )
 
     def test_pop3_stls_fallback_when_upgrade_is_rejected(self) -> None:
         client = Mock()

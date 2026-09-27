@@ -90,6 +90,7 @@ def build_http_security_observations(
         }
 
     return {
+        "applicable": True,
         "headers": header_documents,
         "present": present_headers,
         "missing": missing_headers,

@@ -32,4 +32,5 @@ def grab_http_banner(client: socket.socket, target_host: str) -> str | None:
         client,
         build_http_head_request(target_host),
         end_marker=b"\r\n\r\n",
+        preserve_lines=True,
     )

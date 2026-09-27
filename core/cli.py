@@ -196,7 +196,7 @@ def parse_arguments() -> argparse.Namespace:
     passive_group.add_argument(
         "--httpx",
         action="store_true",
-        help="Probe passive-discovery results with ProjectDiscovery HTTPx.",
+        help="Probe validated passive-discovery hosts within the target domain with HTTPx.",
     )
     integrations_group.add_argument(
         "--httpx-path",
@@ -315,7 +315,8 @@ def parse_arguments() -> argparse.Namespace:
         nargs="?",
         const="hylianscan_results.txt",
         metavar="PATH",
-        help="Save TXT reports for TCP scans, passive discovery, or Nmap XML import.",
+        help=("Save TXT reports for TCP scans, passive discovery, or Nmap XML import. "
+              "Default TCP/passive paths use a unique run workspace."),
     )
     output_group.add_argument(
         "--json-output",

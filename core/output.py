@@ -2,8 +2,11 @@
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+from itertools import count
+import os
 from pathlib import Path
 import re
+import tempfile
 
 
 DEFAULT_TCP_TEXT_ARGUMENT = "hylianscan_results.txt"
@@ -41,9 +44,18 @@ def resolve_output_workspace(
     timestamp: str | None = None,
     timestamp_factory: Callable[[], str] = build_timestamp,
 ) -> Path:
-    """Resolve the target-specific timestamped output workspace directory."""
+    """Reserve a new workspace, even when runs start in the same second."""
     timestamp_value = timestamp or timestamp_factory()
-    return resolve_output_dir() / sanitize_target_name(target) / timestamp_value
+    target_dir = resolve_output_dir() / sanitize_target_name(target)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for suffix in count():
+        name = timestamp_value if suffix == 0 else f"{timestamp_value}_{suffix}"
+        workspace = target_dir / name
+        try:
+            workspace.mkdir()
+        except FileExistsError:
+            continue
+        return workspace
 
 
 def is_default_tcp_text_output_request(output_value: str | None) -> bool:
@@ -187,20 +199,37 @@ def resolve_nmap_import_json_output_path(output_value: str | None) -> Path | Non
     return resolve_output_dir() / safe_filename
 
 
+def write_text_atomic(output_path: Path, text: str) -> None:
+    """Replace a report only after its complete contents are written to disk."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=output_path.parent,
+            prefix=f".{output_path.name}.", suffix=".tmp", delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(text)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, output_path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
 def save_report(report_text: str, output_path: Path | None) -> None:
     """Persist a TCP text report when requested by the operator."""
     if output_path is None:
         return
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     plain_report = ANSI_ESCAPE_PATTERN.sub("", report_text)
-    output_path.write_text(plain_report + "\n", encoding="utf-8")
+    write_text_atomic(output_path, plain_report + "\n")
 
 
 def save_subdomain_results(subdomains: list[str], output_path: Path) -> None:
     """Persist passive subdomain results without flooding the terminal."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(subdomains) + "\n", encoding="utf-8")
+    write_text_atomic(output_path, "\n".join(subdomains) + "\n")
 
 
 def resolve_subdomain_candidates_path(output_path: Path) -> Path:

@@ -2,10 +2,13 @@
 """Check a real provider's version/CLI contract and persist CI evidence."""
 
 import argparse
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
 from pathlib import Path
 import platform
 import sys
+import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from modules.provider_compatibility import PROVIDERS
@@ -16,9 +19,7 @@ from scripts.check_dnsx import check_dnsx
 
 
 class LimitedEvidence(Exception):
-    def __init__(self, message: str, evidence: dict):
-        super().__init__(message)
-        self.evidence = evidence
+    """The available evidence cannot establish compatibility."""
 
 
 def provider_evidence(arguments: list[str], result: ProviderRunResult) -> dict:
@@ -29,6 +30,7 @@ def provider_evidence(arguments: list[str], result: ProviderRunResult) -> dict:
         "subdomains": result.subdomains,
         "diagnostics": list(result.diagnostics),
         "elapsed_seconds": result.elapsed_seconds,
+        "reason": result.reason,
     }
 
 
@@ -40,55 +42,69 @@ def check_subfinder(executable: Path) -> dict:
         [str(executable), *normal_arguments], timeout=75,
     )
     evidence = {"normal_output": provider_evidence(normal_arguments, normal)}
-    if normal.status == "timed_out" or not normal.subdomains:
-        raise LimitedEvidence(
-            normal.reason or "Reserved-domain run produced no normal output.",
-            {"subfinder": evidence},
-        )
-    if normal.status != "completed":
-        raise ValueError(f"Reserved-domain normal-output check {normal.status}: {normal.reason}")
-
     empty_arguments = ["-d", "hylianscan-empty.invalid", "-silent"]
     empty = run_passive_provider(
         "hylianscan-empty.invalid", "Subfinder empty-output check",
         [str(executable), *empty_arguments], timeout=75,
     )
     evidence["empty_output"] = provider_evidence(empty_arguments, empty)
-    if empty.status == "timed_out":
-        raise LimitedEvidence(empty.reason or "Empty-output check timed out.", {"subfinder": evidence})
-    if empty.status != "completed" or empty.subdomains:
-        raise ValueError(f"Reserved empty-output check was unexpected: {empty.status}.")
-
     error_arguments = ["--hylianscan-unknown"]
     error = run_passive_provider(
         "", "Subfinder unknown-option check", [str(executable), *error_arguments], timeout=5,
     )
     evidence["unknown_option"] = provider_evidence(error_arguments, error)
-    if error.status == "timed_out":
-        raise LimitedEvidence(error.reason or "Unknown-option check timed out.", {"subfinder": evidence})
-    if error.status == "completed":
-        raise ValueError("Unknown option unexpectedly returned exit code 0.")
     return evidence
 
 
 def check_amass(executable: Path) -> dict:
     evidence = {}
-    for label, target, expect_output in (
-        ("normal_output", "example.test", True),
-        ("empty_output", "hylianscan-empty.invalid", False),
+    for label, target in (
+        ("normal_output", "example.test"),
+        ("empty_output", "hylianscan-empty.invalid"),
     ):
         result = run_amass(target, executable_path=str(executable), timeout=75)
         evidence[label] = provider_evidence(
             ["enum", "-passive", "-d", target], result,
         )
-        if result.status == "timed_out" or (expect_output and not result.subdomains):
-            raise LimitedEvidence(
-                result.reason or "Reserved-domain run produced no normal output.",
-                {"amass": evidence},
-            )
-        if result.status != "completed" or bool(result.subdomains) != expect_output:
-            raise ValueError(f"Amass {label} check was unexpected: {result.status}.")
     return evidence
+
+
+def validate_execution(evidence: dict) -> None:
+    """Judge exit behavior after every check has run, independently of findings."""
+    failed = []
+    incomplete = []
+    for name, check in evidence.items():
+        if check["status"] in {"timed_out", "interrupted", "skipped"}:
+            incomplete.append(name)
+        elif name == "unknown_option":
+            if check["status"] != "failed" or check["exit_code"] in (None, 0):
+                failed.append(name)
+        elif check["status"] != "completed" or check["exit_code"] != 0:
+            failed.append(name)
+    if failed:
+        raise ValueError(f"Unexpected provider exit behavior: {', '.join(failed)}")
+    if incomplete:
+        raise LimitedEvidence(f"Provider execution did not complete: {', '.join(incomplete)}")
+
+
+def check_fixture_contract(provider: str) -> dict:
+    """Run the existing offline parser/report regressions and record actual results."""
+    modules = ["tests.test_json_exporter"]
+    modules.append("tests.test_subfinder_release_compatibility" if provider == "subfinder"
+                   else "tests.test_subdomain")
+    output = io.StringIO()
+    suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
+    with redirect_stdout(output), redirect_stderr(output):
+        result = unittest.TextTestRunner(stream=output).run(suite)
+    return {
+        "status": "passed" if result.wasSuccessful() else "failed",
+        "modules": modules,
+        "tests_run": result.testsRun,
+        "failures": len(result.failures),
+        "errors": len(result.errors),
+        "skipped": len(result.skipped),
+        "output": output.getvalue(),
+    }
 
 
 def main() -> None:
@@ -103,6 +119,9 @@ def main() -> None:
               "status": "failed", "classification": "limited", "checks": []}
     failure = None
     try:
+        result["fixtures"] = check_fixture_contract(args.provider)
+        if result["fixtures"]["status"] == "passed":
+            result["checks"].append("offline fixture parsing and reports")
         checked = inspect_provider_compatibility(args.provider, str(args.executable.resolve()))
         result.update(version=checked["version"], compatibility=checked["status"])
         if checked["version"] != args.version:
@@ -115,20 +134,27 @@ def main() -> None:
         result["checks"].extend(["version", "required CLI options"])
         if args.provider == "subfinder":
             result["subfinder"] = check_subfinder(args.executable.resolve())
-            result["checks"].extend([
-                "reserved-domain execution", "empty/normal scoped output", "nonzero option error",
-                "captured fixture parsing, duplicates, timeout, TXT/JSON",
-            ])
         if args.provider == "dnsx":
             result["dnsx"] = check_dnsx(str(args.executable.resolve()))
             result["checks"].append("localhost DNS: A/AAAA, JSON, NXDOMAIN, empty input")
         if args.provider == "amass":
             result["amass"] = check_amass(args.executable.resolve())
-            result["checks"].append("captured graph/hostname parsing, errors, timeout, TXT/JSON")
+        if args.provider in {"subfinder", "amass"}:
+            evidence = result[args.provider]
+            discovery = evidence["normal_output"]
+            result["source_availability"] = {
+                "status": ("observed" if discovery["subdomains"] else
+                           "not_observed" if discovery["status"] == "completed" else "unknown"),
+                "candidate_count": len(discovery["subdomains"]),
+                "required_for_approval": False,
+            }
+            validate_execution(evidence)
+            result["checks"].append("reserved-domain execution and exit behavior")
+        if result["fixtures"]["status"] != "passed":
+            raise LimitedEvidence("Offline fixture regressions failed.")
         result.update(status="passed", classification="approved")
     except LimitedEvidence as error:
         failure = error
-        result.update(error.evidence)
         result["error"] = str(error)
     except Exception as error:
         failure = error

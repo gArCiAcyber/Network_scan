@@ -139,6 +139,7 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Protocol-aware probes for common services.
 * HTTP status, header, content-type, and URL hints.
 * STARTTLS/STLS/AUTH TLS upgrade checks for supported services.
+* Fragmented upgrade responses are read to their protocol terminator within the response timeout and 64 KiB limit.
 * TLS certificate metadata for implicit TLS services.
 * Passive banner fallback for unknown services.
 * Clean final terminal panel.
@@ -175,10 +176,12 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Nmap runs only against TCP ports already found open by Hylianscan.
 * Nmap must be installed separately.
 * Enrichment is printed to the terminal and included in saved TXT/JSON reports when `-o` and/or `--json-output` are used.
+* Startup failures, including permission errors, are recorded as skipped enrichment while native reports are saved.
 
 ### Optional HTTPx Web Probing
 
 * Runs ProjectDiscovery HTTPx after passive discovery and optional DNSx filtering when `--httpx` is provided.
+* Validates every input hostname against the requested domain before launching HTTPx; malformed or out-of-scope batches are rejected.
 * Probes both HTTP and HTTPS and collects status, title, technologies, server, IP, CNAME, and redirect location.
 * Saves the raw structured findings as `httpx.jsonl` and embeds them in the passive JSON report.
 * HTTPx must be installed separately or selected with `--httpx-path`.
@@ -380,11 +383,21 @@ python3 hylianscan.py scanme.nmap.org -p 1-1000 -t 100 -T 1.0 --max-rate 50
 
 ## 📁 Output
 
-When output is enabled, Hylianscan creates organized workspaces:
+Default TCP and passive outputs use a newly reserved workspace for each run:
 
 ```text
 output/<target>/<timestamp>/
 ```
+
+If another run already reserved that UTC timestamp, a numeric suffix is added,
+for example `output/example.test/20260923_120000_1/`. Concurrent runs cannot reuse
+the same default workspace. Reusing an explicit output name replaces that report;
+Nmap XML imports use their existing filenames directly under `output/`.
+
+TXT, JSON, and HTTPx JSONL files are written to temporary files beside the destination
+and atomically replaced after a successful write. A failed write leaves the previous
+file intact. Passive candidate checkpoints use the same protection; the observed-name
+journal continues to append discoveries as they arrive.
 
 Common files:
 
@@ -401,6 +414,13 @@ nmap_import_results.json
 TXT output is designed for quick reading.
 JSON output is designed for automation, parsing, evidence tracking, and later tooling.
 
+HTTP banner evidence retains response line breaks. Headers are parsed one line at a
+time, including fields such as `Server:nginx`; body text and text inside field values
+cannot create extra headers. `http.security.applicable` is `false` for non-HTTP,
+malformed, or incomplete responses, with empty security observations. Legacy compact
+banners can still expose a status code, but their lost header boundaries are not guessed.
+The additive applicability field keeps JSON schema version 1.
+
 ---
 
 ## 🧪 Testing
@@ -410,6 +430,10 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 python3 -m compileall -q hylianscan.py core modules tests
 python3 hylianscan.py --help
 ```
+
+Release validation (`python3 scripts/validate_release.py`) places its import reports
+and pip metadata build in exclusive temporary directories. Existing reports and
+package metadata are preserved; the pip dry run may access the network.
 
 ---
 

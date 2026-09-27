@@ -15,14 +15,13 @@ import zipfile
 import hylianscan
 from modules.provider_compatibility import PROVIDERS, classify_version, missing_flags
 from modules.subdomain import ProviderRunResult, inspect_provider_compatibility
-from scripts.check_provider import LimitedEvidence, check_subfinder
+from scripts.check_provider import LimitedEvidence, check_amass, check_subfinder, main as check_provider_main, validate_execution
 from scripts.summarize_provider_checks import propose_promotions, summarize
 from scripts.provider_updates import collect_updates, install_release, stable_version
 
 
 class CompatibilityTests(unittest.TestCase):
     def test_policy_keeps_new_versions_unverified_and_rejects_unknown_majors(self):
-        self.assertEqual(classify_version("subfinder", "2.13.0"), "tested")
         for tool, spec in PROVIDERS.items():
             with self.subTest(tool=tool):
                 self.assertEqual(classify_version(tool, spec["baseline"]), "tested")
@@ -33,6 +32,16 @@ class CompatibilityTests(unittest.TestCase):
         self.assertEqual(classify_version("amass", "5.0.0"), "tested")
         self.assertEqual(classify_version("amass", "5.1.1"), "untested")
         self.assertIn("-a", missing_flags("dnsx", "-aaaa -silent"))
+
+    def test_subfinder_213_evidence_is_limited_to_windows_amd64(self):
+        for system, architecture, expected in (
+            ("Windows", "AMD64", "tested"), ("Windows", "x86_64", "tested"),
+            ("Linux", "x86_64", "untested"), ("Windows", "ARM64", "untested"),
+        ):
+            with self.subTest(system=system, architecture=architecture), \
+                    patch("modules.provider_compatibility.platform.system", return_value=system), \
+                    patch("modules.provider_compatibility.platform.machine", return_value=architecture):
+                self.assertEqual(classify_version("subfinder", "2.13.0"), expected)
 
     def test_real_runner_reads_version_and_help_from_both_streams(self):
         popen = subprocess.Popen
@@ -169,9 +178,73 @@ class ReleaseMonitorTests(unittest.TestCase):
         self.assertEqual(evidence["empty_output"]["subdomains"], [])
         self.assertEqual(evidence["unknown_option"]["exit_code"], 2)
         self.assertIn("example.test", run.call_args_list[0].args[2])
-        with patch("scripts.check_provider.run_passive_provider", return_value=empty), \
-                self.assertRaises(LimitedEvidence):
-            check_subfinder(Path("subfinder"))
+        validate_execution(evidence)
+
+    def test_empty_discovery_does_not_fail_compatibility_or_skip_later_checks(self):
+        empty = ProviderRunResult([], "completed", 0)
+        rejected = ProviderRunResult([], "failed", 2)
+        for initial in (empty, ProviderRunResult([], "timed_out"), ProviderRunResult([], "failed", 1)):
+            with self.subTest(status=initial.status), patch(
+                "scripts.check_provider.run_passive_provider", side_effect=[initial, empty, rejected],
+            ) as run:
+                evidence = check_subfinder(Path("subfinder"))
+            self.assertEqual(run.call_count, 3)
+            self.assertIn("unknown_option", evidence)
+            if initial.status == "completed":
+                validate_execution(evidence)
+            else:
+                expected = LimitedEvidence if initial.status == "timed_out" else ValueError
+                with self.assertRaises(expected):
+                    validate_execution(evidence)
+        with patch("scripts.check_provider.run_amass", return_value=empty) as run:
+            evidence = check_amass(Path("amass"))
+        self.assertEqual(run.call_count, 2)
+        validate_execution(evidence)
+
+    def test_provider_artifact_separates_fixtures_execution_and_source_availability(self):
+        empty = ProviderRunResult([], "completed", 0)
+        rejected = ProviderRunResult([], "failed", 2)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            with (
+                patch("sys.argv", ["check_provider", "subfinder", "2.13.0", "--executable", "fixture",
+                                   "--output", str(output)]),
+                patch("scripts.check_provider.check_fixture_contract", return_value={"status": "passed"}),
+                patch("scripts.check_provider.inspect_provider_compatibility",
+                      return_value={"version": "2.13.0", "status": "untested"}),
+                patch("scripts.check_provider.run_passive_provider", side_effect=[empty, empty, rejected]),
+                patch("sys.stdout", io.StringIO()),
+            ):
+                check_provider_main()
+            evidence = json.loads(output.read_text())
+        self.assertEqual(evidence["classification"], "approved")
+        self.assertEqual(evidence["fixtures"]["status"], "passed")
+        self.assertEqual(evidence["source_availability"]["status"], "not_observed")
+        self.assertFalse(evidence["source_availability"]["required_for_approval"])
+        self.assertEqual(evidence["subfinder"]["unknown_option"]["exit_code"], 2)
+
+    def test_failed_fixtures_prevent_approval_without_skipping_binary_checks(self):
+        empty = ProviderRunResult([], "completed", 0)
+        rejected = ProviderRunResult([], "failed", 2)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            with (
+                patch("sys.argv", ["check_provider", "subfinder", "2.13.0", "--executable", "fixture",
+                                   "--output", str(output)]),
+                patch("scripts.check_provider.check_fixture_contract", return_value={"status": "failed"}),
+                patch("scripts.check_provider.inspect_provider_compatibility",
+                      return_value={"version": "2.13.0", "status": "untested"}),
+                patch("scripts.check_provider.run_passive_provider", side_effect=[empty, empty, rejected]) as run,
+                patch("sys.stdout", io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                check_provider_main()
+            evidence = json.loads(output.read_text())
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(evidence["status"], "failed")
+        self.assertEqual(evidence["classification"], "limited")
+        self.assertEqual(evidence["fixtures"]["status"], "failed")
+        self.assertIn("subfinder", evidence)
 
     def test_monitor_checks_baseline_latest_and_requested_history(self):
         releases = {"subfinder": "v2.999.0", "amass": "v6.1.1", "dnsx": "v1.3.1"}
@@ -207,6 +280,11 @@ class ReleaseMonitorTests(unittest.TestCase):
         limited = summarize(manifest, evidence[:1], "success")
         self.assertEqual(limited["results"][0]["classification"], "limited")
         self.assertEqual(propose_promotions(limited, json.loads(json.dumps(PROVIDERS))), [])
+        historical = summarize({"matrix": [{"provider": "subfinder", "version": "2.13.0"}]},
+                               [dict(item, expected_version="2.13.0") for item in evidence], "success")
+        self.assertEqual(propose_promotions(historical, registry),
+                         [{"provider": "subfinder", "version": "2.13.0"}])
+        self.assertNotIn("2.13.0", registry["subfinder"]["tested_platforms"])
         evidence[0].update(status="failed", classification="incompatible")
         incompatible = summarize(manifest, evidence, "success")
         self.assertEqual(incompatible["results"][0]["classification"], "incompatible")

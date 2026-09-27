@@ -61,7 +61,7 @@ def make_tls_scan_result() -> SimpleNamespace:
 
 
 def make_http_scan_result() -> SimpleNamespace:
-    """Build a minimal scan result with compact HTTP evidence."""
+    """Build a minimal scan result with HTTP response lines."""
     return SimpleNamespace(
         target_host="example.com",
         resolved_ip="93.184.216.34",
@@ -71,10 +71,10 @@ def make_http_scan_result() -> SimpleNamespace:
                 port=80,
                 service="HTTP",
                 banner=(
-                    "HTTP/1.1 301 Moved Permanently "
-                    "Server: cloudflare "
-                    "Location: https://example.com/ "
-                    "Content-Type: text/html"
+                    "HTTP/1.1 301 Moved Permanently\r\n"
+                    "Server: cloudflare\r\n"
+                    "Location: https://example.com/\r\n"
+                    "Content-Type: text/html\r\n\r\n"
                 ),
                 response_time=0.01,
                 web_url="http://example.com",

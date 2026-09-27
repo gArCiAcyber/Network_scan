@@ -260,7 +260,7 @@ def scan_tcp_ports(
     ]
     worker_count = _build_worker_count(len(scan_targets), max_workers)
     pacer = MaxRatePacer(max_rate) if max_rate is not None else None
-    discovered_ports: list[PortScanResult] = []
+    discovered_ports: list[tuple[ResolvedAddress, PortScanResult]] = []
     open_ports: list[PortScanResult] = []
     completed_count = 0
     executor = ThreadPoolExecutor(max_workers=worker_count)
@@ -282,12 +282,12 @@ def scan_tcp_ports(
         }
 
         for future in as_completed(future_map):
-            _address, port = future_map[future]
+            address, port = future_map[future]
             completed_count += 1
             result = future.result()
 
             if result is not None:
-                discovered_ports.append(result)
+                discovered_ports.append((address, result))
 
                 if open_port_callback is not None:
                     open_port_callback(result)
@@ -306,10 +306,11 @@ def scan_tcp_ports(
     ordered_discovered_ports = tuple(
         sorted(
             discovered_ports,
-            key=lambda finding: (
-                finding.port,
-                finding.address_family or "ipv4",
-                finding.address or "",
+            key=lambda entry: (
+                entry[1].port,
+                entry[0].family_name,
+                entry[0].address,
+                entry[0].scope_id,
             ),
         )
     )
@@ -335,35 +336,14 @@ def scan_tcp_ports(
                     finding,
                     timeout,
                     pacer,
-                    next(
-                        (
-                            address.family
-                            for address in address_records
-                            if address.address == (finding.address or resolved_ip)
-                        ),
-                        None,
-                    ),
-                    next(
-                        (
-                            address.scope_id
-                            for address in address_records
-                            if address.address == (finding.address or resolved_ip)
-                        ),
-                        0,
-                    ),
+                    address.family,
+                    address.scope_id,
                     http_probing,
                 ): (
-                    next(
-                        (
-                            address
-                            for address in address_records
-                            if address.address == (finding.address or resolved_ip)
-                        ),
-                        address_records[0],
-                    ),
+                    address,
                     finding.port,
                 )
-                for finding in ordered_discovered_ports
+                for address, finding in ordered_discovered_ports
             }
 
             for future in as_completed(future_map):

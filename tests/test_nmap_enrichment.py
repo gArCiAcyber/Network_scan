@@ -90,6 +90,25 @@ def make_open_port(port: int = 80) -> PortScanResult:
 class NmapEnrichmentFormattingTests(unittest.TestCase):
     """Validate terminal formatting for live Nmap service scan output."""
 
+    def test_nmap_startup_permission_error_preserves_native_txt_and_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            with (
+                patch("sys.argv", ["hylianscan", "example.com", "-p", "80", "--nmap",
+                                   "-o", "--json-output", "--quiet"]),
+                patch("sys.stdout", io.StringIO()),
+                patch("hylianscan.resolve_output_workspace", return_value=workspace),
+                patch("hylianscan.resolve_target", return_value=make_target()),
+                patch("hylianscan.run_port_scan", return_value=make_scan_result((make_open_port(),))),
+                patch("modules.nmap_runner.subprocess.run", side_effect=PermissionError("denied")),
+            ):
+                hylianscan.main()
+            self.assertIn("80", (workspace / "tcp_report.txt").read_text())
+            document = json.loads((workspace / "tcp_results.json").read_text())
+            self.assertEqual(document["results"]["open_ports"][0]["port"], 80)
+            self.assertEqual(document["enrichment"]["nmap"]["status"], "skipped")
+            self.assertIn("Unable to start Nmap", document["enrichment"]["nmap"]["reason"])
+
     def test_summary_includes_status_target_ports_and_service_details(self) -> None:
         import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
         summary = format_nmap_enrichment_summary(import_result, "127.0.0.1", [80])
@@ -145,6 +164,13 @@ class NmapEnrichmentFormattingTests(unittest.TestCase):
 
 class NmapEnrichmentMainTests(unittest.TestCase):
     """Validate main orchestration for optional live Nmap enrichment."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        output = patch("core.output.resolve_output_dir", return_value=Path(directory.name))
+        output.start()
+        self.addCleanup(output.stop)
 
     def test_main_does_not_call_nmap_runner_without_nmap_flag(self) -> None:
         scan_result = make_scan_result((make_open_port(),))

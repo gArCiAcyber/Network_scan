@@ -102,6 +102,8 @@ def run_nmap_service_version_scan(
         raise RuntimeError(
             f"Nmap service/version enrichment timed out after {timeout:.1f} seconds."
         ) from error
+    except OSError as error:
+        raise RuntimeError(f"Unable to start Nmap: {error}") from error
 
     if completed_process.returncode != 0:
         stderr = format_stderr_preview(completed_process.stderr)

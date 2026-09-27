@@ -29,6 +29,13 @@ from modules.subdomain import (
 class PassiveProviderExecutableTests(unittest.TestCase):
     """Validate provider executable resolution without running external tools."""
 
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        output = patch("core.output.resolve_output_dir", return_value=Path(directory.name))
+        output.start()
+        self.addCleanup(output.stop)
+
     def test_enabled_provider_notice_precedes_compatibility_checks(self) -> None:
         events = []
         with tempfile.TemporaryDirectory() as temporary_dir:

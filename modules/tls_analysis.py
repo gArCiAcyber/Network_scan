@@ -1,6 +1,7 @@
 """TLS risk analysis helpers for scan evidence."""
 
 import math
+import ipaddress
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -124,12 +125,15 @@ def detect_hostname_mismatch(
         if not isinstance(ip_addresses, Sequence) or isinstance(ip_addresses, str):
             return None
 
-        normalized_ip_addresses = {
-            str(ip_address).strip()
-            for ip_address in ip_addresses
-            if str(ip_address).strip()
-        }
-        return normalized_target not in normalized_ip_addresses
+        # Interface zones select a route; certificates identify the IP itself.
+        target_ip = ipaddress.ip_address(normalized_target.split("%", 1)[0])
+        for address in ip_addresses:
+            try:
+                if target_ip == ipaddress.ip_address(str(address).strip()):
+                    return False
+            except ValueError:
+                continue
+        return True
 
     dns_names = subject_alt_names.get("dns_names", [])
 

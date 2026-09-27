@@ -17,6 +17,21 @@ from modules.tcp_scanner import (
 class TCPScannerFlowTests(unittest.TestCase):
     """Validate scanner flow without real network connections."""
 
+    def test_link_local_probes_keep_each_discovered_interface(self) -> None:
+        addresses = tuple(ResolvedAddress("fe80::1", socket.AF_INET6, scope_id=scope)
+                          for scope in (7, 8))
+        with (
+            patch("modules.tcp_scanner.socket.socket") as socket_factory,
+            patch("modules.tcp_scanner.grab_service_banner", return_value=("banner", None, None)),
+        ):
+            client = socket_factory.return_value.__enter__.return_value
+            client.connect_ex.return_value = 0
+            result = scan_tcp_ports("host.test", "fe80::1", ports=[80],
+                                    addresses=addresses, max_workers=1)
+        self.assertEqual(len(result.open_ports), 2)
+        destinations = [call.args[0] for call in client.connect_ex.call_args_list]
+        self.assertEqual(destinations, [("fe80::1", 80, 0, scope) for scope in (7, 8, 7, 8)])
+
     def test_live_progress_labels_address_port_work_as_connection_attempts(self) -> None:
         target = TargetInfo(
             raw_input="example.com",

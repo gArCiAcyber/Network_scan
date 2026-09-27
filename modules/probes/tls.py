@@ -101,6 +101,7 @@ def grab_tls_protocol_banner(
                 tls_client,
                 probe_payload,
                 end_marker=b"\r\n\r\n",
+                preserve_lines=True,
             )
             return banner, tls_metadata
     except (OSError, ValueError, ssl.SSLError) as error:

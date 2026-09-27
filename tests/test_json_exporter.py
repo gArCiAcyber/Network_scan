@@ -24,35 +24,35 @@ from modules.tcp_scanner import PortScanResult, ScanResult
 
 
 HTTP_BANNER = (
-    "HTTP/1.1 301 Moved Permanently "
-    "Server: cloudflare "
-    "Location: https://example.com/ "
-    "Content-Type: text/html; charset=utf-8"
+    "HTTP/1.1 301 Moved Permanently\r\n"
+    "Server: cloudflare\r\n"
+    "Location: https://example.com/\r\n"
+    "Content-Type: text/html; charset=utf-8\r\n\r\n"
 )
 
 COOKIE_BANNER = (
-    "HTTP/1.1 200 OK "
-    "Server: hylianscan-mock "
+    "HTTP/1.1 200 OK\r\n"
+    "Server: hylianscan-mock\r\n"
     "Set-Cookie: session_id=abc123; Secure; HttpOnly; SameSite=Lax; Path=/; "
-    "Max-Age=3600 "
-    "Set-Cookie: tracking_id=xyz; Path=/tracking"
+    "Max-Age=3600\r\n"
+    "Set-Cookie: tracking_id=xyz; Path=/tracking\r\n\r\n"
 )
 
 STRONG_SECURITY_BANNER = (
-    "HTTP/1.1 200 OK "
-    "Strict-Transport-Security: max-age=31536000; includeSubDomains "
-    "Content-Security-Policy: default-src 'self' "
-    "X-Frame-Options: DENY "
-    "X-Content-Type-Options: nosniff "
-    "Referrer-Policy: no-referrer "
-    "Permissions-Policy: geolocation=() "
-    "Cross-Origin-Opener-Policy: same-origin"
+    "HTTP/1.1 200 OK\r\n"
+    "Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n"
+    "Content-Security-Policy: default-src 'self'\r\n"
+    "X-Frame-Options: DENY\r\n"
+    "X-Content-Type-Options: nosniff\r\n"
+    "Referrer-Policy: no-referrer\r\n"
+    "Permissions-Policy: geolocation=()\r\n"
+    "Cross-Origin-Opener-Policy: same-origin\r\n\r\n"
 )
 
 MISSING_SECURITY_BANNER = (
-    "HTTP/1.1 200 OK "
-    "Server: hylianscan-mock "
-    "Content-Type: text/html"
+    "HTTP/1.1 200 OK\r\n"
+    "Server: hylianscan-mock\r\n"
+    "Content-Type: text/html\r\n\r\n"
 )
 NMAP_XML = """<?xml version="1.0"?>
 <nmaprun scanner="nmap" args="nmap -sV -oX scan.xml 127.0.0.1"

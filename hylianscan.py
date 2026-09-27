@@ -532,12 +532,12 @@ def run_passive_subdomain_discovery(
                 display.start_provider("httpx")
 
             try:
-                httpx_arguments = {}
+                httpx_arguments = {"scope": domain}
                 if httpx_binary:
                     httpx_arguments["httpx_binary"] = httpx_binary
                 httpx_result = run_httpx(httpx_targets, **httpx_arguments)
             except (RuntimeError, ValueError) as error:
-                httpx_result = build_skipped_httpx_result(httpx_targets, str(error))
+                httpx_result = build_skipped_httpx_result(httpx_targets, str(error), scope=domain)
 
             if httpx_result.status == "completed":
                 httpx_output_path = output_path.with_name("httpx.jsonl")
