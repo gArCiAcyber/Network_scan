@@ -414,7 +414,7 @@ class BannerGrabberHelperTests(unittest.TestCase):
             patch.object(
                 starttls_probe,
                 "send_probe_and_grab_banner",
-                return_value="* CAPABILITY IMAP4rev1 a001 OK",
+                return_value="* CAPABILITY IMAP4rev1\r\na001 OK\r\n",
             ) as probe_mock,
         ):
             banner, tls, probe = banner_grabber.grab_imap_starttls_banner(
@@ -422,7 +422,7 @@ class BannerGrabberHelperTests(unittest.TestCase):
                 "example.com",
             )
 
-        self.assertEqual(banner, "* OK IMAP ready | * CAPABILITY IMAP4rev1 a001 OK")
+        self.assertEqual(banner, "* OK IMAP ready | * CAPABILITY IMAP4rev1\r\na001 OK\r\n")
         self.assertIsNone(tls)
         self.assertEqual(probe["name"], "imap")
         self.assertEqual(probe["transport_security"], "none")
@@ -446,7 +446,7 @@ class BannerGrabberHelperTests(unittest.TestCase):
             patch.object(
                 starttls_probe,
                 "send_probe_and_grab_banner",
-                side_effect=("+OK Capability list follows STLS .", "-ERR TLS unavailable"),
+                side_effect=("+OK Capability list follows\r\nSTLS\r\n.\r\n", "-ERR TLS unavailable"),
             ),
         ):
             banner, tls, probe = banner_grabber.grab_pop3_stls_banner(
@@ -456,7 +456,7 @@ class BannerGrabberHelperTests(unittest.TestCase):
 
         self.assertEqual(
             banner,
-            "+OK POP3 ready | +OK Capability list follows STLS . | -ERR TLS unavailable",
+            "+OK POP3 ready | +OK Capability list follows\r\nSTLS\r\n.\r\n | -ERR TLS unavailable",
         )
         self.assertIsNone(tls)
         self.assertEqual(probe["name"], "pop3")

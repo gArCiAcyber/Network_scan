@@ -7,6 +7,7 @@ import re
 import socket
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import call, patch
 
 import hylianscan
@@ -47,7 +48,7 @@ NMAP_ENRICHMENT_XML = """<?xml version="1.0"?>
       </port>
     </ports>
   </host>
-</nmaprun>
+<runstats><finished exit="success"/></runstats></nmaprun>
 """
 
 
@@ -85,6 +86,17 @@ def make_open_port(port: int = 80) -> PortScanResult:
         banner=None,
         response_time=0.01,
     )
+
+
+def make_import_for_scope(target, ports):
+    root = ET.fromstring(NMAP_ENRICHMENT_XML)
+    root.find("host/address").set("addr", target)
+    root.find("host/ports").clear()
+    for port in ports:
+        element = ET.SubElement(root.find("host/ports"), "port", protocol="tcp", portid=str(port))
+        ET.SubElement(element, "state", state="open")
+        ET.SubElement(element, "service", name="http", product="nginx", version="1.24", method="probed", conf="10")
+    return parse_nmap_xml_text(ET.tostring(root, encoding="unicode"))
 
 
 class NmapEnrichmentFormattingTests(unittest.TestCase):
@@ -144,6 +156,13 @@ class NmapEnrichmentFormattingTests(unittest.TestCase):
 
 
 class NmapEnrichmentMainTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        patcher = patch("core.output.resolve_output_dir", return_value=Path(directory.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     """Validate main orchestration for optional live Nmap enrichment."""
 
     def test_main_does_not_call_nmap_runner_without_nmap_flag(self) -> None:
@@ -162,7 +181,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
     def test_main_calls_nmap_runner_for_native_open_ports(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
-        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        import_result = make_import_for_scope("127.0.0.1", [80])
         output = io.StringIO()
 
         with (
@@ -233,7 +252,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             address_family="ipv4",
             addresses=addresses,
         )
-        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        import_result = make_import_for_scope("127.0.0.1", [80])
         output = io.StringIO()
 
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -266,7 +285,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
                 ),
                 patch(
                     "hylianscan.run_nmap_service_version_scan",
-                    return_value=import_result,
+                    side_effect=make_import_for_scope,
                 ) as nmap_runner,
             ):
                 hylianscan.main()
@@ -284,7 +303,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
         self.assertEqual(output.getvalue().count("[+] NMAP SERVICE SCAN"), 2)
         self.assertEqual(saved_report.count("[+] NMAP SERVICE SCAN"), 2)
         self.assertIn("Filtered Findings: 0 shown, 3 hidden", output.getvalue())
-        self.assertEqual(document["schema"]["version"], 1)
+        self.assertEqual(document["schema"]["version"], 2)
         nmap = document["enrichment"]["nmap"]
         self.assertEqual(nmap["status"], "completed")
         self.assertEqual(nmap["target"], "example.com")
@@ -330,7 +349,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
     def test_main_shows_live_nmap_progress_before_final_block(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
-        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        import_result = make_import_for_scope("127.0.0.1", [80])
         output = io.StringIO()
 
         with (
@@ -381,7 +400,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
     def test_main_passes_custom_nmap_path_to_runner(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
-        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        import_result = make_import_for_scope("127.0.0.1", [80])
 
         with (
             patch(
@@ -468,12 +487,12 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             hylianscan.main()
 
         self.assertIn("[+] NMAP SERVICE SCAN", output.getvalue())
-        self.assertIn("Status          : skipped", output.getvalue())
+        self.assertIn("Status          : failed", output.getvalue())
         self.assertIn("requires exactly one up host", output.getvalue())
 
     def test_main_saves_nmap_enrichment_in_tcp_txt_report(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
-        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        import_result = make_import_for_scope("127.0.0.1", [80])
 
         with tempfile.TemporaryDirectory() as temporary_dir:
             txt_output_path = Path(temporary_dir) / "tcp_report.txt"
@@ -511,7 +530,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
     def test_match_code_with_nmap_keeps_native_evidence_in_quiet_txt(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
-        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        import_result = make_import_for_scope("127.0.0.1", [80])
         output = io.StringIO()
 
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -562,7 +581,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
 
     def test_main_saves_nmap_enrichment_in_tcp_json_report(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
-        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        import_result = make_import_for_scope("127.0.0.1", [80])
 
         with tempfile.TemporaryDirectory() as temporary_dir:
             json_output_path = Path(temporary_dir) / "tcp_results.json"
@@ -597,15 +616,12 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             self.assertEqual(nmap["status"], "completed")
             self.assertEqual(nmap["target"], "127.0.0.1")
             self.assertEqual(nmap["ports_requested"], [80])
-            self.assertEqual(nmap["ports_returned"], [80, 31337])
+            self.assertEqual(nmap["ports_returned"], [80])
             self.assertEqual(nmap["results"][0]["service"]["name"], "http")
-            self.assertEqual(nmap["results"][1]["service"]["name"], "tcpwrapped")
-            self.assertEqual(nmap["results"][1]["service"]["method"], "probed")
-            self.assertEqual(nmap["results"][1]["service"]["conf"], 8)
 
     def test_main_saves_nmap_enrichment_in_both_reports(self) -> None:
         scan_result = make_scan_result((make_open_port(),))
-        import_result = parse_nmap_xml_text(NMAP_ENRICHMENT_XML)
+        import_result = make_import_for_scope("127.0.0.1", [80])
 
         with tempfile.TemporaryDirectory() as temporary_dir:
             txt_output_path = Path(temporary_dir) / "tcp_report.txt"
@@ -732,7 +748,7 @@ class NmapEnrichmentMainTests(unittest.TestCase):
             nmap = json.loads(
                 json_output_path.read_text(encoding="utf-8")
             )["enrichment"]["nmap"]
-            self.assertEqual(nmap["status"], "skipped")
+            self.assertEqual(nmap["status"], "failed")
             self.assertEqual(nmap["reason"], "Nmap binary not found: nmap.")
             self.assertEqual(nmap["ports_requested"], [80])
 

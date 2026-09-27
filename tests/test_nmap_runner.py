@@ -165,7 +165,7 @@ class NmapRunnerTests(unittest.TestCase):
             "modules.nmap_runner.subprocess.run",
             return_value=completed_process,
         ):
-            with self.assertRaisesRegex(ValueError, "malformed XML"):
+            with self.assertRaisesRegex(RuntimeError, "malformed XML"):
                 run_nmap_service_version_scan("example.com", [80])
 
 

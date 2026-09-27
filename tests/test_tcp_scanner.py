@@ -157,7 +157,8 @@ class TCPScannerFlowTests(unittest.TestCase):
                 http_probing=False,
             )
 
-        self.assertIs(result, finding)
+        self.assertEqual(result.port, finding.port)
+        self.assertEqual(result.probe["status"], "disabled")
         socket_factory.assert_not_called()
 
     def test_live_multiple_address_finding_identifies_its_address(self) -> None:

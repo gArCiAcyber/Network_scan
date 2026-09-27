@@ -12,6 +12,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from modules.target import ResolvedAddress
+from modules.rate_limiter import MaxRatePacer
 
 
 DEFAULT_DISCOVERY_TIMEOUT = 1.0
@@ -27,22 +28,31 @@ class HostDiscoveryResult:
     is_up: bool
     response_time: float
     error: str | None = None
+    state: str = "unconfirmed"
+    ports: tuple[int, ...] = ()
 
 
 def _discover_tcp(
     address: ResolvedAddress,
     timeout: float,
     ports: Sequence[int],
+    pacer: MaxRatePacer | None = None,
 ) -> HostDiscoveryResult:
     """Treat an accepted or refused TCP connection as a reachable host."""
     started_at = time.perf_counter()
 
+    failures = []
+    attempted = []
     for port in ports:
+        attempted.append(port)
         try:
+            if pacer is not None:
+                pacer.wait()
             with socket.socket(address.family, socket.SOCK_STREAM) as client:
                 client.settimeout(timeout)
                 result = client.connect_ex(address.socket_address(port))
-        except OSError:
+        except OSError as error:
+            failures.append(str(error))
             continue
 
         if result in (0, errno.ECONNREFUSED, 10061):
@@ -50,15 +60,22 @@ def _discover_tcp(
                 address=address,
                 method="tcp",
                 is_up=True,
+                state="reachable",
+                ports=tuple(attempted),
                 response_time=time.perf_counter() - started_at,
             )
+
+        if result not in (errno.ETIMEDOUT, 10060):
+            failures.append(f"connect_ex: {result}")
 
     return HostDiscoveryResult(
         address=address,
         method="tcp",
         is_up=False,
         response_time=time.perf_counter() - started_at,
-        error="No TCP discovery port responded.",
+        state="error" if failures else "unconfirmed",
+        ports=tuple(attempted),
+        error="; ".join(failures) if failures else "No TCP discovery port responded; reachability unconfirmed.",
     )
 
 
@@ -106,6 +123,7 @@ def _discover_icmp(
             address=address,
             method="icmp",
             is_up=False,
+            state="error",
             response_time=time.perf_counter() - started_at,
             error="The ping executable was not found.",
         )
@@ -114,6 +132,7 @@ def _discover_icmp(
             address=address,
             method="icmp",
             is_up=False,
+            state="error",
             response_time=time.perf_counter() - started_at,
             error="ICMP discovery timed out.",
         )
@@ -122,6 +141,7 @@ def _discover_icmp(
             address=address,
             method="icmp",
             is_up=False,
+            state="error",
             response_time=time.perf_counter() - started_at,
             error=str(error),
         )
@@ -130,6 +150,7 @@ def _discover_icmp(
         address=address,
         method="icmp",
         is_up=completed.returncode == 0,
+        state="reachable" if completed.returncode == 0 else "unconfirmed",
         response_time=time.perf_counter() - started_at,
         error=None if completed.returncode == 0 else f"ping exited with code {completed.returncode}.",
     )
@@ -140,15 +161,16 @@ def discover_host(
     method: str,
     timeout: float = DEFAULT_DISCOVERY_TIMEOUT,
     tcp_ports: Sequence[int] = DEFAULT_TCP_DISCOVERY_PORTS,
+    pacer: MaxRatePacer | None = None,
 ) -> HostDiscoveryResult:
     """Discover one resolved address with TCP or ICMP."""
-    if timeout <= 0:
+    if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("Host discovery timeout must be greater than zero.")
 
     normalized_method = method.strip().lower()
 
     if normalized_method == "tcp":
-        return _discover_tcp(address, timeout, tcp_ports)
+        return _discover_tcp(address, timeout, tcp_ports, pacer)
 
     if normalized_method == "icmp":
         return _discover_icmp(address, timeout)
@@ -161,9 +183,10 @@ def discover_hosts(
     method: str,
     timeout: float = DEFAULT_DISCOVERY_TIMEOUT,
     tcp_ports: Sequence[int] = DEFAULT_TCP_DISCOVERY_PORTS,
+    pacer: MaxRatePacer | None = None,
 ) -> tuple[HostDiscoveryResult, ...]:
     """Discover every selected address and preserve IPv4/IPv6 separation."""
     return tuple(
-        discover_host(address, method, timeout=timeout, tcp_ports=tcp_ports)
+        discover_host(address, method, timeout=timeout, tcp_ports=tcp_ports, pacer=pacer)
         for address in addresses
     )

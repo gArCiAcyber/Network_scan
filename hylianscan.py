@@ -3,6 +3,10 @@
 
 from collections.abc import Mapping
 from pathlib import Path
+from dataclasses import replace
+import time
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from core.banner import show_banner
 from core.cli import (
@@ -35,6 +39,7 @@ from core.info_commands import build_information_command_output
 from core.nmap_live_display import NmapServiceScanDisplay
 from core.output import (
     resolve_output_workspace,
+    validate_output_destinations,
     resolve_json_output_path,
     resolve_nmap_import_json_output_path,
     resolve_nmap_import_output_path,
@@ -64,6 +69,8 @@ from core.terminal import (
     clear_dynamic_line,
     clear_screen,
     print_safe,
+    print_report,
+    escape_controls,
 )
 from modules.json_exporter import (
     write_nmap_xml_import_json_report,
@@ -85,6 +92,7 @@ from modules.httpx_runner import (
 from modules.nmap_enrichment import (
     NmapEnrichmentResult,
     build_completed_nmap_enrichment,
+    build_failed_nmap_enrichment,
     build_multi_nmap_enrichment,
     build_skipped_nmap_enrichment,
 )
@@ -94,6 +102,7 @@ from modules.nmap_xml import (
     parse_single_host_nmap_xml_file,
 )
 from modules.scan_stance import ScanStance
+from modules.rate_limiter import MaxRatePacer
 from modules.subdomain import ProviderRunResult, run_amass, run_dnsx, run_subfinder
 from modules.target import TargetInfo, resolve_target
 from modules.tcp_scanner import ScanResult, scan_tcp_ports
@@ -268,6 +277,8 @@ def run_port_scan(
     max_rate: float | None = None,
     quiet: bool = False,
     http_probing: bool = True,
+    pacer: MaxRatePacer | None = None,
+    probe_timeout: float | None = None,
 ) -> ScanResult:
     """Run the threaded TCP scanner without embedding TCP logic in the CLI."""
     display = None if quiet else TCPScanDisplay(target, len(ports_to_scan))
@@ -293,6 +304,11 @@ def run_port_scan(
         ),
     }
 
+    if pacer is not None:
+        scanner_arguments["pacer"] = pacer
+    if probe_timeout is not None:
+        scanner_arguments["probe_timeout"] = probe_timeout
+
     if target.addresses:
         scanner_arguments["addresses"] = target.address_records
 
@@ -310,23 +326,29 @@ def run_host_discovery(
     target: TargetInfo,
     method: str,
     timeout: float,
+    ports: list[int] | None = None,
+    pacer: MaxRatePacer | None = None,
 ) -> tuple[TargetInfo, tuple[HostDiscoveryResult, ...]]:
     """Run host discovery and return the scan target plus its evidence."""
+    discovery_options = {}
+    if ports is not None:
+        # Keep discovery small and entirely within the selected port scope.
+        preferred = [port for port in (443, 80, 22) if port in ports]
+        discovery_options["tcp_ports"] = tuple((preferred or ports)[:3])
+    if pacer is not None:
+        discovery_options["pacer"] = pacer
     discovery_results = discover_hosts(
         target.address_records,
         method,
         timeout=timeout,
+        **discovery_options,
     )
     reachable_addresses = tuple(
         result.address for result in discovery_results if result.is_up
     )
 
     if not reachable_addresses:
-        errors = "; ".join(
-            result.error or f"{result.address.address} did not respond"
-            for result in discovery_results
-        )
-        raise ValueError(f"Host discovery found no reachable addresses: {errors}")
+        return target, discovery_results
 
     return target.with_addresses(reachable_addresses), discovery_results
 
@@ -522,6 +544,7 @@ def run_nmap_xml_import(
     json_output_path: Path | None = None,
 ) -> str:
     """Import an existing Nmap XML file and return a plain summary."""
+    validate_output_destinations(output_path, json_output_path)
     import_result = parse_single_host_nmap_xml_file(xml_path)
     summary = format_nmap_xml_import_summary(import_result, xml_path)
     save_report(summary, output_path)
@@ -542,6 +565,8 @@ def run_live_nmap_enrichment(
 
     for finding in scan_result.open_ports:
         address = finding.address or target.resolved_ip
+        if finding.scope_id and "%" not in address:
+            address = f"{address}%{finding.scope_id}"
         findings_by_address.setdefault(address, []).append(finding.port)
 
     if not findings_by_address:
@@ -573,14 +598,13 @@ def run_live_nmap_enrichment(
                     open_ports,
                 )
             )
-        except (RuntimeError, ValueError) as error:
-            runs.append(
-                build_skipped_nmap_enrichment(
-                    str(error),
-                    address,
-                    open_ports,
-                )
-            )
+        except KeyboardInterrupt:
+            interrupted = build_skipped_nmap_enrichment("Interrupted by operator.", address, open_ports)
+            runs.append(replace(interrupted, status="interrupted",
+                terminal_text=interrupted.terminal_text.replace("skipped", "interrupted")))
+            break
+        except (RuntimeError, ValueError, OSError) as error:
+            runs.append(build_failed_nmap_enrichment(error, address, open_ports))
 
     return build_multi_nmap_enrichment(target.target_host, runs)
 
@@ -588,6 +612,9 @@ def run_live_nmap_enrichment(
 def main() -> None:
     """Coordinate the full CLI execution flow."""
     quiet = False
+    run_started = time.perf_counter()
+    started_utc = datetime.now(timezone.utc).isoformat()
+    run_id = uuid4().hex
 
     try:
         args = parse_arguments()
@@ -619,7 +646,7 @@ def main() -> None:
 
         if passive_providers:
             workspace_dir = (
-                resolve_output_workspace(args.target)
+                resolve_output_workspace(args.target, reserve=True)
                 if should_create_passive_output_workspace(args.output, args.json_output)
                 else None
             )
@@ -631,6 +658,8 @@ def main() -> None:
                 args.json_output,
                 workspace_dir=workspace_dir,
             )
+
+            validate_output_destinations(output_path, json_output_path)
 
             if not quiet:
                 show_passive_providers(passive_providers)
@@ -660,7 +689,7 @@ def main() -> None:
             print(final_panel)
         else:
             workspace_dir = (
-                resolve_output_workspace(args.target)
+                resolve_output_workspace(args.target, reserve=True)
                 if should_create_tcp_output_workspace(args.output, args.json_output)
                 else None
             )
@@ -669,6 +698,7 @@ def main() -> None:
                 args.json_output,
                 workspace_dir=workspace_dir,
             )
+            validate_output_destinations(output_path, json_output_path)
             ports_to_scan = parse_ports_list(args)
             match_code_expression = getattr(args, "match_code", None)
             match_codes = parse_match_codes(match_code_expression)
@@ -683,20 +713,27 @@ def main() -> None:
             has_overrides = has_scan_config_overrides(args)
             scan_scope = resolve_scan_scope_label(args)
             port_profile_label = resolve_port_profile_label(args)
+            resolution_started = time.perf_counter()
             target = resolve_target(
                 args.target,
                 address_family=getattr(args, "address_family", "dual-stack"),
+                **({"timeout": args.resolve_timeout} if getattr(args, "resolve_timeout", None) is not None else {}),
             )
+            resolution_duration = time.perf_counter() - resolution_started
             host_discovery = resolve_host_discovery(args)
             host_discovery_results = None
+            discovery_started = time.perf_counter()
+            shared_pacer = MaxRatePacer(max_rate) if host_discovery and max_rate is not None else None
 
             if host_discovery:
                 target, host_discovery_results = run_host_discovery(
                     target,
                     host_discovery,
                     scan_stance.timeout,
+                    ports=ports_to_scan, pacer=shared_pacer,
                 )
 
+            discovery_duration = time.perf_counter() - discovery_started
             if not quiet:
                 show_target_orientation(
                     target,
@@ -713,15 +750,22 @@ def main() -> None:
                     http_probing=http_probing,
                 )
 
-            native_scan_result = run_port_scan(
-                target=target,
-                ports_to_scan=ports_to_scan,
-                timeout=scan_stance.timeout,
-                max_workers=scan_stance.workers,
-                max_rate=max_rate,
-                quiet=quiet,
-                http_probing=http_probing,
-            )
+            if host_discovery_results and not any(r.is_up for r in host_discovery_results):
+                native_scan_result = ScanResult(target.target_host, target.resolved_ip,
+                    len(ports_to_scan), (), 0.0, addresses=target.address_records,
+                    status="unconfirmed", requested_ports=tuple(ports_to_scan))
+            else:
+                native_scan_result = run_port_scan(
+                    target=target,
+                    ports_to_scan=ports_to_scan,
+                    timeout=scan_stance.timeout,
+                    max_workers=scan_stance.workers,
+                    max_rate=max_rate,
+                    quiet=quiet,
+                    http_probing=http_probing,
+                    **({"pacer": shared_pacer} if shared_pacer is not None else {}),
+                    probe_timeout=getattr(args, "probe_timeout", None),
+                )
             filtered_scan_result = filter_scan_result_by_http_status(
                 native_scan_result,
                 match_codes,
@@ -731,7 +775,8 @@ def main() -> None:
             )
             nmap_enrichment = None
 
-            if getattr(args, "nmap", False):
+            enrichment_started = time.perf_counter()
+            if getattr(args, "nmap", False) and native_scan_result.status != "interrupted":
                 nmap_display = (
                     None
                     if quiet or not native_scan_result.open_ports
@@ -754,6 +799,24 @@ def main() -> None:
                     if nmap_display is not None:
                         nmap_display.stop()
 
+            interrupted = native_scan_result.status == "interrupted" or (
+                nmap_enrichment is not None and (
+                    nmap_enrichment.status == "interrupted" or
+                    any(run.status == "interrupted" for run in nmap_enrichment.runs)
+                )
+            )
+            filtered_scan_result = replace(filtered_scan_result,
+                run_id=run_id, started_at=started_utc,
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                status="interrupted" if interrupted else filtered_scan_result.status,
+                settings={**filtered_scan_result.settings,
+                    "resolve_timeout": getattr(args, "resolve_timeout", None),
+                    "host_discovery": host_discovery},
+                phase_durations={**filtered_scan_result.phase_durations,
+                    "resolution": resolution_duration,
+                    "host_discovery": discovery_duration,
+                    "enrichment": time.perf_counter() - enrichment_started,
+                    "total": time.perf_counter() - run_started})
             if quiet:
                 final_panel = build_quiet_final_panel(
                     filtered_scan_result,
@@ -769,19 +832,24 @@ def main() -> None:
                     http_status_filter=http_status_filter,
                 )
 
-            terminal_report = final_panel
+            discovery_report = ""
+            if host_discovery_results:
+                discovery_report = "\nHost discovery (unconfirmed addresses excluded):\n" + "\n".join(
+                    f"{r.address.address}{'%' + str(r.address.scope_id) if r.address.scope_id else ''}: "
+                    f"{'reachable' if r.is_up else r.state}; ports={r.ports}; {r.error or ''}"
+                    for r in host_discovery_results)
+            discovery_report = escape_controls(discovery_report, multiline=True)
+            terminal_report = final_panel + discovery_report
 
             if nmap_enrichment is not None:
                 terminal_report = "\n\n".join(
                     [terminal_report, nmap_enrichment.terminal_text]
                 )
 
-            print(terminal_report)
-
             saved_report = build_saved_text_report(
                 filtered_scan_result,
                 scan_scope=scan_scope,
-                base_report=final_panel,
+                base_report=final_panel + discovery_report,
                 match_code_expression=match_code_expression,
             )
 
@@ -801,6 +869,13 @@ def main() -> None:
                     native_open_port_count=len(native_scan_result.open_ports),
                     host_discovery_results=host_discovery_results,
                 )
+
+            print_report(terminal_report)
+
+            if interrupted:
+                raise SystemExit(130)
+            if filtered_scan_result.status == "unconfirmed":
+                raise SystemExit(1)
 
             if output_path is not None and not quiet:
                 print_safe(f"[*] Report saved to: {output_path}")

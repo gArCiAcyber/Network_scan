@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import xml.etree.ElementTree as ET
+from core.terminal import escape_controls
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,8 @@ class NmapRunMetadata:
     startstr: str | None
     version: str | None
     xmloutputversion: str | None
+    finished_exit: str | None = None
+    finished_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,7 @@ class NmapPort:
     port: int
     state: str
     service: NmapService
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,7 @@ class NmapHost:
     status: str
     addresses: tuple[NmapAddress, ...]
     open_tcp_ports: tuple[NmapPort, ...]
+    tcp_ports: tuple[NmapPort, ...] = ()
 
     @property
     def primary_address(self) -> str:
@@ -80,6 +85,7 @@ class NmapXmlImport:
 
     metadata: NmapRunMetadata
     up_hosts: tuple[NmapHost, ...]
+    execution: dict = field(default_factory=dict)
 
 
 def normalize_confidence(confidence: str | None) -> str:
@@ -175,6 +181,7 @@ def format_nmap_xml_import_summary(
         f"Imported XML: {xml_path}",
         f"Host: {host.primary_address}",
         f"Open TCP Ports: {len(host.open_tcp_ports)}",
+        f"Run completion: {import_result.metadata.finished_exit or 'unknown'}",
         "",
     ]
 
@@ -191,7 +198,7 @@ def format_nmap_xml_import_summary(
             + f"confidence={service.confidence}"
         )
 
-    return "\n".join(lines).rstrip()
+    return escape_controls("\n".join(lines).rstrip(), multiline=True)
 
 
 def format_service_version(service: NmapService) -> str:
@@ -213,6 +220,8 @@ def parse_nmap_xml_root(root: ET.Element) -> NmapXmlImport:
     if local_name(root.tag) != "nmaprun":
         raise ValueError("Invalid Nmap XML: root element must be <nmaprun>.")
 
+    runstats = first_child(root, "runstats")
+    finished = first_child(runstats, "finished") if runstats is not None else None
     metadata = NmapRunMetadata(
         scanner=root.attrib.get("scanner"),
         args=root.attrib.get("args"),
@@ -220,6 +229,8 @@ def parse_nmap_xml_root(root: ET.Element) -> NmapXmlImport:
         startstr=root.attrib.get("startstr"),
         version=root.attrib.get("version"),
         xmloutputversion=root.attrib.get("xmloutputversion"),
+        finished_exit=finished.get("exit") if finished is not None else None,
+        finished_error=finished.get("errormsg") if finished is not None else None,
     )
     up_hosts = tuple(
         parse_host(host)
@@ -242,40 +253,50 @@ def parse_host(host: ET.Element) -> NmapHost:
         if address.attrib.get("addr")
     )
     ports_parent = first_child(host, "ports")
-    open_tcp_ports = tuple(parse_open_tcp_ports(ports_parent))
+    tcp_ports = tuple(parse_open_tcp_ports(ports_parent, include_non_open=True))
+    open_tcp_ports = tuple(port for port in tcp_ports if port.state == "open")
 
     return NmapHost(
         status="up",
         addresses=addresses,
         open_tcp_ports=open_tcp_ports,
+        tcp_ports=tcp_ports,
     )
 
 
-def parse_open_tcp_ports(ports_parent: ET.Element | None) -> list[NmapPort]:
+def parse_open_tcp_ports(ports_parent: ET.Element | None, include_non_open: bool = False) -> list[NmapPort]:
     """Parse open TCP ports from a host ports element."""
     if ports_parent is None:
         return []
 
     open_ports: list[NmapPort] = []
 
+    seen = set()
     for port in children(ports_parent, "port"):
         if port.attrib.get("protocol") != "tcp":
             continue
 
         state = first_child(port, "state")
-        if state is None or state.attrib.get("state") != "open":
-            continue
+        if state is None:
+            raise ValueError("Invalid Nmap XML: TCP port has no state.")
 
         try:
             port_number = int(port.attrib["portid"])
         except (KeyError, ValueError) as error:
             raise ValueError("Invalid Nmap XML: open TCP port has invalid portid.") from error
 
+        if not 1 <= port_number <= 65535 or port_number in seen:
+            raise ValueError("Invalid Nmap XML: out-of-range or duplicate TCP port.")
+        seen.add(port_number)
+        if not include_non_open and state.get("state") != "open":
+            continue
+
         open_ports.append(
             NmapPort(
                 protocol="tcp",
                 port=port_number,
-                state="open",
+                state=state.get("state", "unknown"),
+                reason=state.get("reason"),
                 service=parse_service(first_child(port, "service")),
             )
         )

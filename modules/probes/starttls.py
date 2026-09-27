@@ -6,6 +6,8 @@ from typing import Any
 
 from modules.probes.generic import (
     grab_banner,
+    response_complete,
+    limit_socket_timeout,
     merge_banner_parts,
     send_probe_and_grab_banner,
 )
@@ -34,7 +36,7 @@ FTP_SYST_PAYLOAD = b"SYST\r\n"
 
 def grab_smtp_banner(client: socket.socket) -> str | None:
     """Collect SMTP greeting and advertised capabilities."""
-    greeting = grab_banner(client)
+    greeting = grab_banner(client, end_marker=lambda data: response_complete(data, "smtp"))
     ehlo_response = send_probe_and_grab_banner(client, SMTP_EHLO_PAYLOAD)
     return merge_banner_parts(greeting, ehlo_response)
 
@@ -52,13 +54,13 @@ def smtp_starttls_is_ready(response: str | None) -> bool:
     return bool(response and response.startswith("220"))
 
 
-def build_starttls_metadata(supported: bool) -> dict[str, Any]:
+def build_starttls_metadata(supported: bool | None) -> dict[str, Any]:
     """Build reusable TLS upgrade metadata for plaintext protocols."""
     return {
         "supported": supported,
         "attempted": False,
         "upgraded": False,
-        "error": None,
+        "error": "Capability response incomplete or unavailable." if supported is None else None,
     }
 
 
@@ -89,6 +91,7 @@ def complete_tls_upgrade_probe(
     context = build_tls_context()
 
     try:
+        limit_socket_timeout(client)
         with context.wrap_socket(
             client,
             server_hostname=server_hostname,
@@ -123,11 +126,11 @@ def grab_smtp_starttls_banner(
     server_hostname: str,
 ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any]]:
     """Collect SMTP evidence and upgrade to TLS when STARTTLS is available."""
-    greeting = grab_banner(client)
+    greeting = grab_banner(client, end_marker=lambda data: response_complete(data, "smtp"))
     ehlo_response = send_probe_and_grab_banner(client, SMTP_EHLO_PAYLOAD)
     plain_banner = merge_banner_parts(greeting, ehlo_response)
     starttls_metadata = build_starttls_metadata(
-        supported=smtp_advertises_starttls(ehlo_response)
+        supported=smtp_advertises_starttls(ehlo_response) if response_complete((ehlo_response or "").encode(), "smtp") else None
     )
 
     if not starttls_metadata["supported"]:
@@ -176,7 +179,7 @@ def response_contains_token(response: str | None, token: str) -> bool:
     if not response:
         return False
 
-    normalized_response = f" {response.upper()} "
+    normalized_response = f" {' '.join(response.upper().split())} "
     normalized_token = f" {token.upper()} "
     return normalized_token in normalized_response
 
@@ -215,11 +218,11 @@ def grab_imap_starttls_banner(
     server_hostname: str,
 ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any]]:
     """Collect IMAP capabilities and upgrade to TLS when STARTTLS is available."""
-    greeting = grab_banner(client)
+    greeting = grab_banner(client, end_marker=lambda data: response_complete(data, "line"))
     capability_response = send_probe_and_grab_banner(client, IMAP_CAPABILITY_PAYLOAD)
     plain_banner = merge_banner_parts(greeting, capability_response)
     starttls_metadata = build_starttls_metadata(
-        supported=imap_advertises_starttls(capability_response)
+        supported=imap_advertises_starttls(capability_response) if response_complete((capability_response or "").encode(), "imap") else None
     )
 
     if not starttls_metadata["supported"]:
@@ -268,11 +271,11 @@ def grab_pop3_stls_banner(
     server_hostname: str,
 ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any]]:
     """Collect POP3 capabilities and upgrade to TLS when STLS is available."""
-    greeting = grab_banner(client)
+    greeting = grab_banner(client, end_marker=lambda data: response_complete(data, "line"))
     capability_response = send_probe_and_grab_banner(client, POP3_CAPA_PAYLOAD)
     plain_banner = merge_banner_parts(greeting, capability_response)
     starttls_metadata = build_starttls_metadata(
-        supported=pop3_advertises_stls(capability_response)
+        supported=pop3_advertises_stls(capability_response) if response_complete((capability_response or "").encode(), "pop3") else None
     )
 
     if not starttls_metadata["supported"]:
@@ -321,7 +324,7 @@ def grab_ftp_auth_tls_banner(
     server_hostname: str,
 ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any]]:
     """Collect FTP greeting and upgrade to TLS when AUTH TLS is accepted."""
-    greeting = grab_banner(client)
+    greeting = grab_banner(client, end_marker=lambda data: response_complete(data, "ftp"))
     starttls_metadata = build_starttls_metadata(supported=False)
     starttls_metadata["attempted"] = True
     auth_tls_response = send_probe_and_grab_banner(client, FTP_AUTH_TLS_PAYLOAD)
@@ -357,6 +360,6 @@ def grab_ftp_auth_tls_banner(
 
 def grab_ftp_banner(client: socket.socket) -> str | None:
     """Collect FTP greeting and basic system metadata."""
-    greeting = grab_banner(client)
+    greeting = grab_banner(client, end_marker=lambda data: response_complete(data, "ftp"))
     system_response = send_probe_and_grab_banner(client, FTP_SYST_PAYLOAD)
     return merge_banner_parts(greeting, system_response)

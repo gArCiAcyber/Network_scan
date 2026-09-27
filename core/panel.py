@@ -1,6 +1,7 @@
 """Final report panel rendering for hylianscan."""
 
 import sys
+from core.terminal import escape_controls
 from collections.abc import Sequence
 from typing import Any
 
@@ -57,20 +58,20 @@ def get_nested_value(data: dict[str, Any] | None, *keys: str) -> Any:
 def get_first_text(value: Any) -> str | None:
     """Return the first useful text value from a scalar or list field."""
     if isinstance(value, str) and value:
-        return value
+        return escape_controls(value)
 
     if isinstance(value, list) and value:
         first_value = value[0]
 
         if isinstance(first_value, str) and first_value:
-            return first_value
+            return escape_controls(first_value)
 
     return None
 
 
 def format_display_service_name(service: str) -> str:
     """Normalize service names for terminal display."""
-    normalized_service = service.lower()
+    normalized_service = escape_controls(service).lower()
 
     if normalized_service in {"http-alt", "https-alt"}:
         return normalized_service.replace("-alt", "")
@@ -80,8 +81,9 @@ def format_display_service_name(service: str) -> str:
 
 def truncate_display_value(value: str, max_length: int = 96) -> str:
     """Keep terminal values compact and readable."""
+    value = escape_controls(value)
     if len(value) <= max_length:
-        return value
+        return escape_controls(value)
 
     return f"{value[: max_length - 3]}..."
 
@@ -115,7 +117,7 @@ def format_http_version_signal(banner: str | None, include_reason: bool) -> str 
         if location:
             version = f"{version} -> {truncate_display_value(location)}"
 
-    return version
+    return escape_controls(version)
 
 
 def format_tls_protocol(tls: dict[str, Any] | None) -> str | None:
@@ -123,7 +125,7 @@ def format_tls_protocol(tls: dict[str, Any] | None) -> str | None:
     protocol = get_nested_value(tls, "handshake", "protocol")
 
     if isinstance(protocol, str) and protocol:
-        return protocol
+        return escape_controls(protocol)
 
     return None
 
@@ -329,6 +331,8 @@ def format_finding_address(finding: PortScanResult) -> str | None:
     if not address:
         return None
 
+    if getattr(finding, "scope_id", 0) and "%" not in address:
+        address = f"{address}%{finding.scope_id}"
     family = getattr(finding, "address_family", None)
     family_label = {"ipv4": "IPv4", "ipv6": "IPv6"}.get(family, family)
     return f"{address} ({family_label})" if family_label else address
@@ -357,6 +361,8 @@ def build_final_panel(
             f"{summary.target_host} ({format_resolved_target(summary)}){RESET}"
         ),
         f"{BRIGHT_WHITE}Scan Scope      :{RESET} {scan_scope}",
+        f"Execution status: {getattr(summary, 'status', 'unknown')}",
+        f"Connection outcomes: {getattr(summary, 'outcomes', {})}; errors: {getattr(summary, 'errors', {})}",
     ]
 
     if native_count:
@@ -375,7 +381,7 @@ def build_final_panel(
 
     lines.extend(
         [
-            f"{BRIGHT_WHITE}Total Scan Time :{RESET} {summary.duration:.2f}s",
+            f"{BRIGHT_WHITE}Native Scan Time :{RESET} {summary.duration:.2f}s",
             PANEL_SEPARATOR,
             "",
         ]
@@ -383,9 +389,12 @@ def build_final_panel(
 
     if not summary.open_ports:
         message = (
-            "No open-port findings matched the HTTP status filter."
-            if hidden_count
-            else f"No open ports found in the {scan_scope.lower()}."
+            "No open-port findings matched the HTTP status filter." if hidden_count else
+            "Host discovery did not confirm an address; TCP scanning was skipped."
+            if getattr(summary, "status", None) == "unconfirmed" else
+            "No open ports observed; the scan was incomplete."
+            if getattr(summary, "status", None) == "partial" else
+            f"No open ports found in the {scan_scope.lower()}."
         )
         lines.append(f"{WARNING_YELLOW}{message}{RESET}")
         lines.append(PANEL_SEPARATOR)
@@ -409,6 +418,7 @@ def build_final_panel(
         )
 
         detail_lines = [
+            f"service name is a port hint; probe status: {(getattr(finding, 'probe', None) or {}).get('status', 'unavailable')}",
             *(
                 [f"address: {format_finding_address(finding)}"]
                 if show_finding_addresses and format_finding_address(finding)
@@ -441,7 +451,13 @@ def build_saved_text_report(
         summary,
         scan_scope=scan_scope,
     )
-    report_sections = [report]
+    report_sections = [report, f"Run ID: {getattr(summary, 'run_id', '')}",
+        f"Execution status: {getattr(summary, 'status', 'unknown')}",
+        f"Started: {getattr(summary, 'started_at', None)}", f"Finished: {getattr(summary, 'finished_at', None)}",
+        f"Requested ports: {','.join(map(str, getattr(summary, 'requested_ports', ())))}",
+        f"Effective settings: {getattr(summary, 'settings', {})}",
+        f"Connection outcomes: {getattr(summary, 'outcomes', {})}", f"Connection errors: {getattr(summary, 'errors', {})}",
+        f"Phase durations (seconds): {getattr(summary, 'phase_durations', {})}"]
 
     if match_code_expression is not None:
         report_sections.append(
@@ -480,7 +496,9 @@ def build_quiet_final_panel(
         f"Target: {summary.target_host}",
         f"Resolved IP{'s' if '; ' in resolved_label else ''}: {resolved_label}",
         f"Scan Scope: {scan_scope}",
-        f"Total Scan Time: {summary.duration:.2f}s",
+        f"Execution status: {getattr(summary, 'status', 'unknown')}",
+        f"Connection outcomes: {getattr(summary, 'outcomes', {})}; errors: {getattr(summary, 'errors', {})}",
+        f"Native Scan Time: {summary.duration:.2f}s",
     ])
 
     if hidden_count:
@@ -492,6 +510,10 @@ def build_quiet_final_panel(
         lines.append(
             "No open-port findings matched the HTTP status filter."
             if hidden_count
+            else "Host discovery did not confirm an address; TCP scanning was skipped."
+            if getattr(summary, "status", None) == "unconfirmed"
+            else "No open ports observed; the scan was incomplete."
+            if getattr(summary, "status", None) == "partial"
             else "No open ports found."
         )
         return "\n".join(lines)
@@ -509,7 +531,8 @@ def build_quiet_final_panel(
             else ""
         )
         lines.append(
-            f"- {port_label} open {service_name} {version_signal}{address_suffix}"
+            f"- {port_label} open {service_name} {version_signal}{address_suffix} "
+            f"(service name: port hint; probe: {(getattr(finding, 'probe', None) or {}).get('status', 'unavailable')})"
         )
 
     return "\n".join(lines)

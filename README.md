@@ -132,10 +132,12 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Explicit `--ipv4`, `--ipv6`, and `--dual-stack` resolution modes.
 * Resolver-provided IPv4/IPv6 separation and reverse-DNS metadata.
 * Optional TCP or ICMP host discovery with `--host-discovery tcp|icmp`.
+* TCP discovery probes up to three selected scan ports, prioritizing 443, 80, and 22; it shares `--max-rate` pacing with native scanning. Addresses that do not respond are reported as unconfirmed and excluded from TCP scanning. If none respond, reports retain discovery evidence and the command exits 1.
 * Complete `quick`, `web`, and `cautious` scan profiles.
 * Custom port lists, ranges, top-port presets, and full TCP range support.
 * Multi-threaded TCP scanning.
 * Optional pacing with `--max-rate`.
+* `--timeout` limits individual socket operations; `--probe-timeout` limits a service probe to 10 seconds by default. `--resolve-timeout` optionally bounds DNS resolution, including reverse lookups. Neither option controls Nmap or passive providers.
 * Protocol-aware probes for common services.
 * HTTP status, header, content-type, and URL hints.
 * STARTTLS/STLS/AUTH TLS upgrade checks for supported services.
@@ -143,6 +145,7 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Passive banner fallback for unknown services.
 * Clean final terminal panel.
 * TXT and JSON exports.
+* An interrupted TCP scan saves requested partial reports before exiting 130. JSON records the run status, selected ports, connection outcomes, effective settings, and phase durations.
 * Quiet mode for automation.
 
 ### 🗺️ Passive Discovery
@@ -241,6 +244,9 @@ python3 hylianscan.py -u example.com --dual-stack -p 80,443
 
 # Optional host reachability preflight
 python3 hylianscan.py -u example.com --host-discovery tcp -p 80,443
+
+# Bound name resolution and service collection separately
+python3 hylianscan.py -u example.com -p 80,443 --resolve-timeout 5 --probe-timeout 8
 ```
 
 ### Optional Live Nmap Enrichment
@@ -254,6 +260,7 @@ python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap -o --json-output
 ```
 
 This does not replace Hylianscan's native TCP scan. When report output is enabled, the saved TXT and JSON reports include the optional Nmap enrichment evidence.
+Nmap output is checked against the requested address and native open ports. Failed or partial runs retain captured output in JSON; a later closed observation does not replace the native open observation. A real Nmap installation is needed to verify integration in your environment.
 
 ---
 
@@ -365,10 +372,11 @@ python3 hylianscan.py scanme.nmap.org -p 1-1000 -t 100 -T 1.0 --max-rate 50
 
 ## 📁 Output
 
-When output is enabled, Hylianscan creates organized workspaces:
+Default output flags reserve separate workspaces for simultaneous runs. If two runs start within one second, the later directory receives a numeric suffix:
 
 ```text
 output/<target>/<timestamp>/
+output/<target>/<timestamp>_1/
 ```
 
 Common files:
@@ -385,6 +393,9 @@ nmap_import_results.json
 
 TXT output is designed for quick reading.
 JSON output is designed for automation, parsing, evidence tracking, and later tooling.
+Explicit TCP output arguments retain only their filenames under `output/`, as before. TXT and JSON paths must resolve to different files. Each file is replaced atomically after it has been written; the two files are not a single transaction. Matching `scan.run_id` values identify a report pair.
+
+TCP JSON schema version 2 adds run status, exact port scope, connection outcomes, probe status, IPv6 scope IDs, raw collected response bytes in base64, and Nmap execution evidence. HTTP security-header absence is reported only for complete HTTP response headers. Service names derived from port numbers are labeled as hints.
 
 ---
 

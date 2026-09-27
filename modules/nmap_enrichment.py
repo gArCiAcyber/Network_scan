@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+import ipaddress
+from core.terminal import escape_controls
 
 from modules.nmap_xml import NmapXmlImport, format_service_version, require_single_up_host
 
@@ -19,6 +21,7 @@ class NmapEnrichmentResult:
     import_result: NmapXmlImport | None = None
     reason: str | None = None
     runs: tuple["NmapEnrichmentResult", ...] = ()
+    execution: dict = field(default_factory=dict)
 
 
 def format_nmap_enrichment_summary(
@@ -31,7 +34,7 @@ def format_nmap_enrichment_summary(
     lines = build_nmap_service_scan_header(
         target=target,
         ports=ports,
-        status="completed",
+        status="completed" if import_result.metadata.finished_exit == "success" else "partial",
     )
     lines = [
         *lines,
@@ -39,7 +42,7 @@ def format_nmap_enrichment_summary(
         f"{'PORT':<10} {'STATE':<6} {'SERVICE':<9} VERSION",
     ]
 
-    for port in host.open_tcp_ports:
+    for port in host.tcp_ports or host.open_tcp_ports:
         service = port.service
         version = format_service_version(service)
         lines.append(
@@ -49,8 +52,15 @@ def format_nmap_enrichment_summary(
             + f" {version}"
         )
 
+    if any(port.state != "open" for port in host.tcp_ports):
+        lines.append("Nmap observed different states after native discovery; native evidence retained.")
+    missing = sorted(set(ports) - {port.port for port in host.tcp_ports})
+    if missing:
+        lines.append(f"No per-port Nmap evidence for: {format_enriched_ports(missing)}")
+    if import_result.execution.get("stderr"):
+        lines.append(f"Warnings: {import_result.execution['stderr']}")
     lines.append(NMAP_SERVICE_SCAN_SEPARATOR)
-    return "\n".join(lines).rstrip()
+    return escape_controls("\n".join(lines).rstrip(), multiline=True)
 
 
 def format_nmap_enrichment_skipped(
@@ -66,7 +76,7 @@ def format_nmap_enrichment_skipped(
     )
     lines.append(f"Reason          : {reason}")
     lines.append(NMAP_SERVICE_SCAN_SEPARATOR)
-    return "\n".join(lines)
+    return escape_controls("\n".join(lines), multiline=True)
 
 
 def format_enriched_ports(ports: Sequence[int]) -> str:
@@ -101,9 +111,20 @@ def build_completed_nmap_enrichment(
     ports: Sequence[int],
 ) -> NmapEnrichmentResult:
     """Build a completed live Nmap enrichment result."""
+    host = require_single_up_host(import_result)
+    expected = ipaddress.ip_address(target)
+    addresses = [ipaddress.ip_address(a.address) for a in host.addresses
+                 if a.address_type in {"ipv4", "ipv6"}]
+    if not any(address == expected or (
+        address.version == 6 and not address.scope_id
+        and address == ipaddress.ip_address(str(expected).split("%", 1)[0])
+    ) for address in addresses):
+        raise ValueError("Nmap returned evidence for a different target.")
+    if any(p.port not in ports for p in host.tcp_ports or host.open_tcp_ports):
+        raise ValueError("Nmap returned TCP ports outside the requested scope.")
     requested_ports = tuple(sorted(set(ports)))
     return NmapEnrichmentResult(
-        status="completed",
+        status="completed" if import_result.metadata.finished_exit == "success" else "partial",
         target=target,
         ports_requested=requested_ports,
         terminal_text=format_nmap_enrichment_summary(
@@ -112,6 +133,7 @@ def build_completed_nmap_enrichment(
             requested_ports,
         ),
         import_result=import_result,
+        execution=import_result.execution,
     )
 
 
@@ -139,12 +161,14 @@ def build_multi_nmap_enrichment(
         return runs[0]
 
     completed = sum(run.status == "completed" for run in runs)
-    if completed == len(runs):
+    if any(run.status == "interrupted" for run in runs):
+        status = "interrupted"
+    elif completed == len(runs):
         status = "completed"
     elif completed:
         status = "partial"
     else:
-        status = "skipped"
+        status = "partial" if any(run.import_result for run in runs) else "failed"
     return NmapEnrichmentResult(
         status=status,
         target=target,
@@ -154,3 +178,23 @@ def build_multi_nmap_enrichment(
         terminal_text="\n\n".join(run.terminal_text for run in runs),
         runs=tuple(runs),
     )
+
+
+def build_failed_nmap_enrichment(error, target, ports):
+    """Keep captured output; attach parsed partial evidence only after validation."""
+    execution = getattr(error, "execution", {"status": "failed"})
+    status = execution["status"]
+    result = build_skipped_nmap_enrichment(str(error), target, ports)
+    result = replace(result, status=status, execution=execution,
+        terminal_text=result.terminal_text.replace("Status          : skipped", f"Status          : {status}"))
+    if execution.get("stdout"):
+        from modules.nmap_xml import parse_nmap_xml_text
+        try:
+            partial = build_completed_nmap_enrichment(parse_nmap_xml_text(execution["stdout"]), target, ports)
+        except ValueError:
+            pass  # Raw output remains available, but cannot establish endpoint evidence.
+        else:
+            result = replace(result, import_result=partial.import_result,
+                terminal_text=result.terminal_text + "\n" + partial.terminal_text.replace(
+                    "Status          : completed", "Status          : partial"))
+    return result

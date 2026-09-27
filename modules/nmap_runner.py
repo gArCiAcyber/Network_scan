@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 import ipaddress
 import subprocess
+from dataclasses import replace
 
 from modules.nmap_xml import NmapXmlImport, parse_nmap_xml_text
 
@@ -13,6 +14,19 @@ DEFAULT_NMAP_BINARY = "nmap"
 DEFAULT_NMAP_TIMEOUT = 60.0
 MAX_PORT = 65535
 STDERR_PREVIEW_LIMIT = 500
+
+
+class NmapExecutionError(RuntimeError):
+    """An optional execution failure carrying its captured evidence."""
+    def __init__(self, message, *, status="failed", stdout="", stderr="", command=(), returncode=None):
+        super().__init__(message)
+        self.execution = {"status": status, "stdout": decode_output(stdout),
+                          "stderr": decode_output(stderr), "command": list(command),
+                          "returncode": returncode}
+
+
+def decode_output(value):
+    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
 
 
 def normalize_nmap_ports(ports: Sequence[int]) -> list[int]:
@@ -95,22 +109,34 @@ def run_nmap_service_version_scan(
             timeout=timeout,
         )
     except FileNotFoundError as error:
-        raise RuntimeError(
-            f"Nmap binary not found: {command[0]}. Install Nmap or provide a valid path."
+        raise NmapExecutionError(
+            f"Nmap binary not found: {command[0]}. Install Nmap or provide a valid path.", command=command
         ) from error
     except subprocess.TimeoutExpired as error:
-        raise RuntimeError(
-            f"Nmap service/version enrichment timed out after {timeout:.1f} seconds."
+        raise NmapExecutionError(
+            f"Nmap service/version enrichment timed out after {timeout:.1f} seconds.",
+            status="timed_out", stdout=error.stdout, stderr=error.stderr, command=command
         ) from error
+
+    except OSError as error:
+        raise NmapExecutionError(f"Could not launch Nmap: {error}", command=command) from error
 
     if completed_process.returncode != 0:
         stderr = format_stderr_preview(completed_process.stderr)
-        raise RuntimeError(
+        raise NmapExecutionError(
             f"Nmap service/version enrichment failed with exit code "
-            f"{completed_process.returncode}: {stderr}"
+            f"{completed_process.returncode}: {stderr}", stdout=completed_process.stdout,
+            stderr=completed_process.stderr, command=command, returncode=completed_process.returncode
         )
 
-    return parse_nmap_xml_text(completed_process.stdout)
+    try:
+        parsed = parse_nmap_xml_text(completed_process.stdout)
+    except ValueError as error:
+        raise NmapExecutionError(str(error), stdout=completed_process.stdout,
+            stderr=completed_process.stderr, command=command, returncode=completed_process.returncode) from error
+    return replace(parsed, execution={
+        "status": "completed", "command": command, "returncode": completed_process.returncode,
+        "stdout": completed_process.stdout, "stderr": completed_process.stderr})
 
 
 def format_stderr_preview(stderr: str | None) -> str:

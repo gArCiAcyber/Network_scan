@@ -44,8 +44,9 @@ class HTTPMetadataTests(unittest.TestCase):
         self.assertEqual(extract_http_status_code(banner), 301)
         self.assertEqual(
             extract_http_header(banner, "Location"),
-            "https://example.com/",
+            None,
         )
+        self.assertFalse(parse_http_response_head(banner).complete)
 
     def test_non_http_banner_has_no_status_code(self) -> None:
         self.assertIsNone(extract_http_status_code("SSH-2.0-OpenSSH_9.6"))

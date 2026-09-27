@@ -7,6 +7,7 @@ from typing import Any
 from modules.probes.certificates import build_certificate_metadata, build_cipher_metadata
 from modules.probes.generic import (
     grab_banner,
+    limit_socket_timeout,
     merge_banner_parts,
     send_probe_and_grab_banner,
 )
@@ -64,6 +65,7 @@ def grab_tls_metadata(
     context = build_tls_context()
 
     try:
+        limit_socket_timeout(client)
         with context.wrap_socket(
             client,
             server_hostname=server_hostname,
@@ -88,6 +90,7 @@ def grab_tls_protocol_banner(
     context = build_tls_context()
 
     try:
+        limit_socket_timeout(client)
         with context.wrap_socket(
             client,
             server_hostname=server_hostname,
@@ -122,6 +125,7 @@ def grab_tls_text_service_banner(
     context = build_tls_context()
 
     try:
+        limit_socket_timeout(client)
         with context.wrap_socket(
             client,
             server_hostname=server_hostname,

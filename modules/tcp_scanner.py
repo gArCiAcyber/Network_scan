@@ -2,12 +2,21 @@
 
 import socket
 import time
+import errno
+import math
+import threading
+import base64
+from collections import Counter
+from datetime import datetime, timezone
+from uuid import uuid4
 from collections.abc import Callable, Iterable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from modules.banner_grabber import grab_service_banner
+from modules.probes.generic import PROBE_DEADLINE, PROBE_CANCEL, COLLECTION_ERRORS, COLLECTED_RESPONSES
+from modules.target import normalize_host_identity
 from modules.ports import build_web_url, get_service_name, normalize_ports
 from modules.rate_limiter import MaxRatePacer
 from modules.target import ResolvedAddress, address_family_name, socket_family_for_address
@@ -35,6 +44,7 @@ class PortScanResult:
     probe: dict[str, Any] | None = None
     address: str | None = None
     address_family: str | None = None
+    scope_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -49,6 +59,16 @@ class ScanResult:
     resolved_ips: tuple[str, ...] = ()
     address_family: str = "ipv4"
     addresses: tuple[ResolvedAddress, ...] = ()
+    run_id: str = ""
+    status: str = "completed"
+    requested_ports: tuple[int, ...] = ()
+    completed_attempts: int = 0
+    outcomes: dict[str, int] = field(default_factory=dict)
+    errors: dict[str, int] = field(default_factory=dict)
+    started_at: str | None = None
+    finished_at: str | None = None
+    settings: dict[str, Any] = field(default_factory=dict)
+    phase_durations: dict[str, float] = field(default_factory=dict)
 
     @property
     def ipv4_open_ports(self) -> tuple[PortScanResult, ...]:
@@ -91,11 +111,16 @@ def discover_open_port(
     pacer: MaxRatePacer | None = None,
     address_family: int | socket.AddressFamily | None = None,
     scope_id: int = 0,
+    cancel_event: threading.Event | None = None,
+    outcome_callback: Callable[[str, int | None], None] | None = None,
 ) -> PortScanResult | None:
     """Run TCP connect discovery for one port."""
     try:
         if pacer is not None:
-            pacer.wait()
+            pacer.wait(cancel_event) if cancel_event is not None else pacer.wait()
+
+        if cancel_event is not None and cancel_event.is_set():
+            return None
 
         started_at = time.perf_counter()
 
@@ -107,14 +132,20 @@ def discover_open_port(
 
         with socket.socket(family, socket.SOCK_STREAM) as client:
             client.settimeout(timeout)
+            if cancel_event is not None and cancel_event.is_set():
+                return None
             connect_code = client.connect_ex(
                 _address_record(resolved_ip, family, scope_id).socket_address(port)
             )
             response_time = time.perf_counter() - started_at
 
+            if outcome_callback is not None:
+                outcome_callback(connection_outcome(connect_code), connect_code or None)
             if connect_code != 0:
                 return None
-    except OSError:
+    except OSError as error:
+        if outcome_callback is not None:
+            outcome_callback("error", error.errno)
         return None
 
     service_name = get_service_name(port)
@@ -130,6 +161,7 @@ def discover_open_port(
         probe=None,
         address=resolved_ip,
         address_family=address_family_name(family),
+        scope_id=scope_id,
     )
 
 
@@ -142,10 +174,12 @@ def probe_open_service(
     address_family: int | socket.AddressFamily | None = None,
     scope_id: int = 0,
     http_probing: bool = True,
+    cancel_event: threading.Event | None = None,
+    probe_timeout: float | None = None,
 ) -> PortScanResult:
     """Collect service evidence for one discovered open TCP port."""
     if not http_probing and finding.web_url is not None:
-        return finding
+        return replace(finding, probe={"status": "disabled", "method": None})
 
     banner = None
     tls = None
@@ -153,7 +187,10 @@ def probe_open_service(
 
     try:
         if pacer is not None:
-            pacer.wait()
+            pacer.wait(cancel_event) if cancel_event is not None else pacer.wait()
+
+        if cancel_event is not None and cancel_event.is_set():
+            return replace(finding, probe={"status": "cancelled", "method": None})
 
         family = (
             socket_family_for_address(resolved_ip)
@@ -163,16 +200,42 @@ def probe_open_service(
 
         with socket.socket(family, socket.SOCK_STREAM) as client:
             client.settimeout(timeout)
+            if cancel_event is not None and cancel_event.is_set():
+                return replace(finding, probe={"status": "cancelled", "method": None})
             connect_code = client.connect_ex(
                 _address_record(resolved_ip, family, scope_id).socket_address(finding.port)
             )
 
             if connect_code != 0:
-                return finding
+                return replace(finding, probe={"status": "failed", "method": None,
+                                               "error": f"connect_ex: {connect_code}"})
 
-            banner, tls, probe = grab_service_banner(client, target_host, finding.port)
-    except OSError:
-        return finding
+            errors = []
+            responses = []
+            deadline_token = PROBE_DEADLINE.set(time.monotonic() + (probe_timeout if probe_timeout is not None else 10.0))
+            cancel_token = PROBE_CANCEL.set(cancel_event)
+            errors_token = COLLECTION_ERRORS.set(errors)
+            responses_token = COLLECTED_RESPONSES.set(responses)
+            try:
+                banner, tls, probe = grab_service_banner(client, normalize_host_identity(target_host), finding.port)
+            finally:
+                PROBE_DEADLINE.reset(deadline_token)
+                PROBE_CANCEL.reset(cancel_token)
+                COLLECTION_ERRORS.reset(errors_token)
+                COLLECTED_RESPONSES.reset(responses_token)
+            probe = {**(probe or {}), "responses_base64": [
+                base64.b64encode(data).decode("ascii") for data in responses]}
+            if errors:
+                probe = {**(probe or {}), "error": "; ".join(errors)}
+    except (OSError, ValueError) as error:
+        return replace(finding, probe={"status": "failed", "method": None, "error": str(error)})
+
+    if tls and tls.get("status") == "failed":
+        probe = {**(probe or {}), "error": tls.get("error")}
+    probe = {**(probe or {}), "status": (
+        "incomplete" if probe and probe.get("error") and banner else
+        "failed" if probe and probe.get("error") else
+        "completed" if banner or tls else "unavailable")}
 
     return PortScanResult(
         port=finding.port,
@@ -184,6 +247,7 @@ def probe_open_service(
         probe=probe,
         address=finding.address or resolved_ip,
         address_family=finding.address_family or address_family_name(family),
+        scope_id=finding.scope_id or scope_id,
     )
 
 
@@ -229,6 +293,19 @@ def _build_worker_count(port_count: int, max_workers: int) -> int:
     return max(1, min(max_workers, port_count))
 
 
+def connection_outcome(code: int) -> str:
+    """Classify connection observations without inferring remote port states."""
+    if code == 0:
+        return "open"
+    if code in (errno.ECONNREFUSED, 10061):
+        return "refused"
+    if code in (errno.ETIMEDOUT, 10060):
+        return "timeout"
+    if code in (errno.ENETUNREACH, errno.EHOSTUNREACH, 10051, 10065):
+        return "unreachable"
+    return "error"
+
+
 def scan_tcp_ports(
     target_host: str,
     resolved_ip: str,
@@ -242,166 +319,112 @@ def scan_tcp_ports(
     service_probe_complete_callback: ServiceProbeCompleteCallback | None = None,
     addresses: Iterable[ResolvedAddress] | None = None,
     http_probing: bool = True,
+    pacer: MaxRatePacer | None = None,
+    probe_timeout: float | None = None,
 ) -> ScanResult:
-    """Run a threaded TCP scan and return a consolidated result."""
+    """Discover then probe; cancellation returns all evidence collected so far."""
     started_at = time.perf_counter()
+    started_utc = datetime.now(timezone.utc).isoformat()
     ports_to_scan = normalize_ports(ports)
-    address_records = tuple(addresses) if addresses is not None else (
-        _address_record(resolved_ip, None),
-    )
-
-    if not address_records:
-        raise ValueError("TCP scan requires at least one resolved address.")
-
-    scan_targets = [
-        (address, port)
-        for address in address_records
-        for port in ports_to_scan
-    ]
-    worker_count = _build_worker_count(len(scan_targets), max_workers)
-    pacer = MaxRatePacer(max_rate) if max_rate is not None else None
-    discovered_ports: list[PortScanResult] = []
-    open_ports: list[PortScanResult] = []
+    address_records = tuple(addresses) if addresses is not None else (_address_record(resolved_ip, None),)
+    if not address_records or not ports_to_scan:
+        raise ValueError("TCP scan requires addresses and at least one port.")
+    if max_workers <= 0 or not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("Workers and finite timeout must be positive.")
+    if probe_timeout is not None and (not math.isfinite(probe_timeout) or probe_timeout <= 0):
+        raise ValueError("Probe timeout must be finite and positive.")
+    pacer = pacer if pacer is not None else (MaxRatePacer(max_rate) if max_rate is not None else None)
+    cancelled = threading.Event()
+    outcomes = Counter()
+    errors = Counter()
+    outcome_lock = threading.Lock()
+    findings = {}
     completed_count = 0
-    executor = ThreadPoolExecutor(max_workers=worker_count)
-    cancelled = False
+    phase_durations = {}
 
-    try:
-        future_map: dict[Future[PortScanResult | None], tuple[ResolvedAddress, int]] = {
-            executor.submit(
-                discover_open_port,
-                target_host,
-                address.address,
-                port,
-                timeout,
-                pacer,
-                address.family,
-                address.scope_id,
-            ): (address, port)
-            for address, port in scan_targets
-        }
+    def record_outcome(state, code):
+        with outcome_lock:
+            outcomes[state] += 1
+            if state in {"error", "unreachable"}:
+                errors[str(code) if code is not None else "unknown"] += 1
 
-        for future in as_completed(future_map):
-            _address, port = future_map[future]
-            completed_count += 1
+    for phase in ("discovery", "probing"):
+        if cancelled.is_set():
+            break
+        work = ([(address, port) for address in address_records for port in ports_to_scan]
+                if phase == "discovery" else list(findings.items()))
+        if not work:
+            continue
+        phase_started = time.perf_counter()
+        executor = ThreadPoolExecutor(max_workers=_build_worker_count(len(work), max_workers))
+        futures = {}
+        consumed = set()
+
+        def collect(future, callbacks=True):
+            nonlocal completed_count
+            if future in consumed or future.cancelled():
+                return
+            consumed.add(future)
             result = future.result()
-
-            if result is not None:
-                discovered_ports.append(result)
-
-                if open_port_callback is not None:
-                    open_port_callback(result)
-
-            if progress_callback is not None:
-                progress_callback(completed_count, len(scan_targets), port)
-
-    except KeyboardInterrupt:
-        cancelled = True
-        executor.shutdown(wait=False, cancel_futures=True)
-        raise
-    finally:
-        if not cancelled:
-            executor.shutdown(wait=True)
-
-    ordered_discovered_ports = tuple(
-        sorted(
-            discovered_ports,
-            key=lambda finding: (
-                finding.port,
-                finding.address_family or "ipv4",
-                finding.address or "",
-            ),
-        )
-    )
-    if ordered_discovered_ports:
-        probe_started_at = time.perf_counter()
-
-        if service_probe_start_callback is not None:
-            service_probe_start_callback(len(ordered_discovered_ports))
-
-        probe_worker_count = _build_worker_count(
-            len(ordered_discovered_ports),
-            max_workers,
-        )
-        probe_executor = ThreadPoolExecutor(max_workers=probe_worker_count)
-        probe_cancelled = False
+            if phase == "discovery":
+                address, port = futures[future]
+                completed_count += 1
+                if result is not None:
+                    result = replace(result, address=address.address,
+                                     address_family=address.family_name, scope_id=address.scope_id)
+                    findings[(address, port)] = result
+                    if callbacks and open_port_callback is not None:
+                        open_port_callback(result)
+                if callbacks and progress_callback is not None:
+                    progress_callback(completed_count, len(work), port)
+            elif result is not None:
+                findings[futures[future]] = result
 
         try:
-            future_map: dict[Future[PortScanResult], tuple[ResolvedAddress, int]] = {
-                probe_executor.submit(
-                    probe_open_service,
-                    target_host,
-                    finding.address or resolved_ip,
-                    finding,
-                    timeout,
-                    pacer,
-                    next(
-                        (
-                            address.family
-                            for address in address_records
-                            if address.address == (finding.address or resolved_ip)
-                        ),
-                        None,
-                    ),
-                    next(
-                        (
-                            address.scope_id
-                            for address in address_records
-                            if address.address == (finding.address or resolved_ip)
-                        ),
-                        0,
-                    ),
-                    http_probing,
-                ): (
-                    next(
-                        (
-                            address
-                            for address in address_records
-                            if address.address == (finding.address or resolved_ip)
-                        ),
-                        address_records[0],
-                    ),
-                    finding.port,
-                )
-                for finding in ordered_discovered_ports
-            }
-
-            for future in as_completed(future_map):
-                open_ports.append(future.result())
+            if phase == "probing" and service_probe_start_callback is not None:
+                service_probe_start_callback(len(work))
+            for item in work:
+                if phase == "discovery":
+                    address, port = item
+                    future = executor.submit(discover_open_port, target_host, address.address,
+                        port, timeout, pacer, address.family, address.scope_id,
+                        cancel_event=cancelled, outcome_callback=record_outcome)
+                    futures[future] = item
+                else:
+                    key, finding = item
+                    address, _ = key
+                    future = executor.submit(probe_open_service, target_host, address.address,
+                        finding, timeout, pacer, address.family, address.scope_id, http_probing,
+                        cancel_event=cancelled, probe_timeout=probe_timeout)
+                    futures[future] = key
+            for future in as_completed(futures):
+                collect(future)
         except KeyboardInterrupt:
-            probe_cancelled = True
-            probe_executor.shutdown(wait=False, cancel_futures=True)
-            raise
+            cancelled.set()
         finally:
-            if not probe_cancelled:
-                probe_executor.shutdown(wait=True)
-
-        if service_probe_complete_callback is not None:
-            service_probe_complete_callback(time.perf_counter() - probe_started_at)
-
-    ordered_open_ports = tuple(
-        sorted(
-            open_ports,
-            key=lambda finding: (
-                finding.port,
-                finding.address_family or "ipv4",
-                finding.address or "",
-            ),
-        )
-    )
+            executor.shutdown(wait=True, cancel_futures=cancelled.is_set())
+            # Finished workers may hold evidence the interrupted iterator never delivered.
+            for future in futures:
+                collect(future, callbacks=False)
+            phase_durations[phase] = time.perf_counter() - phase_started
+        if phase == "probing" and not cancelled.is_set() and service_probe_complete_callback is not None:
+            try:
+                service_probe_complete_callback(phase_durations[phase])
+            except KeyboardInterrupt:
+                cancelled.set()
 
     return ScanResult(
-        target_host=target_host,
-        resolved_ip=resolved_ip,
-        scanned_ports=len(ports_to_scan),
-        open_ports=ordered_open_ports,
+        target_host=target_host, resolved_ip=resolved_ip, scanned_ports=len(ports_to_scan),
+        open_ports=tuple(sorted(findings.values(), key=lambda f: (f.port, f.address or "", f.scope_id))),
         duration=time.perf_counter() - started_at,
-        resolved_ips=tuple(address.address for address in address_records),
-        address_family=(
-            "dual-stack"
-            if {address.family_name for address in address_records}
-            == {"ipv4", "ipv6"}
-            else address_records[0].family_name
-        ),
-        addresses=address_records,
+        resolved_ips=tuple(a.address for a in address_records),
+        address_family="dual-stack" if len({a.family for a in address_records}) > 1 else address_records[0].family_name,
+        addresses=address_records, run_id=uuid4().hex,
+        status="interrupted" if cancelled.is_set() else ("partial" if errors or outcomes["timeout"] else "completed"),
+        requested_ports=ports_to_scan, completed_attempts=sum(outcomes.values()),
+        outcomes=dict(outcomes), errors=dict(errors), started_at=started_utc,
+        finished_at=datetime.now(timezone.utc).isoformat(),
+        settings={"timeout": timeout, "workers": max_workers, "max_rate": max_rate,
+                  "http_probing": http_probing, "probe_timeout": probe_timeout if probe_timeout is not None else 10.0},
+        phase_durations=phase_durations,
     )

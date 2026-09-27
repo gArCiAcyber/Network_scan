@@ -3,6 +3,7 @@
 import os
 import sys
 import threading
+import unicodedata
 
 try:
     import select
@@ -28,6 +29,26 @@ _OUTPUT_LOCK = threading.Lock()
 _CLEAR_FROM_CURSOR_DOWN = "\033[J"
 
 
+def escape_controls(text: str, multiline: bool = False) -> str:
+    """Make untrusted terminal controls visible without changing stored evidence."""
+    return "".join(
+        char if (multiline and char in "\n\t") or unicodedata.category(char) not in {"Cc", "Cf"}
+        else char.encode("unicode_escape").decode("ascii")
+        for char in text
+    )
+
+
+def write_encoded(text: str) -> None:
+    encoding = sys.stdout.encoding or "utf-8"
+    sys.stdout.write(text.encode(encoding, errors="backslashreplace").decode(encoding))
+
+
+def print_report(text: str) -> None:
+    """Print reports even when the terminal cannot represent collected text."""
+    encoding = sys.stdout.encoding or "utf-8"
+    print(text.encode(encoding, errors="backslashreplace").decode(encoding))
+
+
 def has_posix_terminal_control() -> bool:
     """Return True when POSIX terminal controls are available."""
     return (
@@ -47,21 +68,21 @@ def clear_screen() -> None:
 def write_dynamic_line(message: str) -> None:
     """Safely overwrite the current terminal line."""
     with _OUTPUT_LOCK:
-        sys.stdout.write(f"\r{CLEAR_LINE}{message}")
+        write_encoded(f"\r{CLEAR_LINE}{message}")
         sys.stdout.flush()
 
 
 def clear_dynamic_line() -> None:
     """Clear the current dynamic terminal line."""
     with _OUTPUT_LOCK:
-        sys.stdout.write(f"\r{CLEAR_LINE}")
+        write_encoded(f"\r{CLEAR_LINE}")
         sys.stdout.flush()
 
 
 def print_safe(message: str = "") -> None:
     """Print a complete line without racing dynamic output."""
     with _OUTPUT_LOCK:
-        sys.stdout.write(f"\r{CLEAR_LINE}{message}\n")
+        write_encoded(f"\r{CLEAR_LINE}{message}\n")
         sys.stdout.flush()
 
 
@@ -75,12 +96,12 @@ class DynamicBlockRenderer:
         """Rewrite the current dynamic block with the provided lines."""
         with _OUTPUT_LOCK:
             if self._line_count:
-                sys.stdout.write(f"\033[{self._line_count}A")
+                write_encoded(f"\033[{self._line_count}A")
 
-            sys.stdout.write(f"\r{_CLEAR_FROM_CURSOR_DOWN}")
+            write_encoded(f"\r{_CLEAR_FROM_CURSOR_DOWN}")
 
             for line in lines:
-                sys.stdout.write(f"{line}\n")
+                write_encoded(f"{line}\n")
 
             sys.stdout.flush()
             self._line_count = len(lines)
@@ -89,9 +110,9 @@ class DynamicBlockRenderer:
         """Clear the rendered dynamic block."""
         with _OUTPUT_LOCK:
             if self._line_count:
-                sys.stdout.write(f"\033[{self._line_count}A")
+                write_encoded(f"\033[{self._line_count}A")
 
-            sys.stdout.write(f"\r{_CLEAR_FROM_CURSOR_DOWN}")
+            write_encoded(f"\r{_CLEAR_FROM_CURSOR_DOWN}")
             sys.stdout.flush()
             self._line_count = 0
 
@@ -132,7 +153,7 @@ def wait_for_enter_safely(message: str) -> None:
     fd = sys.stdin.fileno()
     original_state = termios.tcgetattr(fd)
 
-    sys.stdout.write(message)
+    write_encoded(message)
     sys.stdout.flush()
 
     try:
@@ -155,5 +176,5 @@ def wait_for_enter_safely(message: str) -> None:
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, original_state)
         flush_input_buffer()
-        sys.stdout.write("\n")
+        write_encoded("\n")
         sys.stdout.flush()

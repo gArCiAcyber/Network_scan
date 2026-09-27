@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ipaddress
+import math
+import multiprocessing
 import socket
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -100,6 +102,17 @@ class TargetInfo:
             addresses=addresses,
             resolved_ip=addresses[0].address,
         )
+
+
+def normalize_host_identity(value: str) -> str:
+    """Use canonical IP literals or ASCII IDNA names for protocol identities."""
+    value = value.strip().rstrip(".")
+    if not value or any(ord(c) < 33 or ord(c) == 127 for c in value):
+        raise ValueError("Invalid host identity.")
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        return value.encode("idna").decode("ascii").lower()
 
 
 def normalize_target(value: str) -> str:
@@ -245,9 +258,47 @@ def _resolve_addresses(
     return tuple(addresses)
 
 
+def _resolution_worker(sender, target, mode):
+    try:
+        sender.send((True, _resolve_addresses(target, mode)))
+    except Exception as error:
+        sender.send((False, str(error)))
+    finally:
+        sender.close()
+
+
+def _resolve_with_deadline(target, mode, timeout):
+    """Isolate blocking system DNS calls so a deadline can stop them cleanly."""
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("Resolution deadline must be finite and positive.")
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(target=_resolution_worker, args=(sender, target, mode))
+    try:
+        process.start()
+        sender.close()
+        if not receiver.poll(timeout):
+            raise TargetResolutionError(f"Resolution timed out after {timeout:g} seconds.")
+        try:
+            success, result = receiver.recv()
+        except EOFError as error:
+            raise TargetResolutionError("Resolution worker exited without results.") from error
+        if not success:
+            raise TargetResolutionError(result)
+        return result
+    finally:
+        if process.pid is not None:
+            if process.is_alive():
+                process.terminate()
+            process.join()
+        receiver.close()
+        sender.close()
+
+
 def resolve_target(
     value: str,
     address_family: str | None = ADDRESS_FAMILY_DUAL_STACK,
+    timeout: float | None = None,
 ) -> TargetInfo:
     """Resolve a host or IP address with IPv4, IPv6, or dual-stack selection."""
     target = validate_target(value)
@@ -270,7 +321,8 @@ def resolve_target(
                 f"Target {target} is not compatible with --{mode}."
             )
 
-    addresses = _resolve_addresses(target, mode)
+    addresses = (_resolve_addresses(target, mode) if timeout is None
+                 else _resolve_with_deadline(target, mode, timeout))
 
     if numeric_target is not None:
         requested_family = socket_family_for_address(target)

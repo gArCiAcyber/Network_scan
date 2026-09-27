@@ -1,6 +1,7 @@
 """Command-line parsing and argument normalization."""
 
 import argparse
+import math
 
 from core.version import APP_NAME, APP_VERSION
 from modules.ports import TOP_400_TCP_PORTS
@@ -262,13 +263,21 @@ def parse_arguments() -> argparse.Namespace:
         "--timeout",
         type=float,
         metavar="SEC",
-        help="Override the selected stance timeout per TCP port in seconds.",
+        help="Override the socket-operation timeout in seconds; not a total scan deadline.",
     )
     performance_group.add_argument(
         "--max-rate",
         type=float,
         metavar="RATE",
         help="Limit how many new TCP connection attempts are started per second.",
+    )
+    performance_group.add_argument(
+        "--probe-timeout", type=float, metavar="SEC",
+        help="Total service-probe budget after connecting (default: 10 seconds).",
+    )
+    performance_group.add_argument(
+        "--resolve-timeout", type=float, metavar="SEC",
+        help="Optional total deadline for forward and reverse DNS resolution.",
     )
     http_probing_group = scan_behavior_group.add_mutually_exclusive_group()
     http_probing_group.add_argument(
@@ -321,11 +330,13 @@ def parse_arguments() -> argparse.Namespace:
         help="Reduce terminal output for scripting and automation.",
     )
     parser.set_defaults(
-        address_family="dual-stack",
+        address_family=None,
         host_discovery=None,
         http_probing=None,
     )
     args = parser.parse_args()
+    args.address_family_explicit = args.address_family is not None
+    args.address_family = args.address_family or "dual-stack"
 
     try:
         if is_information_command(args) or is_nmap_xml_import_command(args):
@@ -412,6 +423,8 @@ def parse_custom_ports(ports_value: str) -> list[int]:
         else:
             parsed_ports.append(validate_port(int(item)))
 
+    if not parsed_ports:
+        raise ValueError("--ports requires at least one port.")
     return sorted(set(parsed_ports))
 
 
@@ -419,19 +432,19 @@ def parse_ports_list(args: argparse.Namespace) -> list[int]:
     """Return the selected TCP port list from CLI arguments."""
     port_profile = getattr(args, "port_profile", None)
 
-    if args.ports and args.top_ports:
+    if args.ports is not None and args.top_ports is not None:
         raise ValueError("Use either --ports or --top-ports, not both.")
 
-    if port_profile and args.ports:
+    if port_profile is not None and args.ports is not None:
         raise ValueError("Use either --port-profile or --ports, not both.")
 
-    if port_profile and args.top_ports:
+    if port_profile is not None and args.top_ports is not None:
         raise ValueError("Use either --port-profile or --top-ports, not both.")
 
     if port_profile:
         return list(resolve_port_profile(port_profile).ports)
 
-    if args.ports:
+    if args.ports is not None:
         return parse_custom_ports(args.ports)
 
     if args.top_ports is not None:
@@ -458,7 +471,7 @@ def resolve_scan_scope_label(args: argparse.Namespace) -> str:
     if port_profile:
         return f"Port Profile: {format_port_profile_label(port_profile)}"
 
-    if args.ports:
+    if args.ports is not None:
         return "Custom Port List"
 
     if args.top_ports:
@@ -474,8 +487,8 @@ def resolve_scan_scope_label(args: argparse.Namespace) -> str:
 
 def validate_timeout(timeout: float) -> float:
     """Validate the per-port connection timeout."""
-    if timeout <= 0:
-        raise ValueError("--timeout must be greater than zero.")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("--timeout must be finite and greater than zero.")
 
     return timeout
 
@@ -493,8 +506,8 @@ def validate_max_rate(max_rate: float | None) -> float | None:
     if max_rate is None:
         return None
 
-    if max_rate <= 0:
-        raise ValueError("--max-rate must be greater than zero.")
+    if not math.isfinite(max_rate) or max_rate <= 0:
+        raise ValueError("--max-rate must be finite and greater than zero.")
 
     return max_rate
 
@@ -670,13 +683,25 @@ def validate_mode(args: argparse.Namespace) -> None:
     timeout = getattr(args, "timeout", None)
     max_rate = getattr(args, "max_rate", None)
     http_probing = getattr(args, "http_probing", None)
+    for option in ("port_profile", "scan_profile", "stance"):
+        value = getattr(args, option, None)
+        if value is not None and not value.strip():
+            raise ValueError(f"--{option.replace('_', '-')} cannot be empty.")
+    for option in ("probe_timeout", "resolve_timeout"):
+        value = getattr(args, option, None)
+        if value is not None:
+            if passive_providers or nmap_xml:
+                raise ValueError(f"--{option.replace('_', '-')} is only valid for native TCP scanning.")
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"--{option.replace('_', '-')} requires a finite positive value.")
 
     if passive_providers and (
-        ports
-        or top_ports
-        or port_profile
-        or scan_profile
-        or match_code
+        ports is not None
+        or top_ports is not None
+        or port_profile is not None
+        or scan_profile is not None
+        or match_code is not None
+        or getattr(args, "stance", None) is not None
         or host_discovery
         or http_probing is not None
     ):
@@ -726,10 +751,10 @@ def validate_mode(args: argparse.Namespace) -> None:
         if value is not None and value <= 0:
             raise ValueError(f"{option} must be greater than zero.")
 
-    if nmap_path and not nmap:
+    if nmap_path is not None and not nmap:
         raise ValueError("Use --nmap-path only together with --nmap.")
 
-    if httpx_path and not httpx:
+    if httpx_path is not None and not httpx:
         raise ValueError("Use --httpx-path only together with --httpx.")
 
     if httpx and not passive_providers:
@@ -760,7 +785,10 @@ def validate_mode(args: argparse.Namespace) -> None:
             or httpx
             or httpx_path
         )
-        tcp_flags = ports or top_ports or port_profile or scan_profile or match_code
+        tcp_flags = any(value is not None for value in (
+            ports, top_ports, port_profile, scan_profile, match_code,
+            getattr(args, "stance", None), getattr(args, "target", None),
+        )) or getattr(args, "address_family_explicit", False)
         tcp_tuning_flags = (
             threads is not None
             or timeout is not None
@@ -777,7 +805,19 @@ def validate_mode(args: argparse.Namespace) -> None:
         if tcp_tuning_flags:
             raise ValueError("Use --nmap-xml or TCP scan tuning flags, not both.")
 
-    if match_code and not resolve_http_probing(args):
+    for option, value, enabled in (
+        ("--nmap-path", nmap_path, nmap),
+        ("--subfinder-path", subfinder_path, getattr(args, "subfinder", False)),
+        ("--amass-path", amass_path, getattr(args, "amass", False)),
+        ("--httpx-path", httpx_path, httpx),
+        ("--dnsx-path", dnsx_path, dnsx),
+    ):
+        if value is not None and (not value.strip() or not enabled):
+            raise ValueError(f"{option} requires its provider and a nonempty path.")
+    if nmap_xml is not None and not nmap_xml.strip():
+        raise ValueError("--nmap-xml cannot be empty.")
+
+    if match_code is not None and not resolve_http_probing(args):
         raise ValueError("Use --match-code only when HTTP probing is enabled.")
 
 

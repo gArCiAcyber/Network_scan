@@ -16,9 +16,6 @@ COMPACT_HTTP_STATUS_PATTERN = re.compile(
     r"(?:\s+(?P<reason_phrase>.*?))?"
     r"(?=\s+[A-Za-z][A-Za-z0-9-]*:\s+|$)"
 )
-HTTP_HEADER_PATTERN = re.compile(
-    r"(?<!\S)(?P<name>[A-Za-z][A-Za-z0-9-]*):\s+"
-)
 
 
 @dataclass(frozen=True)
@@ -29,6 +26,7 @@ class HTTPResponseHead:
     status_code: int
     reason_phrase: str | None
     headers: dict[str, list[str]]
+    complete: bool = False
 
 
 def append_header(headers: dict[str, list[str]], name: str, value: str) -> None:
@@ -45,20 +43,12 @@ def append_header(headers: dict[str, list[str]], name: str, value: str) -> None:
 def parse_http_headers(header_block: str) -> dict[str, list[str]]:
     """Parse compact or line-delimited headers into a normalized mapping."""
     headers: dict[str, list[str]] = {}
-    matches = list(HTTP_HEADER_PATTERN.finditer(header_block))
-
-    for index, match in enumerate(matches):
-        value_start = match.end()
-        value_end = (
-            matches[index + 1].start()
-            if index + 1 < len(matches)
-            else len(header_block)
-        )
-        append_header(
-            headers=headers,
-            name=match.group("name"),
-            value=header_block[value_start:value_end],
-        )
+    for line in header_block.splitlines():
+        if not line:
+            break
+        name, separator, value = line.partition(":")
+        if separator and re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name):
+            append_header(headers, name, value)
 
     return headers
 
@@ -81,25 +71,39 @@ def parse_http_response_head(response: str | None) -> HTTPResponseHead | None:
     if response is None:
         return None
 
-    if "\n" in response:
-        status_line, header_block = response.split("\n", maxsplit=1)
-        status_match = HTTP_STATUS_LINE_PATTERN.match(status_line.rstrip("\r"))
-    else:
-        status_match = COMPACT_HTTP_STATUS_PATTERN.match(response)
-        header_block = response[status_match.end():] if status_match else ""
+    # A flattened legacy banner has lost its header boundaries. Its status can
+    # still be read, but header-looking words cannot establish header evidence.
+    if "\n" not in response:
+        match = COMPACT_HTTP_STATUS_PATTERN.match(response)
+        if match is None or not 100 <= int(match.group("status_code")) <= 599:
+            return None
+        return HTTPResponseHead(f"HTTP/{match.group('version')}",
+            int(match.group("status_code")), match.group("reason_phrase") or None, {}, False)
 
-    if status_match is None:
-        return None
+    remaining = response.replace("\r\n", "\n")
+    while remaining:
+        head, separator, rest = remaining.partition("\n\n")
+        lines = head.split("\n")
+        match = HTTP_STATUS_LINE_PATTERN.fullmatch(lines[0])
+        if match is None:
+            return None
+        code = int(match.group("status_code"))
+        if not 100 <= code <= 599:
+            return None
+        if 100 <= code < 200 and code != 101:
+            if not separator or not rest:
+                return None
+            remaining = rest
+            continue
+        header_block = "\n".join(lines[1:])
+        if not separator:
+            header_block = header_block.rsplit("\n", 1)[0] if "\n" in header_block else ""
+        valid_lines = all(re.fullmatch(r"[!#$%&'\*+.^_`|~0-9A-Za-z-]+:[^\r\n]*", line)
+                          for line in lines[1:] if line)
+        return HTTPResponseHead(f"HTTP/{match.group('version')}", code,
+            match.group("reason_phrase") or None, parse_http_headers(header_block), bool(separator) and valid_lines)
+    return None
 
-    reason_phrase = (
-        " ".join((status_match.group("reason_phrase") or "").split()) or None
-    )
-    return HTTPResponseHead(
-        protocol=f"HTTP/{status_match.group('version')}",
-        status_code=int(status_match.group("status_code")),
-        reason_phrase=reason_phrase,
-        headers=parse_http_headers(header_block),
-    )
 
 
 def extract_http_status_code(response: str | None) -> int | None:

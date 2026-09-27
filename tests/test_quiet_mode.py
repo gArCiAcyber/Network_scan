@@ -51,7 +51,7 @@ class QuietModeTests(unittest.TestCase):
         self.assertIn("Target: example.com", output)
         self.assertIn("Resolved IP: 93.184.216.34", output)
         self.assertIn("Scan Scope: Custom Port List", output)
-        self.assertIn("Total Scan Time: 1.23s", output)
+        self.assertIn("Native Scan Time: 1.23s", output)
         self.assertIn("Open Ports:", output)
         self.assertIn("- 80/tcp open http 200 OK", output)
 

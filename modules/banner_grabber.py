@@ -110,10 +110,11 @@ def get_probe_handler(handler_name: str) -> Callable[..., Any]:
 def resolve_probe_payload(
     probe: ProtocolProbe,
     target_host: str,
+    port: int | None = None,
 ) -> bytes | None:
     """Return the probe payload for a protocol definition."""
     if probe.use_http_head_request:
-        return build_http_head_request(target_host)
+        return build_http_head_request(target_host, port) if port not in (None, 443) else build_http_head_request(target_host)
 
     return probe.probe_payload
 
@@ -130,7 +131,7 @@ def grab_service_banner(
         return grab_banner(client), None, build_unknown_probe_metadata()
 
     handler = get_probe_handler(probe.handler_name)
-    payload = resolve_probe_payload(probe, target_host)
+    payload = resolve_probe_payload(probe, target_host, port)
 
     if probe.tls_behavior == TLS_BEHAVIOR_PROTOCOL:
         banner, tls_metadata = handler(client, target_host, payload)
@@ -150,7 +151,7 @@ def grab_service_banner(
     if probe.tls_behavior == TLS_BEHAVIOR_METADATA:
         return (
             None,
-            handler(client, target_host),
+            handler(client, target_host, port) if probe.protocol_name == "http" and port != 80 else handler(client, target_host),
             build_probe_metadata_from_definition(probe),
         )
 
@@ -166,7 +167,7 @@ def grab_service_banner(
 
     if probe.requires_target_host:
         return (
-            handler(client, target_host),
+            handler(client, target_host, port) if probe.protocol_name == "http" and port != 80 else handler(client, target_host),
             None,
             build_probe_metadata_from_definition(probe),
         )

@@ -58,6 +58,7 @@ def is_https_url(url: str | None) -> bool:
 def build_http_security_observations(
     headers: Mapping[str, Sequence[str]],
     url: str | None,
+    complete: bool = True,
 ) -> dict[str, Any]:
     """Build factual HTTP security-header observations from collected headers."""
     https_response = is_https_url(url)
@@ -74,11 +75,11 @@ def build_http_security_observations(
 
         if present:
             present_headers.append(header_key)
-        elif expected:
+        elif expected and complete:
             missing_headers.append(header_key)
             header_observations.append(missing_observation)
             observations.append(missing_observation)
-        elif https_only:
+        elif https_only and not expected:
             header_observations.append("not_expected_on_plain_http")
 
         header_documents[header_key] = {
@@ -90,6 +91,7 @@ def build_http_security_observations(
         }
 
     return {
+        "status": "available" if complete else "incomplete",
         "headers": header_documents,
         "present": present_headers,
         "missing": missing_headers,
