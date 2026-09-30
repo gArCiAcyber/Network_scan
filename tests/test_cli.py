@@ -49,6 +49,7 @@ def build_args(
     nmap_xml: str | None = None,
     nmap: bool = False,
     nmap_path: str | None = None,
+    nmap_timeout: float | None = None,
     subfinder_path: str | None = None,
     amass_path: str | None = None,
     dnsx_path: str | None = None,
@@ -78,6 +79,7 @@ def build_args(
         nmap_xml=nmap_xml,
         nmap=nmap,
         nmap_path=nmap_path,
+        nmap_timeout=nmap_timeout,
         subfinder_path=subfinder_path,
         amass_path=amass_path,
         dnsx_path=dnsx_path,
@@ -391,6 +393,14 @@ class CLIHelperTests(unittest.TestCase):
     def test_validate_mode_rejects_nmap_path_without_live_nmap(self) -> None:
         with self.assertRaisesRegex(ValueError, "--nmap-path"):
             validate_mode(build_args(nmap_path="/usr/bin/nmap"))
+
+    def test_validate_mode_checks_nmap_timeout(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--nmap-timeout"):
+            validate_mode(build_args(nmap_timeout=120))
+        for value in (0, -1, float("nan"), float("inf")):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "finite positive"):
+                validate_mode(build_args(nmap=True, nmap_timeout=value))
+        validate_mode(build_args(nmap=True, nmap_timeout=120))
 
     def test_validate_mode_allows_live_nmap_with_tcp_scan_flags(self) -> None:
         validate_mode(

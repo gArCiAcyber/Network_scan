@@ -12,6 +12,7 @@ from core.cli import parse_arguments, validate_mode
 from modules.httpx_runner import (
     HttpxResult,
     build_httpx_command,
+    format_httpx_summary,
     parse_httpx_jsonl,
     run_httpx,
 )
@@ -43,6 +44,21 @@ HTTPX_JSONL = "\n".join(
 
 class HttpxRunnerTests(unittest.TestCase):
     """Validate HTTPx argv, stdin, parsing, and report integration."""
+
+    def test_skipped_summary_does_not_claim_targets_were_probed(self) -> None:
+        report = format_httpx_summary(HttpxResult("skipped", ("example.test",), reason="missing"))
+        self.assertIn("Targets requested: 1", report)
+        self.assertIn("Records returned : 0", report)
+        self.assertNotIn("Targets probed", report)
+        self.assertNotIn("Live services", report)
+
+    def test_summary_escapes_controls_but_keeps_raw_record(self) -> None:
+        finding = {"url": "https://example.test", "status_code": 200, "title": "test\x1b[2J"}
+        result = HttpxResult("completed", ("example.test",), (finding,))
+        report = format_httpx_summary(result)
+        self.assertNotIn("\x1b", report)
+        self.assertIn("\\x1b[2J", report)
+        self.assertEqual(result.findings[0]["title"], "test\x1b[2J")
 
     def test_command_collects_web_fingerprints_and_both_schemes(self) -> None:
         command = build_httpx_command("/opt/tools/httpx")

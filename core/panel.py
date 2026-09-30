@@ -1,341 +1,154 @@
-"""Final report panel rendering for hylianscan."""
+"""Human-readable TCP reports; full protocol evidence lives in JSON."""
 
 import sys
-from core.terminal import escape_controls
-from collections.abc import Sequence
-from typing import Any
 
 from core.colors import (
     BOLD_GOLD,
     BRIGHT_WHITE,
-    HACKER_GREEN,
-    INFO_BLUE,
+    GREEN,
     MUTED_GRAY,
     RESET,
     WARNING_YELLOW,
 )
-from modules.http_metadata import extract_http_header, parse_http_response_head
+from core.terminal import escape_controls, format_separator, wrap_report
 from modules.tcp_scanner import PortScanResult, ScanResult
-from modules.tls_analysis import build_tls_analysis
 
 
-PANEL_SEPARATOR = f"{MUTED_GRAY}{'-' * 72}{RESET}"
 def get_triforce_symbol() -> str:
     """Return a terminal-safe Triforce symbol."""
-    encoding = sys.stdout.encoding or "utf-8"
-    symbol = "\u25b2"
-
     try:
-        symbol.encode(encoding)
+        "\u25b2".encode(sys.stdout.encoding or "utf-8")
     except UnicodeEncodeError:
         return "^"
-
-    return symbol
+    return "\u25b2"
 
 
 def format_panel_title() -> str:
-    """Return the colored Triforce report title."""
     return (
-        f"{HACKER_GREEN}[ SCAN POWERED BY THE "
-        f"{BOLD_GOLD}TRIFORCE {get_triforce_symbol()}"
-        f"{RESET}{HACKER_GREEN} ]{RESET}"
+        f"{GREEN}[ SCAN BY THE {BOLD_GOLD}TRIFORCE {get_triforce_symbol()}"
+        f"{RESET}{GREEN} ]{RESET}"
     )
-
-
-def get_nested_value(data: dict[str, Any] | None, *keys: str) -> Any:
-    """Read a nested metadata value without assuming every field exists."""
-    current: Any = data
-
-    for key in keys:
-        if not isinstance(current, dict):
-            return None
-
-        current = current.get(key)
-
-    return current
-
-
-def get_first_text(value: Any) -> str | None:
-    """Return the first useful text value from a scalar or list field."""
-    if isinstance(value, str) and value:
-        return escape_controls(value)
-
-    if isinstance(value, list) and value:
-        first_value = value[0]
-
-        if isinstance(first_value, str) and first_value:
-            return escape_controls(first_value)
-
-    return None
-
-
-def format_display_service_name(service: str) -> str:
-    """Normalize service names for terminal display."""
-    normalized_service = escape_controls(service).lower()
-
-    if normalized_service in {"http-alt", "https-alt"}:
-        return normalized_service.replace("-alt", "")
-
-    return normalized_service
-
-
-def truncate_display_value(value: str, max_length: int = 96) -> str:
-    """Keep terminal values compact and readable."""
-    value = escape_controls(value)
-    if len(value) <= max_length:
-        return escape_controls(value)
-
-    return f"{value[: max_length - 3]}..."
-
-
-def parse_http_status(banner: str | None) -> tuple[str, str | None] | None:
-    """Return HTTP status code and reason phrase from a response banner."""
-    response_head = parse_http_response_head(banner)
-
-    if response_head is None:
-        return None
-
-    return str(response_head.status_code), response_head.reason_phrase
-
-
-def format_http_version_signal(banner: str | None, include_reason: bool) -> str | None:
-    """Build the HTTP status and redirect signal for terminal output."""
-    status = parse_http_status(banner)
-
-    if status is None:
-        return None
-
-    status_code, reason = status
-    version = status_code
-
-    if include_reason and reason:
-        version = f"{version} {reason}"
-
-    if banner is not None:
-        location = extract_http_header(banner, "Location")
-
-        if location:
-            version = f"{version} -> {truncate_display_value(location)}"
-
-    return escape_controls(version)
-
-
-def format_tls_protocol(tls: dict[str, Any] | None) -> str | None:
-    """Return the negotiated TLS protocol when available."""
-    protocol = get_nested_value(tls, "handshake", "protocol")
-
-    if isinstance(protocol, str) and protocol:
-        return escape_controls(protocol)
-
-    return None
-
-
-def format_certificate_identity(tls: dict[str, Any] | None) -> str | None:
-    """Return a compact TLS certificate identity line."""
-    subject_cn = get_first_text(
-        get_nested_value(tls, "certificate", "subject", "commonName")
-    )
-    issuer = get_first_text(
-        get_nested_value(tls, "certificate", "issuer", "organizationName")
-    ) or get_first_text(
-        get_nested_value(tls, "certificate", "issuer", "commonName")
-    )
-
-    details: list[str] = []
-
-    if subject_cn:
-        details.append(f"CN={subject_cn}")
-
-    if issuer:
-        details.append(f"Issuer={issuer}")
-
-    if not details:
-        return None
-
-    return " | ".join(details)
-
-
-def format_short_banner(banner: str | None) -> str | None:
-    """Return a short non-HTTP banner for the VERSION column."""
-    if not banner:
-        return None
-
-    return truncate_display_value(" ".join(banner.split()), max_length=72)
-
-
-def format_final_version(finding: PortScanResult) -> str:
-    """Return the main VERSION column signal for the final report."""
-    http_version = format_http_version_signal(finding.banner, include_reason=True)
-
-    if http_version:
-        return http_version
-
-    tls_protocol = format_tls_protocol(finding.tls)
-
-    if tls_protocol:
-        return tls_protocol
-
-    short_banner = format_short_banner(finding.banner)
-
-    if short_banner:
-        return short_banner
-
-    return "active, no banner"
-
-
-def build_http_detail_lines(finding: PortScanResult) -> list[str]:
-    """Build useful HTTP detail lines for the final report."""
-    if finding.banner is None or parse_http_status(finding.banner) is None:
-        return []
-
-    details: list[str] = []
-    server = extract_http_header(finding.banner, "Server")
-    content_type = extract_http_header(finding.banner, "Content-Type")
-
-    if server:
-        details.append(f"http-server-header: {truncate_display_value(server)}")
-
-    if content_type:
-        details.append(f"http-content-type: {truncate_display_value(content_type)}")
-
-    return details
-
-
-def build_tls_detail_lines(
-    finding: PortScanResult,
-    target_host: str,
-    include_protocol: bool,
-) -> list[str]:
-    """Build useful TLS detail lines for the final report."""
-    if not finding.tls:
-        return []
-
-    details: list[str] = []
-    protocol = format_tls_protocol(finding.tls)
-    certificate_identity = format_certificate_identity(finding.tls)
-    tls_analysis = build_tls_analysis(finding.tls, target_host)
-    tls_severity = tls_analysis.get("severity")
-
-    if include_protocol and protocol:
-        details.append(f"tls: {protocol}")
-
-    if certificate_identity:
-        details.append(f"tls-cert: {truncate_display_value(certificate_identity)}")
-
-    if finding.tls.get("status") == "collected":
-        details.append("tls-trust: not evaluated")
-
-    if isinstance(tls_severity, str) and tls_severity != "unknown":
-        details.append(f"tls-risk: {tls_severity}")
-
-    return details
-
-
-def build_tls_reason_text_lines(
-    finding: PortScanResult,
-    target_host: str,
-) -> list[str]:
-    """Build compact saved-report TLS reason lines for one finding."""
-    if not finding.tls:
-        return []
-
-    tls_analysis = build_tls_analysis(finding.tls, target_host)
-    reasons = tls_analysis.get("reasons")
-
-    if not isinstance(reasons, list) or not reasons:
-        return []
-
-    lines = [f"{finding.port}/tcp TLS risk reasons:"]
-
-    for reason in reasons:
-        if not isinstance(reason, dict):
-            continue
-
-        reason_id = reason.get("id", "unknown")
-        severity = reason.get("severity", "unknown")
-        title = reason.get("title", "TLS observation")
-        evidence = reason.get("evidence", "No additional evidence.")
-        recommendation = reason.get("recommendation", "Review TLS configuration.")
-        lines.append(
-            f"- {reason_id} [{severity}]: {title}. "
-            f"Evidence: {evidence} Recommendation: {recommendation}"
-        )
-
-    return lines if len(lines) > 1 else []
-
-
-def build_tls_reason_text_section(summary: ScanResult) -> list[str]:
-    """Build the saved-report TLS explanation section."""
-    lines: list[str] = []
-
-    for finding in summary.open_ports:
-        reason_lines = build_tls_reason_text_lines(finding, summary.target_host)
-
-        if reason_lines:
-            if not lines:
-                lines.extend(["", "TLS Risk Explanations"])
-            else:
-                lines.append("")
-
-            lines.extend(reason_lines)
-
-    return lines
-
-
-def format_detail_lines(details: Sequence[str]) -> list[str]:
-    """Render Nmap-style detail lines below a port row."""
-    formatted_lines: list[str] = []
-
-    for index, detail in enumerate(details):
-        prefix = "|_" if index == len(details) - 1 else "| "
-        formatted_lines.append(f"{MUTED_GRAY}{prefix}{detail}{RESET}")
-
-    return formatted_lines
-
-
-def format_resolved_target(summary: ScanResult) -> str:
-    """Format one or more resolved target addresses for terminal reports."""
-    addresses = getattr(summary, "addresses", ())
-
-    if not addresses:
-        return summary.resolved_ip
-
-    if len(addresses) == 1:
-        return addresses[0].address
-
-    grouped = {
-        "ipv4": [address.address for address in addresses if address.family_name == "ipv4"],
-        "ipv6": [address.address for address in addresses if address.family_name == "ipv6"],
-    }
-    return "; ".join(
-        f"{family.upper()}: {', '.join(values)}"
-        for family, values in grouped.items()
-        if values
-    )
-
-
-def has_multiple_scanned_addresses(summary: ScanResult) -> bool:
-    """Return whether findings need an address label to remain unambiguous."""
-    addresses = getattr(summary, "addresses", ())
-
-    if addresses:
-        return len(addresses) > 1
-
-    return len(getattr(summary, "resolved_ips", ())) > 1
 
 
 def format_finding_address(finding: PortScanResult) -> str | None:
-    """Return the concrete address and family for one finding."""
     address = getattr(finding, "address", None)
-
     if not address:
         return None
-
     if getattr(finding, "scope_id", 0) and "%" not in address:
         address = f"{address}%{finding.scope_id}"
-    family = getattr(finding, "address_family", None)
-    family_label = {"ipv4": "IPv4", "ipv6": "IPv6"}.get(family, family)
-    return f"{address} ({family_label})" if family_label else address
+    return escape_controls(address)
+
+
+def scan_addresses(summary: ScanResult) -> list[str]:
+    """Retain IPv6 scope IDs and legacy callers' address lists."""
+    addresses = getattr(summary, "addresses", ())
+    if addresses:
+        return [escape_controls(
+            f"{a.address}%{a.scope_id}" if a.scope_id and "%" not in a.address else a.address
+        ) for a in addresses]
+    return [escape_controls(a) for a in (
+        getattr(summary, "resolved_ips", ()) or (summary.resolved_ip,)
+    )]
+
+
+def build_report_lines(
+    summary: ScanResult,
+    scan_scope: str,
+    native_open_port_count: int | None,
+    http_status_filter: str | None,
+    *,
+    quiet: bool = False,
+) -> list[str]:
+    """Render compact endpoint findings while retaining scan outcomes."""
+    native_count = len(summary.open_ports) if native_open_port_count is None else native_open_port_count
+    hidden_count = max(0, native_count - len(summary.open_ports))
+    addresses = scan_addresses(summary)
+    expected = 0 if getattr(summary, "status", None) == "unconfirmed" else summary.scanned_ports * len(addresses)
+    completed = getattr(summary, "completed_attempts", 0)
+    status = getattr(summary, "status", "unknown")
+    outcomes = getattr(summary, "outcomes", {})
+    family_groups = {
+        "ipv4": [
+            a.address for a in getattr(summary, "addresses", ())
+            if a.family_name == "ipv4"
+        ],
+        "ipv6": [
+            a.address for a in getattr(summary, "addresses", ())
+            if a.family_name == "ipv6"
+        ],
+    }
+    resolved_label = "; ".join(
+        f"{family.upper()}: {', '.join(values)}"
+        for family, values in family_groups.items() if values
+    ) or ", ".join(addresses)
+    report_title = (
+        f"Hylianscan scan report for {escape_controls(summary.target_host)} "
+        f"({escape_controls(resolved_label)})"
+    )
+    lines = [] if quiet else [format_separator(), "[ SCAN BY THE TRIFORCE " + get_triforce_symbol() + " ]"]
+    lines.append(report_title)
+    lines.extend([
+        f"Scope: {escape_controls(scan_scope)} ({summary.scanned_ports:,} "
+        f"{'port' if summary.scanned_ports == 1 else 'ports'}/address)",
+        f"Attempts: {completed:,}/{expected:,} finished" + (
+            " (interrupted)" if status == "interrupted" else
+            " (host discovery unconfirmed)" if status == "unconfirmed" else ""
+        ),
+    ])
+    results = [f"{native_count:,} open"]
+    for key, label in (
+        ("refused", "refused"),
+        ("timeout", "unknown (connection timeout)"),
+        ("unreachable", "unknown (unreachable)"),
+        ("error", "unknown (connection error)"),
+    ):
+        if outcomes.get(key):
+            results.append(f"{outcomes[key]:,} {label}")
+    lines.append(f"Results: {'; '.join(results)}")
+    total_duration = getattr(summary, "phase_durations", {}).get("total")
+    timing = f"Time: native {summary.duration:.2f}s"
+    if total_duration is not None:
+        timing += f"; overall {total_duration:.2f}s"
+    lines.append(timing)
+    if completed < expected:
+        remaining = expected - completed
+        lines.append(f"Missing outcomes: {remaining:,} {'attempt' if remaining == 1 else 'attempts'}")
+    if http_status_filter is not None:
+        lines.append(f"HTTP filter: {escape_controls(http_status_filter)} (report only); "
+                     f"{len(summary.open_ports)} shown, {hidden_count} hidden")
+    if not quiet:
+        lines.append(format_separator())
+
+    if not summary.open_ports:
+        lines.extend(["", "No open findings matched the HTTP filter." if hidden_count else
+                      "TCP scan skipped: host discovery unconfirmed." if status == "unconfirmed"
+                      else "No open ports observed."])
+        if not quiet:
+            lines.append(format_separator())
+        return lines
+
+    findings: list[tuple[str, int]] = []
+    for finding in summary.open_ports:
+        # Never attribute a legacy finding to an arbitrary IP in a multi-address run.
+        address = format_finding_address(finding) or (
+            addresses[0] if len(addresses) == 1 else "?"
+        )
+        findings.append((address, finding.port))
+    lines.append("")
+    for address, port in sorted(findings):
+        endpoint = f"[{address}]" if ":" in address else address
+        lines.append(f"Open {endpoint}:{port}")
+    if len(addresses) > 1 and all(address != "?" for address, _ in findings):
+        shown_addresses = {address for address, _ in findings}
+        without_findings = [address for address in addresses if address not in shown_addresses]
+        for address in without_findings:
+            if http_status_filter is None:
+                lines.append(f"{address}: no open TCP ports observed")
+            else:
+                lines.append(f"{address}: no findings match the HTTP filter")
+    if not quiet:
+        lines.append(format_separator())
+    return lines
 
 
 def build_final_panel(
@@ -344,100 +157,31 @@ def build_final_panel(
     native_open_port_count: int | None = None,
     http_status_filter: str | None = None,
 ) -> str:
-    """Build the final static TCP scan report."""
-    native_count = (
-        len(summary.open_ports)
-        if native_open_port_count is None
-        else native_open_port_count
-    )
-    hidden_count = max(0, native_count - len(summary.open_ports))
-    show_finding_addresses = has_multiple_scanned_addresses(summary)
-    lines = [
-        "",
-        PANEL_SEPARATOR,
-        format_panel_title(),
-        (
-            f"{BRIGHT_WHITE}Hylianscan scan report for "
-            f"{summary.target_host} ({format_resolved_target(summary)}){RESET}"
-        ),
-        f"{BRIGHT_WHITE}Scan Scope      :{RESET} {scan_scope}",
-        f"Execution status: {getattr(summary, 'status', 'unknown')}",
-        f"Connection outcomes: {getattr(summary, 'outcomes', {})}; errors: {getattr(summary, 'errors', {})}",
-    ]
+    lines = build_report_lines(summary, scan_scope, native_open_port_count, http_status_filter)
+    report = wrap_report("\n".join(lines))
+    colored = []
+    for line in report.splitlines():
+        if line == "[ SCAN BY THE TRIFORCE " + get_triforce_symbol() + " ]":
+            colored.append(format_panel_title())
+        elif line == format_separator():
+            colored.append(f"{MUTED_GRAY}{line}{RESET}")
+        elif line.startswith("Open "):
+            colored.append(f"{GREEN}{line}{RESET}")
+        elif line.startswith(("Hylianscan scan report", "Scope:", "Attempts:", "Results:", "Time:")):
+            colored.append(f"{BRIGHT_WHITE}{line}{RESET}")
+        elif line.startswith(("No open findings", "TCP scan skipped", "No open ports observed")):
+            colored.append(f"{WARNING_YELLOW}{line}{RESET}")
+        else:
+            colored.append(line)
+    return "\n" + "\n".join(colored)
 
-    if native_count:
-        lines.insert(4, f"{HACKER_GREEN}Host is up.{RESET}")
 
-    if http_status_filter is not None:
-        lines.append(
-            f"{BRIGHT_WHITE}HTTP Status Filter:{RESET} {http_status_filter}"
-        )
-
-        if hidden_count:
-            lines.append(
-                f"{BRIGHT_WHITE}Filtered Findings :{RESET} "
-                f"{len(summary.open_ports)} shown, {hidden_count} hidden"
-            )
-
-    lines.extend(
-        [
-            f"{BRIGHT_WHITE}Native Scan Time :{RESET} {summary.duration:.2f}s",
-            PANEL_SEPARATOR,
-            "",
-        ]
-    )
-
-    if not summary.open_ports:
-        message = (
-            "No open-port findings matched the HTTP status filter." if hidden_count else
-            "Host discovery did not confirm an address; TCP scanning was skipped."
-            if getattr(summary, "status", None) == "unconfirmed" else
-            "No open ports observed; the scan was incomplete."
-            if getattr(summary, "status", None) == "partial" else
-            f"No open ports found in the {scan_scope.lower()}."
-        )
-        lines.append(f"{WARNING_YELLOW}{message}{RESET}")
-        lines.append(PANEL_SEPARATOR)
-        return "\n".join(lines)
-
-    lines.append(f"{INFO_BLUE}{'PORT':<10} {'STATE':<6} {'SERVICE':<8} VERSION{RESET}")
-
-    for index, finding in enumerate(summary.open_ports):
-        port_label = f"{finding.port}/tcp"
-        service_name = format_display_service_name(finding.service)
-        version_signal = format_final_version(finding)
-
-        if index > 0:
-            lines.append("")
-
-        lines.append(
-            f"{HACKER_GREEN}{port_label:<10} "
-            f"{'open':<6} "
-            f"{service_name:<8} "
-            f"{version_signal}{RESET}"
-        )
-
-        detail_lines = [
-            f"service name is a port hint; probe status: {(getattr(finding, 'probe', None) or {}).get('status', 'unavailable')}",
-            *(
-                [f"address: {format_finding_address(finding)}"]
-                if show_finding_addresses and format_finding_address(finding)
-                else []
-            ),
-            *build_http_detail_lines(finding),
-            *build_tls_detail_lines(
-                finding,
-                summary.target_host,
-                include_protocol=format_http_version_signal(
-                    finding.banner,
-                    include_reason=True,
-                ) is not None,
-            ),
-        ]
-        lines.extend(format_detail_lines(detail_lines))
-
-    lines.append(PANEL_SEPARATOR)
-    return "\n".join(lines)
+def build_nmap_panel(report: str, *, quiet: bool = False) -> str:
+    """Decorate the Nmap summary while retaining plain quiet output."""
+    if quiet:
+        return report
+    report = wrap_report(report.replace("Nmap service scan", "[+] NMAP SERVICE SCAN", 1))
+    return f"{GREEN}{report}{RESET}\n{MUTED_GRAY}{format_separator()}{RESET}"
 
 
 def build_saved_text_report(
@@ -445,31 +189,20 @@ def build_saved_text_report(
     scan_scope: str = "Default Target List",
     base_report: str | None = None,
     match_code_expression: str | None = None,
+    nmap_text: str | None = None,
 ) -> str:
-    """Build the TXT report, including compact TLS explanation notes."""
-    report = base_report or build_final_panel(
-        summary,
-        scan_scope=scan_scope,
+    """Keep TXT readable; detailed settings, bytes, and TLS remain in JSON."""
+    report = base_report or build_quiet_final_panel(
+        summary, scan_scope=scan_scope, http_status_filter=match_code_expression,
     )
-    report_sections = [report, f"Run ID: {getattr(summary, 'run_id', '')}",
-        f"Execution status: {getattr(summary, 'status', 'unknown')}",
-        f"Started: {getattr(summary, 'started_at', None)}", f"Finished: {getattr(summary, 'finished_at', None)}",
-        f"Requested ports: {','.join(map(str, getattr(summary, 'requested_ports', ())))}",
-        f"Effective settings: {getattr(summary, 'settings', {})}",
-        f"Connection outcomes: {getattr(summary, 'outcomes', {})}", f"Connection errors: {getattr(summary, 'errors', {})}",
-        f"Phase durations (seconds): {getattr(summary, 'phase_durations', {})}"]
-
-    if match_code_expression is not None:
-        report_sections.append(
-            f"Report Filter: HTTP status codes {match_code_expression.strip()}"
-        )
-
-    tls_reason_section = build_tls_reason_text_section(summary)
-
-    if tls_reason_section:
-        report_sections.extend(tls_reason_section)
-
-    return "\n".join(report_sections)
+    metadata = []
+    for label, field in (("Run ID", "run_id"), ("Started", "started_at"), ("Finished", "finished_at")):
+        value = getattr(summary, field, None)
+        if value:
+            metadata.append(f"{label}: {escape_controls(value)}")
+    if nmap_text:
+        report += "\n\n" + nmap_text
+    return report + ("\n\n" + wrap_report("\n".join(metadata)) if metadata else "")
 
 
 def build_quiet_final_panel(
@@ -478,61 +211,7 @@ def build_quiet_final_panel(
     native_open_port_count: int | None = None,
     http_status_filter: str | None = None,
 ) -> str:
-    """Build a plain automation-friendly TCP scan report."""
-    native_count = (
-        len(summary.open_ports)
-        if native_open_port_count is None
-        else native_open_port_count
-    )
-    hidden_count = max(0, native_count - len(summary.open_ports))
-    show_finding_addresses = has_multiple_scanned_addresses(summary)
-    resolved_label = format_resolved_target(summary)
-    lines = []
-
-    if http_status_filter is not None:
-        lines.append(f"HTTP Status Filter: {http_status_filter}")
-
-    lines.extend([
-        f"Target: {summary.target_host}",
-        f"Resolved IP{'s' if '; ' in resolved_label else ''}: {resolved_label}",
-        f"Scan Scope: {scan_scope}",
-        f"Execution status: {getattr(summary, 'status', 'unknown')}",
-        f"Connection outcomes: {getattr(summary, 'outcomes', {})}; errors: {getattr(summary, 'errors', {})}",
-        f"Native Scan Time: {summary.duration:.2f}s",
-    ])
-
-    if hidden_count:
-        lines.append(
-            f"Filtered Findings: {len(summary.open_ports)} shown, {hidden_count} hidden"
-        )
-
-    if not summary.open_ports:
-        lines.append(
-            "No open-port findings matched the HTTP status filter."
-            if hidden_count
-            else "Host discovery did not confirm an address; TCP scanning was skipped."
-            if getattr(summary, "status", None) == "unconfirmed"
-            else "No open ports observed; the scan was incomplete."
-            if getattr(summary, "status", None) == "partial"
-            else "No open ports found."
-        )
-        return "\n".join(lines)
-
-    lines.append("Open Ports:")
-
-    for finding in summary.open_ports:
-        port_label = f"{finding.port}/tcp"
-        service_name = format_display_service_name(finding.service)
-        version_signal = format_final_version(finding)
-        address = format_finding_address(finding)
-        address_suffix = (
-            f" address={address}"
-            if show_finding_addresses and address
-            else ""
-        )
-        lines.append(
-            f"- {port_label} open {service_name} {version_signal}{address_suffix} "
-            f"(service name: port hint; probe: {(getattr(finding, 'probe', None) or {}).get('status', 'unavailable')})"
-        )
-
-    return "\n".join(lines)
+    """Render the findings without decorative branding or terminal controls."""
+    return wrap_report("\n".join(build_report_lines(
+        summary, scan_scope, native_open_port_count, http_status_filter, quiet=True,
+    )))

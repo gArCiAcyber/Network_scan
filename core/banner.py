@@ -1,7 +1,9 @@
 """TrueColor Slant banner rendering for hylianscan."""
 
 from core.colors import RESET
+from core.terminal import wrap_report
 from core.version import APP_VERSION
+import shutil
 
 FOOTER_TEXT = f"[ HYLIANSCAN v{APP_VERSION} - BY CYLINK ]"
 
@@ -90,6 +92,8 @@ def build_footer(width: int | None = None) -> str:
 def build_banner() -> str:
     """Build the complete static Slant banner with a TrueColor gradient."""
     width = visible_banner_width()
+    if shutil.get_terminal_size(fallback=(100, 24)).columns < width:
+        return wrap_report(FOOTER_TEXT)
     banner_lines = [
         apply_horizontal_gradient(line, width)
         for line in SLANT_BANNER_LINES

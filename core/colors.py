@@ -1,6 +1,6 @@
 """Centralized ANSI color constants for hylianscan."""
 
-HACKER_GREEN = "\033[92m"
+GREEN = "\033[92m"
 ALERT_RED = "\033[31m"
 INFO_BLUE = "\033[34m"
 WARNING_YELLOW = "\033[33m"

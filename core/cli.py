@@ -75,12 +75,16 @@ def parse_arguments() -> argparse.Namespace:
     integrations_group.add_argument(
         "--nmap",
         action="store_true",
-        help="Run optional Nmap service/version enrichment after native TCP scanning.",
+        help="Enrich native open TCP endpoints with Nmap after discovery and native service probing.",
     )
     integrations_group.add_argument(
         "--nmap-path",
         metavar="PATH",
         help="Path to the Nmap executable for optional live enrichment.",
+    )
+    integrations_group.add_argument(
+        "--nmap-timeout", type=float, metavar="SEC",
+        help="Optional deadline per Nmap address in seconds (default: no deadline).",
     )
     address_family_group = scan_behavior_group.add_mutually_exclusive_group()
     address_family_group.add_argument(
@@ -322,7 +326,7 @@ def parse_arguments() -> argparse.Namespace:
         nargs="?",
         const="hylianscan_tcp_results.json",
         metavar="PATH",
-        help="Save TCP, passive subdomain, or Nmap XML import results as JSON.",
+        help="Save structured results as JSON, including collected TCP TLS evidence omitted from terminal/TXT.",
     )
     output_group.add_argument(
         "--quiet",
@@ -664,6 +668,7 @@ def validate_mode(args: argparse.Namespace) -> None:
     nmap_xml = getattr(args, "nmap_xml", None)
     nmap = getattr(args, "nmap", False)
     nmap_path = getattr(args, "nmap_path", None)
+    nmap_timeout = getattr(args, "nmap_timeout", None)
     subfinder_path = getattr(args, "subfinder_path", None)
     amass_path = getattr(args, "amass_path", None)
     dnsx = getattr(args, "dnsx", False)
@@ -753,6 +758,11 @@ def validate_mode(args: argparse.Namespace) -> None:
 
     if nmap_path is not None and not nmap:
         raise ValueError("Use --nmap-path only together with --nmap.")
+    if nmap_timeout is not None:
+        if not nmap:
+            raise ValueError("Use --nmap-timeout only together with --nmap.")
+        if not math.isfinite(nmap_timeout) or nmap_timeout <= 0:
+            raise ValueError("--nmap-timeout requires a finite positive value.")
 
     if httpx_path is not None and not httpx:
         raise ValueError("Use --httpx-path only together with --httpx.")

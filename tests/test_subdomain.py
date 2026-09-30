@@ -324,8 +324,8 @@ class PassiveProviderExecutableTests(unittest.TestCase):
                     quiet=True,
                 )
 
-        self.assertIn("Raw Discoveries: 2", summary)
-        self.assertIn("Unique Subdomains: 2", summary)
+        self.assertIn("Provider candidates: 2", summary)
+        self.assertIn("Unique names saved: 2", summary)
         self.assertEqual(
             subfinder.call_args.kwargs["executable_path"],
             "/opt/tools/subfinder",
@@ -372,7 +372,7 @@ class PassiveProviderExecutableTests(unittest.TestCase):
             document = json.loads(json_output_path.read_text(encoding="utf-8"))
             self.assertEqual(exit_context.exception.code, 1)
             self.assertIn(
-                "Error: Passive discovery completed with provider errors",
+                "Error: Passive discovery incomplete",
                 terminal_output.getvalue(),
             )
             self.assertIn("Partial results were saved", terminal_output.getvalue())

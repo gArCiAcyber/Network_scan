@@ -8,6 +8,7 @@ from pathlib import Path
 
 from core import passive_display
 from core.passive_telemetry import PassiveActivityTelemetry
+from modules.subdomain import ProviderRunResult
 
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -60,14 +61,31 @@ class PassiveDiscoveryOutputTests(unittest.TestCase):
         )
         rendered = ANSI_PATTERN.sub("", summary)
 
-        self.assertIn("[+] SHEIKAH MAP UPDATED", rendered)
-        self.assertIn("[+] Raw Discoveries    : 8", rendered)
-        self.assertIn("[+] Unique Subdomains  : 5", rendered)
+        self.assertIn("SHEIKAH MAP", rendered)
+        self.assertIn("Provider candidates: 8", rendered)
+        self.assertIn("Unique names saved: 5", rendered)
         self.assertIn(
-            "Slate Database     : output/example.com/20260628_120000/subdomains.txt",
+            "Output Path: output/example.com/20260628_120000/subdomains.txt",
             rendered,
         )
         self.assertNotIn(str(Path.cwd()), rendered)
+
+    def test_provider_status_and_dns_validation_do_not_imply_live_services(self) -> None:
+        providers = {"subfinder": ProviderRunResult(["www.example.com"], "completed", 0)}
+        for quiet in (True, False):
+            report = passive_display.build_passive_subdomain_summary(
+                "example.com", 1, 1, Path("subdomains.txt"), quiet, providers)
+            self.assertIn("names are passive candidates", report)
+            self.assertRegex(report, r"subfinder\s+completed\s+1")
+        providers["dnsx"] = ProviderRunResult(["www.example.com"], "completed", 0)
+        report = passive_display.build_passive_subdomain_summary(
+            "example.com", 1, 1, Path("subdomains.txt"), True, providers)
+        self.assertIn("DNSx A/AAAA results; service reachability untested", report)
+        providers["dnsx"] = ProviderRunResult([], "timed_out", reason="timeout")
+        report = passive_display.build_passive_subdomain_summary(
+            "example.com", 1, 0, Path("subdomains.txt"), True, providers)
+        self.assertIn("DNS validation: incomplete", report)
+        self.assertRegex(report, r"dnsx\s+timed_out\s+0")
 
     def test_passive_activity_line_uses_status_marker_for_duplicate_removal(self) -> None:
         rendered = ANSI_PATTERN.sub(

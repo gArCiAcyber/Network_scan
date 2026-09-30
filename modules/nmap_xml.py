@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import xml.etree.ElementTree as ET
-from core.terminal import escape_controls
+from core.terminal import escape_controls, wrap_report
 
 
 @dataclass(frozen=True)
@@ -183,22 +183,23 @@ def format_nmap_xml_import_summary(
         f"Open TCP Ports: {len(host.open_tcp_ports)}",
         f"Run completion: {import_result.metadata.finished_exit or 'unknown'}",
         "",
+        f"{'PORT':<10} {'STATE':<6} {'SERVICE':<12} VERSION",
     ]
 
     for port in host.open_tcp_ports:
         service = port.service
         lines.append(
-            f"{port.port}/tcp".ljust(8)
-            + " "
-            + f"{service.name or 'unknown':<8}"
+            f"{port.port}/tcp".ljust(10)
+            + " open   "
+            + f"{service.name or 'unknown':<12}"
             + " "
             + f"{format_service_version(service):<24}"
-            + " "
+            + "\n  "
             + f"method={service.method or 'unknown'} "
             + f"confidence={service.confidence}"
         )
 
-    return escape_controls("\n".join(lines).rstrip(), multiline=True)
+    return wrap_report(escape_controls("\n".join(lines).rstrip(), multiline=True))
 
 
 def format_service_version(service: NmapService) -> str:

@@ -36,6 +36,7 @@ These are current contracts. Change them deliberately only when the task calls f
 - TCP scanning, passive discovery, and Nmap XML import are separate modes; maintain incompatible-option validation in `core/cli.py`.
 - Native TCP discovery precedes service probing. A failed probe must preserve the already discovered open-port finding.
 - `--nmap` explicitly enables enrichment after the native scan, against the resolved IP and native open TCP ports only. Skip execution when no ports are open; preserve native evidence when optional enrichment fails.
+- Nmap enrichment has no process deadline by default; `--nmap-timeout` optionally limits each address.
 - `--match-code` filters reported findings after probing. Nmap currently receives the unfiltered native findings; report filtering does not reduce scan traffic.
 - `--nmap-xml` imports a single up host's open TCP ports without live scanning, DNS resolution, or requiring Nmap. Information commands also remain free of scan side effects.
 - `--max-rate` shares a pacer across optional TCP host discovery, native discovery, and probing connection starts. It is not a packet-rate limit and is not propagated to Nmap or passive providers.
@@ -43,6 +44,8 @@ These are current contracts. Change them deliberately only when the task calls f
 - `--timeout` remains a socket-operation timeout. Service probing has a default 10-second total deadline, configurable with `--probe-timeout`; optional `--resolve-timeout` bounds forward and reverse DNS in a child process.
 - Explicit worker/timeout options override stance defaults. Do not silently increase traffic, retries, or concurrency when changing profiles or probes.
 - Quiet mode suppresses decorative output and live callbacks. Keep saved TXT free of ANSI escapes and JSON independent of terminal formatting.
+- Normal TCP output identifies native discovery and probing, shows native status before optional enrichment, and displays the concrete scope for each sequential Nmap address. Normal reports use terminal-width-aware 72-hyphen separators; quiet reports omit them.
+- Human-readable TCP reports separate finished connection attempts from unknown port states and list each open address/port endpoint. Native service hints and protocol evidence remain in requested JSON; optional Nmap evidence has its own compact section. TLS metadata and analysis appear only in requested JSON, not terminal/TXT.
 
 ## Extending probes and external tools
 
@@ -54,7 +57,7 @@ These are current contracts. Change them deliberately only when the task calls f
 - External tools remain optional, separately installed executables. Check the relevant tool's actual help/version and official documentation before changing its flags or parser assumptions.
 - Handle missing executables, nonzero exits, timeouts, and interruption explicitly. Drain captured stdout/stderr without deadlocks and ensure child processes and reader threads finish during cleanup.
 - Passive providers currently execute sequentially. Evaluate combined resource use, telemetry, and cancellation before introducing parallel execution.
-- Preserve partial passive results on timeout. The current list return value does not encode completion status; an empty list alone cannot prove successful enumeration with no findings.
+- Preserve partial passive results on timeout. Providers return `ProviderRunResult` with status and reason; an empty subdomain list alone cannot prove successful enumeration with no findings.
 
 ## Scope and evidence quality
 

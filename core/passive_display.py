@@ -4,15 +4,17 @@ import os
 import threading
 import time
 from pathlib import Path
+from collections.abc import Mapping
 
 from core.colors import (
     ALERT_RED,
-    HACKER_GREEN,
+    GREEN,
     RESET,
     TRIFORCE_BLUE,
     TRIFORCE_RED,
 )
-from core.terminal import DynamicBlockRenderer
+from core.terminal import DynamicBlockRenderer, escape_controls, wrap_report
+from modules.subdomain import ProviderRunResult
 
 
 PASSIVE_PROVIDER_LABELS = {
@@ -92,9 +94,9 @@ def format_passive_activity_line(message: str) -> str:
     """Return one formatted passive activity line."""
     for marker in ("[*]", "[+]"):
         if message.startswith(marker):
-            return f"{HACKER_GREEN}{marker}{RESET} {message[len(marker):].strip()}"
+            return f"{GREEN}{marker}{RESET} {message[len(marker):].strip()}"
 
-    return f"{HACKER_GREEN}[*]{RESET} {message}"
+    return f"{GREEN}[*]{RESET} {message}"
 
 
 def format_relative_output_path(output_path: Path) -> str:
@@ -111,11 +113,11 @@ def format_relative_output_path(output_path: Path) -> str:
 
 def show_passive_providers(providers: list[str]) -> None:
     """Render selected passive discovery providers before enumeration starts."""
-    print(f"{HACKER_GREEN}[*] Passive Discovery Providers:{RESET}")
+    print(f"{GREEN}[*] Passive Discovery Providers:{RESET}")
 
     for provider in providers:
         label, color = PASSIVE_PROVIDER_LABELS[provider]
-        print(f"{HACKER_GREEN}[+] {color}{label}{RESET} enabled")
+        print(f"{GREEN}[+] {color}{label}{RESET} enabled")
 
     print()
 
@@ -132,30 +134,29 @@ def build_passive_subdomain_summary(
     unique_subdomain_count: int,
     output_path: Path,
     quiet: bool = False,
+    provider_results: Mapping[str, ProviderRunResult] | None = None,
 ) -> str:
     """Build the final passive discovery summary."""
     display_output_path = format_relative_output_path(output_path)
 
-    if quiet:
-        return "\n".join(
-            [
-                f"Target: {domain}",
-                f"Raw Discoveries: {raw_discovery_count}",
-                f"Unique Subdomains: {unique_subdomain_count}",
-                f"Output Path: {display_output_path}",
-            ]
+    lines = [
+        f"Hylianscan passive discovery report for {domain}",
+        f"Provider candidates: {raw_discovery_count} (before cross-provider deduplication)",
+        f"Unique names saved: {unique_subdomain_count}",
+    ]
+    if provider_results:
+        lines.extend(["", f"{'PROVIDER':<12} {'STATUS':<12} NAMES"])
+        for provider, result in provider_results.items():
+            lines.append(f"{provider:<12} {result.status:<12} {len(result.subdomains)}")
+        dnsx = provider_results.get("dnsx")
+        lines.append(
+            "DNS validation: DNSx A/AAAA results; service reachability untested."
+            if dnsx and dnsx.status == "completed" else
+            "DNS validation: incomplete; service reachability untested."
+            if dnsx else "DNS validation: not requested; names are passive candidates."
         )
-
-    separator = f"{HACKER_GREEN}{'=' * 72}{RESET}"
-    return "\n".join(
-        [
-            "",
-            separator,
-            f"{HACKER_GREEN}[+] SHEIKAH MAP UPDATED{RESET}",
-            f"{HACKER_GREEN}[+] Target Realm       : {domain}{RESET}",
-            f"{HACKER_GREEN}[+] Raw Discoveries    : {raw_discovery_count}{RESET}",
-            f"{HACKER_GREEN}[+] Unique Subdomains  : {unique_subdomain_count}{RESET}",
-            f"{HACKER_GREEN}[+] Slate Database     : {display_output_path}{RESET}",
-            separator,
-        ]
-    )
+    lines.append(f"Output Path: {display_output_path}")
+    report = wrap_report(escape_controls("\n".join(lines), multiline=True))
+    if quiet:
+        return report
+    return f"\n{GREEN}SHEIKAH MAP\n{report}{RESET}"

@@ -151,6 +151,8 @@ class NmapXmlParserTests(unittest.TestCase):
         self.assertIn("Imported XML: scan.xml", summary)
         self.assertIn("Host: 127.0.0.1", summary)
         self.assertIn("Open TCP Ports: 1", summary)
+        self.assertIn("STATE", summary)
+        self.assertIn("VERSION", summary)
         self.assertIn("22/tcp", summary)
         self.assertIn("ssh", summary)
         self.assertIn("OpenSSH 9.6", summary)

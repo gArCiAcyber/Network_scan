@@ -48,12 +48,11 @@ class QuietModeTests(unittest.TestCase):
         self.assertNotIn("TRIFORCE", output)
         self.assertNotIn("SCAN POWERED", output)
         self.assertNotIn("------------------------------------------------------------------------", output)
-        self.assertIn("Target: example.com", output)
-        self.assertIn("Resolved IP: 93.184.216.34", output)
-        self.assertIn("Scan Scope: Custom Port List", output)
-        self.assertIn("Native Scan Time: 1.23s", output)
-        self.assertIn("Open Ports:", output)
-        self.assertIn("- 80/tcp open http 200 OK", output)
+        self.assertIn("Hylianscan scan report for example.com (93.184.216.34)", output)
+        self.assertIn("Scope: Custom Port List (2 ports/address)", output)
+        self.assertIn("Time: native 1.23s", output)
+        self.assertIn("Open 93.184.216.34:80", output)
+        self.assertNotIn("200 OK", output)
 
     def test_quiet_tcp_summary_reports_no_open_ports_plainly(self) -> None:
         scan_result = ScanResult(
@@ -67,7 +66,7 @@ class QuietModeTests(unittest.TestCase):
         output = build_quiet_final_panel(scan_result)
 
         self.assertIsNone(ANSI_PATTERN.search(output))
-        self.assertIn("No open ports found.", output)
+        self.assertIn("No open ports observed.", output)
         self.assertNotIn("TRIFORCE", output)
         self.assertNotIn("------------------------------------------------------------------------", output)
 
@@ -87,10 +86,10 @@ class QuietModeTests(unittest.TestCase):
         )
 
         self.assertIsNone(ANSI_PATTERN.search(output))
-        self.assertIn("HTTP Status Filter: 302", output)
-        self.assertIn("Filtered Findings: 0 shown, 2 hidden", output)
+        self.assertIn("HTTP filter: 302", output)
+        self.assertIn("0 shown, 2 hidden", output)
         self.assertIn(
-            "No open-port findings matched the HTTP status filter.",
+            "No open findings matched the HTTP filter.",
             output,
         )
         self.assertNotIn("No open ports found", output)
@@ -129,8 +128,8 @@ class QuietModeTests(unittest.TestCase):
 
         output = build_quiet_final_panel(scan_result)
 
-        self.assertIn("address=192.0.2.10 (IPv4)", output)
-        self.assertIn("address=192.0.2.11 (IPv4)", output)
+        self.assertIn("Open 192.0.2.10:80", output)
+        self.assertIn("Open 192.0.2.11:80", output)
 
     def test_quiet_tcp_summary_does_not_include_orientation_configuration(self) -> None:
         scan_result = ScanResult(
@@ -165,7 +164,7 @@ class QuietModeTests(unittest.TestCase):
         )
 
         self.assertIsNone(ANSI_PATTERN.search(output))
-        self.assertIn("Scan Scope: Port Profile: web / sheikah", output)
+        self.assertIn("Scope: Port Profile: web / sheikah", output)
         self.assertNotIn("Port Profile  :", output)
 
     def test_run_port_scan_quiet_disables_live_callbacks(self) -> None:
@@ -266,7 +265,7 @@ class QuietModeTests(unittest.TestCase):
             rendered = output.getvalue()
 
             self.assertIsNone(ANSI_PATTERN.search(rendered))
-            self.assertIn("No open ports found.", rendered)
+            self.assertIn("No open ports observed.", rendered)
             self.assertNotIn("Report saved to", rendered)
             self.assertTrue((workspace_dir / "tcp_report.txt").exists())
 
@@ -287,8 +286,8 @@ class QuietModeTests(unittest.TestCase):
                     quiet=True,
                 )
 
-            self.assertIn("Raw Discoveries: 1", summary)
-            self.assertIn("Unique Subdomains: 1", summary)
+            self.assertIn("Provider candidates: 1", summary)
+            self.assertIn("Unique names saved: 1", summary)
             self.assertEqual(output_path.read_text(encoding="utf-8"), "www.example.com\n")
             self.assertIsNone(subfinder.call_args.kwargs["telemetry_callback"])
 
@@ -312,9 +311,9 @@ class QuietModeTests(unittest.TestCase):
             self.assertIsNone(ANSI_PATTERN.search(summary))
             self.assertNotIn("SHEIKAH MAP UPDATED", summary)
             self.assertNotIn("=", summary)
-            self.assertIn("Target: example.com", summary)
-            self.assertIn("Raw Discoveries: 1", summary)
-            self.assertIn("Unique Subdomains: 1", summary)
+            self.assertIn("Hylianscan passive discovery report for example.com", summary)
+            self.assertIn("Provider candidates: 1", summary)
+            self.assertIn("Unique names saved: 1", summary)
             self.assertIn(f"Output Path: {output_path.name}", summary)
 
     def test_dnsx_filters_passive_output_but_keeps_source_candidates_for_json(self) -> None:

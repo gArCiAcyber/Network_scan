@@ -11,7 +11,6 @@ from modules.nmap_xml import NmapXmlImport, parse_nmap_xml_text
 
 
 DEFAULT_NMAP_BINARY = "nmap"
-DEFAULT_NMAP_TIMEOUT = 60.0
 MAX_PORT = 65535
 STDERR_PREVIEW_LIMIT = 500
 
@@ -91,7 +90,7 @@ def run_nmap_service_version_scan(
     ports: Sequence[int],
     *,
     nmap_binary: str = DEFAULT_NMAP_BINARY,
-    timeout: float = DEFAULT_NMAP_TIMEOUT,
+    timeout: float | None = None,
 ) -> NmapXmlImport:
     """Run Nmap service/version detection and parse XML stdout."""
     command = build_nmap_service_version_command(
@@ -114,7 +113,7 @@ def run_nmap_service_version_scan(
         ) from error
     except subprocess.TimeoutExpired as error:
         raise NmapExecutionError(
-            f"Nmap service/version enrichment timed out after {timeout:.1f} seconds.",
+            f"Nmap service/version enrichment timed out after {error.timeout:.1f} seconds.",
             status="timed_out", stdout=error.stdout, stderr=error.stderr, command=command
         ) from error
 

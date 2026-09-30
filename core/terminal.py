@@ -1,8 +1,10 @@
 """Terminal management helpers for hylianscan."""
 
 import os
+import shutil
 import sys
 import threading
+import textwrap
 import unicodedata
 
 try:
@@ -36,6 +38,22 @@ def escape_controls(text: str, multiline: bool = False) -> str:
         else char.encode("unicode_escape").decode("ascii")
         for char in text
     )
+
+
+def wrap_report(text: str) -> str:
+    """Wrap plain report lines to the terminal width without dropping evidence."""
+    width = max(20, shutil.get_terminal_size(fallback=(100, 24)).columns)
+    return "\n".join(
+        textwrap.fill(line, width=width, subsequent_indent="  ",
+                      replace_whitespace=False, drop_whitespace=True)
+        if line else ""
+        for line in text.splitlines()
+    )
+
+
+def format_separator() -> str:
+    """Keep the traditional 72-hyphen separator within the report width."""
+    return "-" * min(72, max(20, shutil.get_terminal_size(fallback=(100, 24)).columns))
 
 
 def write_encoded(text: str) -> None:

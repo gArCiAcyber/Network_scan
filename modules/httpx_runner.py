@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import subprocess
 from typing import Any
+from core.terminal import escape_controls, wrap_report
 
 
 DEFAULT_HTTPX_BINARY = "httpx"
@@ -156,8 +157,8 @@ def format_httpx_summary(
     lines = [
         "[+] HTTPX WEB PROBE",
         f"Status          : {result.status}",
-        f"Targets probed  : {len(result.targets_requested)}",
-        f"Live services   : {len(result.findings)}",
+        f"Targets requested: {len(result.targets_requested)}",
+        f"Records returned : {len(result.findings)}",
     ]
 
     if result.reason:
@@ -189,8 +190,7 @@ def format_httpx_summary(
     if output_path:
         lines.append(f"JSONL output    : {output_path}")
 
-    lines.append("-" * 72)
-    return "\n".join(lines)
+    return wrap_report(escape_controls("\n".join(lines), multiline=True))
 
 
 def write_httpx_jsonl(result: HttpxResult, output_path: Path) -> None:

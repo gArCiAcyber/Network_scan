@@ -252,6 +252,9 @@ class ScanIntegrityTests(unittest.TestCase):
         self.assertEqual(document["execution"]["stderr"], "warning")
         self.assertEqual(document["execution"]["stdout"], captured)
         self.assertEqual(document["disagreements"], [443])
+        self.assertEqual(result.terminal_text.count("Nmap service scan"), 1)
+        self.assertIn("Status          : timed_out", result.terminal_text)
+        self.assertNotIn("Status          : completed", result.terminal_text)
 
     def test_invalid_inputs_are_rejected_before_scanning(self):
         for value in (float("nan"), float("inf"), -1.0, 0.0):

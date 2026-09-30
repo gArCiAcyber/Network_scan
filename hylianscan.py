@@ -26,6 +26,7 @@ from core.cli import (
 )
 from core.colors import (
     ALERT_RED,
+    BRIGHT_WHITE,
     INFO_BLUE,
     RESET,
 )
@@ -47,6 +48,7 @@ from core.output import (
 )
 from core.panel import (
     build_final_panel,
+    build_nmap_panel,
     build_quiet_final_panel,
     build_saved_text_report,
 )
@@ -65,6 +67,7 @@ from core.terminal import (
     print_safe,
     print_report,
     escape_controls,
+    wrap_report,
 )
 from modules.json_exporter import (
     write_nmap_xml_import_json_report,
@@ -140,14 +143,17 @@ def show_target_orientation(
         for address in addresses
     )
     lines = [
-        "[*] TCP Connect Scan:",
+        "[*] Hylianscan TCP Scan",
         f"{'Target':<{label_width}}: {target.target_host}",
         f"{address_label:<{label_width}}: {address_values}",
-        f"{'Port Scope':<{label_width}}: {port_count} "
+        f"{'Scope':<{label_width}}: {port_count} "
         f"{'port' if port_count == 1 else 'ports'} per address",
         f"{'Workers':<{label_width}}: {stance.workers}",
         f"{'Timeout':<{label_width}}: {stance.timeout:.2f}s",
+        f"{'Workflow':<{label_width}}: TCP discovery -> Native service probing",
     ]
+    if nmap_enabled:
+        lines.append(" " * (label_width + 2) + "-> Nmap service/version detection")
 
     if max_rate is not None:
         lines.append(f"{'Max Rate':<{label_width}}: {max_rate:g} connection starts/s")
@@ -158,17 +164,14 @@ def show_target_orientation(
     if not http_probing:
         lines.append(f"{'HTTP Probing':<{label_width}}: Disabled")
 
-    if nmap_enabled:
-        lines.append(f"{'Nmap Enrichment':<{label_width}}: Enabled (post-scan)")
-
     if match_codes is not None:
         lines.append(
             f"{'HTTP Filter':<{label_width}}: Status codes "
-            f"{format_match_codes(match_codes)}"
+            f"{format_match_codes(match_codes)} (report only)"
         )
 
     print()
-    print(f"{INFO_BLUE}{chr(10).join(lines)}{RESET}")
+    print_report(f"{INFO_BLUE}{wrap_report(escape_controls(chr(10).join(lines), multiline=True))}{RESET}")
     print()
 
 
@@ -215,14 +218,11 @@ def run_port_scan(
     if target.addresses:
         scanner_arguments["addresses"] = target.address_records
 
-    result = scan_tcp_ports(
-        **scanner_arguments,
-    )
-
-    if display is not None:
-        clear_dynamic_line()
-
-    return result
+    try:
+        return scan_tcp_ports(**scanner_arguments)
+    finally:
+        if display is not None:
+            display.stop()
 
 
 def run_host_discovery(
@@ -388,7 +388,7 @@ def run_passive_subdomain_discovery(
 
             if display is not None:
                 display.add_activity(
-                    f"[+] HTTPx returned {len(httpx_result.findings)} live services"
+                    f"[+] HTTPx returned {len(httpx_result.findings)} records"
                 )
 
         if json_output_path is not None:
@@ -411,13 +411,14 @@ def run_passive_subdomain_discovery(
 
     if provider_failures:
         raise ValueError(
-            "Passive discovery completed with provider errors: "
-            f"{'; '.join(provider_failures)} Partial results were saved."
+            "Passive discovery incomplete: "
+            f"{'; '.join(provider_failures)} Partial results were saved "
+            f"({len(subdomains)} names) to {output_path}."
         )
 
     if not subdomains and not quiet:
         print_safe(
-            f"{ALERT_RED}[-] No passive subdomains were returned by selected providers.{RESET}"
+            f"{ALERT_RED}[-] No names were saved in the final discovery list.{RESET}"
         )
 
     summary = build_passive_subdomain_summary(
@@ -426,6 +427,7 @@ def run_passive_subdomain_discovery(
         len(subdomains),
         output_path,
         quiet,
+        provider_results=provider_results,
     )
 
     if httpx_result is not None:
@@ -462,6 +464,9 @@ def run_live_nmap_enrichment(
     target: TargetInfo,
     scan_result: ScanResult,
     nmap_binary: str | None = None,
+    nmap_timeout: float | None = None,
+    *,
+    quiet: bool = True,
 ) -> NmapEnrichmentResult:
     """Run optional Nmap service enrichment against native open TCP ports."""
     findings_by_address: dict[str, list[int]] = {}
@@ -482,11 +487,17 @@ def run_live_nmap_enrichment(
     runs = []
 
     for address, open_ports in findings_by_address.items():
+        started = time.perf_counter()
+        display = None if quiet else NmapServiceScanDisplay(address, open_ports)
         try:
+            if display is not None:
+                display.start()
             keyword_arguments = {}
 
             if nmap_binary:
                 keyword_arguments["nmap_binary"] = nmap_binary
+            if nmap_timeout is not None:
+                keyword_arguments["timeout"] = nmap_timeout
 
             import_result = run_nmap_service_version_scan(
                 address,
@@ -499,15 +510,24 @@ def run_live_nmap_enrichment(
                     import_result,
                     address,
                     open_ports,
+                    elapsed_seconds=time.perf_counter() - started,
+                    timeout_seconds=nmap_timeout,
                 )
             )
         except KeyboardInterrupt:
             interrupted = build_skipped_nmap_enrichment("Interrupted by operator.", address, open_ports)
             runs.append(replace(interrupted, status="interrupted",
+                elapsed_seconds=time.perf_counter() - started,
+                timeout_seconds=nmap_timeout,
                 terminal_text=interrupted.terminal_text.replace("skipped", "interrupted")))
             break
         except (RuntimeError, ValueError, OSError) as error:
-            runs.append(build_failed_nmap_enrichment(error, address, open_ports))
+            runs.append(build_failed_nmap_enrichment(error, address, open_ports,
+                elapsed_seconds=time.perf_counter() - started,
+                timeout_seconds=nmap_timeout))
+        finally:
+            if display is not None:
+                display.stop()
 
     return build_multi_nmap_enrichment(target.target_host, runs)
 
@@ -662,6 +682,12 @@ def main() -> None:
                     **({"pacer": shared_pacer} if shared_pacer is not None else {}),
                     probe_timeout=getattr(args, "probe_timeout", None),
                 )
+            if not quiet:
+                print_safe(f"{BRIGHT_WHITE}" + wrap_report(
+                    f"[*] Native scan: {native_scan_result.status}; "
+                    f"{len(native_scan_result.open_ports)} open TCP endpoints; "
+                    f"{native_scan_result.duration:.2f}s elapsed"
+                ) + RESET)
             filtered_scan_result = filter_scan_result_by_http_status(
                 native_scan_result,
                 match_codes,
@@ -673,27 +699,13 @@ def main() -> None:
 
             enrichment_started = time.perf_counter()
             if getattr(args, "nmap", False) and native_scan_result.status != "interrupted":
-                nmap_display = (
-                    None
-                    if quiet or not native_scan_result.open_ports
-                    else NmapServiceScanDisplay(
-                        target.resolved_ip,
-                        [finding.port for finding in native_scan_result.open_ports],
-                    )
+                nmap_enrichment = run_live_nmap_enrichment(
+                    target,
+                    native_scan_result,
+                    getattr(args, "nmap_path", None),
+                    getattr(args, "nmap_timeout", None),
+                    quiet=quiet,
                 )
-
-                if nmap_display is not None:
-                    nmap_display.start()
-
-                try:
-                    nmap_enrichment = run_live_nmap_enrichment(
-                        target,
-                        native_scan_result,
-                        getattr(args, "nmap_path", None),
-                    )
-                finally:
-                    if nmap_display is not None:
-                        nmap_display.stop()
 
             interrupted = native_scan_result.status == "interrupted" or (
                 nmap_enrichment is not None and (
@@ -737,9 +749,13 @@ def main() -> None:
             discovery_report = escape_controls(discovery_report, multiline=True)
             terminal_report = final_panel + discovery_report
 
-            if nmap_enrichment is not None:
+            nmap_panel = (
+                build_nmap_panel(nmap_enrichment.terminal_text, quiet=quiet)
+                if nmap_enrichment is not None else None
+            )
+            if nmap_panel is not None:
                 terminal_report = "\n\n".join(
-                    [terminal_report, nmap_enrichment.terminal_text]
+                    [terminal_report, nmap_panel]
                 )
 
             saved_report = build_saved_text_report(
@@ -747,12 +763,8 @@ def main() -> None:
                 scan_scope=scan_scope,
                 base_report=final_panel + discovery_report,
                 match_code_expression=match_code_expression,
+                nmap_text=nmap_panel,
             )
-
-            if nmap_enrichment is not None:
-                saved_report = "\n\n".join(
-                    [saved_report, nmap_enrichment.terminal_text]
-                )
 
             save_report(saved_report, output_path)
 
