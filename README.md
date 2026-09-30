@@ -396,6 +396,41 @@ python3 -m compileall -q hylianscan.py core modules tests
 python3 hylianscan.py --help
 ```
 
+### Native TCP benchmark on Kali
+
+```bash
+python3 scripts/benchmark.py --benchmark tcp_scan
+python3 scripts/benchmark.py --benchmark tcp_scan --profile full
+```
+
+`--benchmark` selects the test type; `--profile quick|full` selects workloads
+and repetitions, defaulting to `quick`. Both profiles validate correctness.
+The isolated laboratory checks known findings and records execution time,
+combined native scan time, CPU, peak memory, and total battery time including
+preparation and cleanup. The quick profile calibrates repetitions with a pilot;
+the full profile includes 65,535 ports and a scaling case with many open ports.
+See [benchmark setup, reports, and validation status](docs/benchmark.md).
+
+### Offline subdomain benchmark
+
+```bash
+python3 scripts/benchmark.py --benchmark subdomain
+python3 scripts/benchmark.py --benchmark subdomain --profile full
+python3 scripts/benchmark.py --benchmark subdomain --reference /path/reference --candidate /path/candidate
+```
+
+Runs fixed Subfinder/Amass output through the real passive CLI, subprocess
+runner, merge, and TXT/JSON writers. Requires only Python on Windows or Linux;
+no installed providers, credentials, network access, or elevated privileges.
+Both profiles validate exact findings, attribution, completion states, and
+partial results. JSON/CSV retain individual samples and failed checks.
+
+The invalid-name/scope scenario currently exposes the production cleaner's
+missing hostname/domain validation. A battery with those defects exits 1 and
+invalidates performance comparisons while keeping the exported evidence.
+See [offline scenarios and limitations](docs/benchmark_subdomain.md) and the
+revised [Hylianlab Kali laboratory plan](docs/benchmark_subdomain.md#hylianlab-kali-laboratory-plan).
+
 ---
 
 ## ❗ Notes
