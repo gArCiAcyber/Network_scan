@@ -102,8 +102,9 @@ python3 hylianscan.py example.com --subfinder --amass --dnsx -o --json-output
 ========================================================================
 [+] SHEIKAH MAP UPDATED
 [+] Target Realm       : example.com
-[+] Raw Discoveries    : 20
-[+] Unique Subdomains  : 16
+[+] Raw Candidates     : 20
+[+] Unique Candidates  : 18
+[+] DNSx Confirmed     : 16
 [+] Slate Database     : output/example.com/<timestamp>/subdomains.txt
 ========================================================================
 ```
@@ -113,6 +114,8 @@ python3 hylianscan.py example.com --subfinder --amass --dnsx -o --json-output
 ### 📁 Clean Reporting
 
 Hylianscan can save terminal findings into clean TXT and JSON reports.
+
+Passive discovery always saves a TXT report in `output/<target>/<timestamp>/subdomains.txt`, including with `--verbose` or `--quiet`. In any mode, bare `-o` uses the default TXT location; `-o reports/scan.txt` writes the TXT to that exact path, creating parent directories as needed. For passive discovery with DNSx, the candidate TXT and observed-name journal are saved beside the chosen file using its stem. `--json-output` controls JSON separately and retains its own default location.
 
 This makes it easier to keep evidence, compare scans, and reuse results in later automation.
 
@@ -263,6 +266,15 @@ This does not replace Hylianscan's native TCP scan. When report output is enable
 # Subfinder only
 python3 hylianscan.py example.com --subfinder
 
+# Print green clickable hostnames as providers find them; TXT still saves automatically
+python3 hylianscan.py example.com --subfinder --dnsx --verbose
+
+# Include technical provider messages
+python3 hylianscan.py example.com --subfinder --debug
+
+# Suppress live output while keeping the saved TXT and final summary
+python3 hylianscan.py example.com --subfinder --quiet
+
 # Amass only
 python3 hylianscan.py example.com --amass
 
@@ -271,6 +283,9 @@ python3 hylianscan.py example.com --subfinder --amass -o --json-output
 
 # Subfinder + Amass, filtered to subdomains with A or AAAA records
 python3 hylianscan.py example.com --subfinder --amass --dnsx -o --json-output
+
+# Separate process budgets (seconds); DNS query timeout remains independent
+python3 hylianscan.py example.com -s -a --dnsx --subfinder-timeout 180 --amass-timeout 180 --dnsx-process-timeout 180 --dnsx-timeout 3 --json-output
 
 # IPv6-only DNSx resolution with operational controls
 python3 hylianscan.py example.com --subfinder --dnsx --ipv6 --dnsx-resolver resolvers.txt --dnsx-threads 50 --dnsx-rate-limit 100 --dnsx-timeout 3 --dnsx-retry 2 --dnsx-auto-wildcard
@@ -288,6 +303,18 @@ python3 hylianscan.py example.test --subfinder --httpx --httpx-path /usr/local/b
 DNSx uses both A and AAAA records by default. Use `--ipv4` for A records only or `--ipv6` for AAAA records only. DNSx confirms address records; it does not prove that an application service is reachable.
 
 In JSON reports, `results.candidates` contains the deduplicated Subfinder/Amass discovery evidence, while `results.resolution` records DNSx's status and the final address-record-confirmed subdomains. The existing `results.subdomains` and `results.sources` fields remain available for compatibility.
+
+All selected Subfinder, Amass, and DNSx executables (including explicit path overrides) are checked before discovery starts. A missing or invalid executable stops the CLI with exit status 1 before any provider runs. DNSx is checked even when discovery would produce no candidates; unselected tools are not required.
+
+Local version/help checks warn when a version is unsupported or cannot be verified, then allow discovery to continue. Missing required CLI options still stop before enumeration. JSON provider entries record the observed version and compatibility status. See [External provider compatibility](docs/provider_compatibility.md) for the packaged registry, baseline evidence, and release-monitoring workflow that still requires separate integration in this checkout.
+
+Providers run sequentially without a Hylianscan-wide process deadline by default. `--subfinder-timeout`, `--amass-timeout`, and `--dnsx-process-timeout` optionally set finite positive limits in seconds; when set, the provider's startup compatibility check (up to 10 seconds) counts toward that limit. Amass also retains its bounded execution-time version check. Upstream tools may impose their own limits (Subfinder defaults to a 10-minute enumeration limit). `--dnsx-timeout` controls an individual DNS query; `--timeout` is for TCP scanning. An explicit process timeout returns partial results and the CLI exits with status 1 after saving reports.
+
+Amass 3.x hostname output and 4.x graph output are supported; graph parsing is tested against the 4.2.0 format. Amass 5.0.0 uses an owned local engine with an isolated configuration home under the report directory, so enumeration and `subs -names` access the same database. The Amass graph is retained there after the run, including when extraction fails, and its path is recorded in provider diagnostics. To retry a failed extraction without rerunning discovery, use `amass subs -names -d DOMAIN -dir GRAPH_PATH` with the retained graph path; this queries the graph without starting enumeration. The graph may be large; remove it manually only after validating the exported candidates. Your original configuration still supplies source credentials and transformations. An already-running engine on port 4000 must be stopped manually before retrying; Hylianscan never stops an engine it does not own. It preserves partial names on timeout and rejects active enumeration settings and engine/database overrides (including `AMASS_ENGINE_*` and `AMASS_DB_*` environment variables). On Windows, Amass 5.0.0 engine logs are captured from stdout to avoid its invalid log filename. Other 5.x versions warn as untested. Discovery candidates must be valid DNS hostnames within the requested domain before reaching DNSx.
+
+After each discovery provider, Hylianscan saves a checkpoint. It also appends each observed name to a run-local `<stem>_observed_*.tsv` file (provider, tab, hostname) as it arrives, so an abrupt exit still leaves names already emitted by Subfinder, Amass, or DNSx. With DNSx enabled, `subdomains_candidates.txt` beside `subdomains.txt` preserves the discovery names; `subdomains.txt` contains only names confirmed by DNSx, and may be empty before resolution. For other TXT filenames, the candidate file uses `<stem>_candidates.txt`. For example, `-o reports/scan.txt` also saves `reports/scan_candidates.txt`. Ctrl+C saves available evidence, marks the active provider `interrupted` in optional JSON, and exits with status 130.
+
+Progress uses one updating line per provider, with a spinner and a final completed, failed, timed-out, or cancelled status. Subfinder and Amass counts are discovery candidates; DNSx counts are names with address records. The final summary shows raw candidates, unique candidates, and DNSx-confirmed names when DNSx is selected. `--verbose` prints each validated subdomain as a bare green hostname with a clickable HTTPS link, under a stage heading that distinguishes discovery from DNSx filtering. The link does not verify that a website is reachable. For Subfinder, Hylianscan reads its live `-v` source findings because its plain stdout results arrive only after enumeration. `--debug` adds technical provider messages to that output. `--quiet` suppresses live output but still saves results and prints a plain final summary. Amass 5's count stays pending until its graph query, and its native progress bars are filtered. The last 20 stderr lines per provider (up to 2,000 characters each, terminal escapes removed) are still saved in `<stem>_providers.log` and optional JSON; JSON also includes measured `elapsed_seconds` when available. Amass 5 additionally retains bounded tails of captured engine output and run-local `.log` files (last 20 lines from at most 40 KB per source); external engine and system-log history are not collected. Provider output is temporarily spooled to disk, so input and inherited output pipes cannot hold the runner open. POSIX cleanup stops the owned process group; Windows uses bounded process-tree termination while the parent is running. Detached services are not managed by this workflow.
 
 ---
 
@@ -414,22 +441,29 @@ See [benchmark setup, reports, and validation status](docs/benchmark.md).
 ### Offline subdomain benchmark
 
 ```bash
+python3 scripts/benchmark.py --benchmark subdomain --scenario baseline-1k
+python3 scripts/benchmark.py --benchmark subdomain --scenario baseline-10k
+python3 scripts/benchmark.py --benchmark subdomain --profile full --scenario baseline-100k
 python3 scripts/benchmark.py --benchmark subdomain
 python3 scripts/benchmark.py --benchmark subdomain --profile full
 python3 scripts/benchmark.py --benchmark subdomain --reference /path/reference --candidate /path/candidate
 ```
 
-Runs fixed Subfinder/Amass output through the real passive CLI, subprocess
-runner, merge, and TXT/JSON writers. Requires only Python on Windows or Linux;
-no installed providers, credentials, network access, or elevated privileges.
-Both profiles validate exact findings, attribution, completion states, and
-partial results. JSON/CSV retain individual samples and failed checks.
+Uses deterministic `hylianlab.test` datasets with 1,000, 10,000, and 100,000
+unique names in the two-provider union, including the base domain. Local
+Subfinder/Amass executables exercise the real passive CLI, version/flag checks,
+runner, parsing, attribution, and TXT/JSON writers. No installed providers or
+credentials are needed; the simulated Amass 5 engine uses loopback port 4000.
 
-The invalid-name/scope scenario currently exposes the production cleaner's
-missing hostname/domain validation. A battery with those defects exits 1 and
-invalidates performance comparisons while keeping the exported evidence.
-See [offline scenarios and limitations](docs/benchmark_subdomain.md) and the
-revised [Hylianlab Kali laboratory plan](docs/benchmark_subdomain.md#hylianlab-kali-laboratory-plan).
+`quick` is the default and covers 1k/10k plus fault cases; `full` adds 100k.
+Both validate exact saved findings after failures, timeouts and SIGINT, together
+with accepted-name journals and process cleanup. JSON/CSV preserve individual
+samples and failed evidence. A deliberate provider fault can pass its scenario;
+unexpected lost or extra findings invalidate performance comparisons.
+
+Windows development results are recorded separately from **unverified Kali
+execution**. See [offline scenarios, commands, and limitations](docs/benchmark_subdomain.md)
+and the remaining [Kali laboratory stages](docs/benchmark_subdomain.md#hylianlab-kali-laboratory-plan).
 
 ---
 

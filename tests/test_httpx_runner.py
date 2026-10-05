@@ -99,7 +99,8 @@ class HttpxRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--subfinder and/or --amass"):
             validate_mode(args)
 
-    def test_passive_workflow_saves_and_exports_httpx_results(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_passive_workflow_saves_and_exports_httpx_results(self, compatibility) -> None:
         httpx_result = HttpxResult(
             status="completed",
             targets_requested=("api.example.test", "example.test"),
@@ -111,6 +112,7 @@ class HttpxRunnerTests(unittest.TestCase):
             json_output_path = Path(temporary_dir) / "subdomains.json"
 
             with (
+                patch("hylianscan.resolve_provider_executable"),
                 patch(
                     "hylianscan.run_subfinder",
                     return_value=ProviderRunResult(
@@ -139,7 +141,8 @@ class HttpxRunnerTests(unittest.TestCase):
         self.assertIn("[+] HTTPX WEB PROBE", summary)
         self.assertIn("https://example.test", summary)
 
-    def test_httpx_receives_dnsx_filtered_results(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_httpx_receives_dnsx_filtered_results(self, compatibility) -> None:
         httpx_result = HttpxResult(
             status="completed",
             targets_requested=("example.test", "live.example.test"),
@@ -148,6 +151,7 @@ class HttpxRunnerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary_dir:
             with (
+                patch("hylianscan.resolve_provider_executable"),
                 patch(
                     "hylianscan.run_subfinder",
                     return_value=ProviderRunResult(

@@ -167,12 +167,16 @@ def parser() -> argparse.ArgumentParser:
     cli.add_argument("--regression-percent", type=positive_float,
                      help="Opt-in median execution-time threshold after reference/reference calibration.")
     cli.add_argument("--vm-notes", default="", help="Guest-invisible host/VM configuration.")
-    cli.add_argument("--provider-timeout", type=positive_float, default=2.0,
-                     help="Offline subdomain provider deadline in seconds (default: 2).")
+    cli.add_argument("--provider-timeout", type=positive_float, default=30.0,
+                     help="Offline subdomain provider budget in seconds (default: 30).")
+    cli.add_argument("--scenario", action="append", dest="subdomain_scenarios",
+                     help="Select an offline subdomain scenario; repeat to select several.")
     return cli
 
 
 def resolve_options(args: argparse.Namespace) -> argparse.Namespace:
+    if args.benchmark != "subdomain" and args.subdomain_scenarios:
+        raise ValueError("--scenario requires --benchmark subdomain.")
     args.many_open = args.many_open if args.many_open is not None else (64 if args.profile == "quick" else 256)
     args.warmups = args.warmups if args.warmups is not None else (1 if args.profile == "quick" else 2)
     if not math.isfinite(args.delay_ms) or args.delay_ms < 0 or args.warmups < 0:
@@ -436,6 +440,7 @@ def source_metadata(checkout: Path) -> dict:
     paths = [checkout / "hylianscan.py", checkout / "pyproject.toml"]
     for directory in ("core", "modules"):
         paths.extend(sorted((checkout / directory).rglob("*.py")))
+    paths.append(checkout / "modules/provider_compatibility.json")
     hashes = {str(path.relative_to(checkout)): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in paths if path.is_file()}
     metadata = {"path": str(checkout), "source_files_sha256": hashes,
@@ -686,7 +691,8 @@ def summarize(report: dict) -> list[dict]:
             companions = [sample for sample in report["samples"] if sample["role"] == "resources"
                           and sample["status"] == "completed"
                           and sample["parent_id"] in {sample["id"] for sample in samples}]
-            metrics = ("execution_seconds",) if subdomain else (
+            metrics = ("execution_seconds", "merge_seconds", "txt_write_seconds",
+                       "json_write_seconds", "json_build_seconds") if subdomain else (
                 "execution_seconds", "native_scan_seconds", "cpu_user_seconds", "cpu_system_seconds", "peak_memory_bytes")
             for metric in metrics:
                 source = samples
@@ -739,14 +745,19 @@ def save_report(report: dict, elapsed: float, threshold: float | None) -> None:
     report["comparisons"] = comparisons(report, threshold)
     directory = Path(report["directory"])
     write_json(directory / "report.json", report)
-    sample_rows = [{**sample, **sample["metrics"], "total_battery_seconds": elapsed,
+    sample_rows = [{**sample, **{key: json.dumps(value, sort_keys=True) if isinstance(value, dict) else value
+                               for key, value in sample["metrics"].items()}, "total_battery_seconds": elapsed,
                     "providers": json.dumps(sample.get("providers", {}), sort_keys=True),
                     "command": json.dumps(sample.get("command", [])),
+                    "cli_command": json.dumps(sample.get("cli_command", [])),
                     "validation_errors": "; ".join(sample["validation_errors"]),
                     "cleanup_errors": "; ".join(sample["cleanup_errors"])} for sample in report["samples"]]
     metric_fields = (["unique_in_scope", "invalid_or_out_of_scope", "subfinder_count", "amass_count",
                       "overlap", "subfinder_exclusive", "amass_exclusive", "providers", "command", "cwd",
-                      "workload_sha256", "comparison_eligible", "error"]
+                      "cli_command", "workload_sha256", "comparison_eligible", "expected_exit_code", "observed_exit_code",
+                      "expected_outcome", "merge_seconds", "txt_write_seconds", "json_write_seconds", "json_build_seconds",
+                      "first_candidate_seconds", "received_lines", "accepted_unique", "saved_unique", "emitted_records",
+                      "emitted_stdout_bytes", "emitted_stderr_bytes", "peak_memory_bytes", "memory_reason", "error"]
                      if report.get("benchmark") == "subdomain" else
                      ["native_scan_seconds", "cpu_user_seconds", "cpu_system_seconds", "peak_memory_bytes"])
     write_csv(directory / "samples.csv", ["id", "scenario", "variant", "role", "parent_id", "status",
