@@ -2,7 +2,7 @@
 
 ## Purpose and working approach
 
-Hylianscan is a Python CLI for authorized TCP reconnaissance, protocol evidence collection, passive provider orchestration, and TXT/JSON reporting. Keep changes focused on the requested workflow.
+Hylianscan is a Python CLI for authorized TCP reconnaissance, protocol evidence collection, passive provider orchestration, and TXT/JSON reporting. Keep changes focused on the requested workflow. ( Recon Framework )
 
 - Read the affected implementation, callers, and tests before editing. Fix shared causes where callers converge.
 - Reuse existing helpers and the Python standard library before adding dependencies or abstractions. Runtime dependencies are currently empty and checked by packaging tests.
