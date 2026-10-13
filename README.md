@@ -411,7 +411,7 @@ nmap_import_results.json
 ```
 
 TXT output is designed for quick reading.
-JSON output is designed for automation, parsing, evidence tracking, and later tooling.
+JSON output is designed for automation, parsing, evidence tracking, and later tooling. Passive JSON reports use one line without indentation; their schema and values are unchanged.
 
 ---
 
@@ -461,9 +461,25 @@ with accepted-name journals and process cleanup. JSON/CSV preserve individual
 samples and failed evidence. A deliberate provider fault can pass its scenario;
 unexpected lost or extra findings invalidate performance comparisons.
 
-Windows development results are recorded separately from **unverified Kali
-execution**. See [offline scenarios, commands, and limitations](docs/benchmark_subdomain.md)
+Windows development results and Kali acceptance are recorded separately.
+All 23 passive scenarios have functional coverage across separate Kali campaigns;
+a single default full-profile battery with its complete repetition schedule has
+not been completed. See [offline scenarios, commands, and limitations](docs/benchmark_subdomain.md)
 and the remaining [Kali laboratory stages](docs/benchmark_subdomain.md#hylianlab-kali-laboratory-plan).
+
+### Controlled real-provider and DNSx benchmarks
+
+```bash
+python3.12 scripts/benchmark.py --benchmark providers --profile full --dnsx-path /path/to/dnsx --run-timeout 240
+python3.12 scripts/benchmark.py --benchmark dnsx --profile full --dnsx-path /path/to/dnsx --resources
+python3.12 scripts/benchmark_source_health.py /path/to/passive.json --output /path/to/new-evaluation.json
+```
+
+These maintained acceptance cases use installed binaries in disposable Linux
+user/network/mount namespaces with loopback only. They do not contact public
+sources. Source-health evaluation reads an existing report without network
+requests and separates process status, source health, and finding count.
+See [pinned versions, cases, resource boundaries, and evidence](docs/benchmark_providers.md).
 
 ---
 

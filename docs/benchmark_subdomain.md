@@ -207,15 +207,36 @@ The monotonic timing observations have these boundaries:
 | `json_build_seconds` | Document-construction subset of JSON report time; do not add it to `json_write_seconds` |
 | `total_sample_seconds`, `total_battery_seconds` | Include preparation, validation, reporting and cleanup outside the execution metric |
 
+On Linux with `pidfd_open` support, the primary worker wait uses kernel exit
+notification instead of the POSIX timed `Popen.wait()` polling loop. It retains
+the execution deadline and signal-driven cleanup. `process_wait_method` in
+each successfully waited sample identifies `linux_pidfd`, `already_exited`, or the `popen_wait`
+fallback for other platforms, old kernels or blocked pidfd access. This does
+not change resource-companion sampling or TCP's Hyperfine timer. Recalibrate
+A/A after this harness change; historical passive timings include the old
+waiter's detection delay and are not directly interchangeable.
+
 Intervals may overlap and writer totals include multiple checkpoints. Do not
 sum them as independent phases or subtract emitter sleep and call the
 remainder pure processing time. Saving-dominates claims require these stage
 observations, not just end-to-end duration.
 
-Memory is `null` with an explicit reason because no passive process-tree
-collector has been validated. CPU measurement, Hyperfine, and Assetfinder are
-not needed for this battery. Add a separate resource pass only after verifying
-its units, child-PID coverage, observer overhead, and known allocations.
+Passive JSON serialization omits indentation. Discovery reuses its last saved
+checkpoint instead of writing the same final state again; DNSx, HTTPx and error
+recovery still save their updated state. Compare these changes separately with
+the same frozen harness and exact evidence oracles. Any timing claim must name
+the dataset, paired sample count and replication window; their individual
+percentage changes do not establish the combined improvement.
+
+Without `--resources`, memory remains `null` with an explicit reason. On Linux,
+`--resources` adds separate companions with waited-child CPU, largest-child
+`ru_maxrss`, and sampled process-tree RSS/descriptors. Known parent/child
+allocations, descriptors, exit codes and deadline cleanup have runnable checks
+in `tests.test_benchmark_resources`. Companions repeat the full saved-report and
+journal oracle, and their time is excluded from primary timing statistics.
+The sampler can miss short children and shared RSS can be counted repeatedly.
+Passive interface deltas in the shared guest namespace are not attributable
+to the worker alone. See [resource boundaries](benchmark.md#additional-verification-and-bounded-campaigns).
 
 Successful measured samples report count, mean, median, minimum, maximum, and
 sample standard deviation. No statistical-significance claim or default
@@ -282,12 +303,22 @@ skip. Additional checks passed for compilation, both CLI help commands,
 Python 3.10 syntax, and whitespace. An abrupt-worker-loss regression verifies
 the outer cleanup path separately from graceful cancellation.
 
-**Linux/Kali execution is not verified.** This workspace is on Windows and
-does not provide a Kali VM or an installed WSL distribution. Native POSIX
-fixture launch and process-group behavior require their own Kali checks;
-Windows passes must not be presented as Kali results. Real provider binaries,
-controlled source compatibility, and DNSx are also **not verified** by this
-offline laboratory.
+**Selected Linux/Kali acceptance was recorded on 2026-10-06/07**, at product
+revision `5b0585219a6dcbf9daaa07fd2bd5ebf9021b86d2`, including the offline fault
+matrix and 100k duplicate/gradual cases. All 23 scenarios have functional
+coverage across the completed quick battery and separate 100k campaigns.
+The default full profile with its complete repetition schedule was not completed
+as one battery; this is a limitation of the combined performance evidence,
+not an unexecuted scenario. Windows results remain separate.
+Real Subfinder 2.13.0, Amass 5.0.0 and DNSx 1.3.1 passed selected controlled
+integration cases; those results do not come from this offline fixture battery.
+Their maintained procedures are in [real-provider/DNSx cases](benchmark_providers.md).
+
+The 2026-10-08 read-only reconciliation checked the 23 names in the maintained
+scenario list against retained reports and the reviewed completion index, with
+no missing scenario. Evidence references are recorded in
+`output/validation/coverage-reconciliation_20261008.json`. This does not combine
+timings from different campaigns into a calibrated full-profile result.
 
 ```sh
 python3.12 -m unittest tests.test_benchmark_subdomain_data tests.test_benchmark_subdomain_provider tests.test_benchmark_subdomain tests.test_benchmark -v
@@ -301,14 +332,15 @@ claiming Kali acceptance or increasing beyond 100k. Larger workloads must be
 explicit, bounded, and fit recorded VM resources; no automatic unbounded
 scaling is implemented.
 
-The remaining stages below are deferred. `.test` and its descendants are
+Selected procedures below now have maintained commands; exhaustive compatibility
+and public-source coverage remain separate work. `.test` and its descendants are
 reserved for special use in the
 [IANA registry](https://www.iana.org/assignments/special-use-domain-names).
 Creating local DNS records alone does not feed Subfinder's
 [passive online sources](https://docs.projectdiscovery.io/opensource/subfinder/overview).
 Provider discovery data and DNS responses therefore require separate controls.
 
-### Real-provider compatibility battery — not verified
+### Real-provider compatibility battery — selected acceptance
 
 Pin installed Subfinder/Amass versions and record actual help, commands,
 binary/config hashes, source selection, credential availability without secret
@@ -323,7 +355,8 @@ is insufficient. Subfinder's documented
 [source/configuration/proxy controls](https://docs.projectdiscovery.io/opensource/subfinder/usage)
 do not prove arbitrary endpoint support for every source. Record source
 patches, custom builds or TLS adaptations as adapted-provider tests. Local
-source feasibility remains not verified until that experiment succeeds.
+source feasibility is established only for the selected accepted cases in
+[the maintained provider laboratory](benchmark_providers.md), not for other sources.
 
 Then compare each provider directly versus integrated, and both providers
 directly versus integrated. Joint execution is sequential Subfinder then
@@ -334,7 +367,22 @@ targets, and cannot use the fictional dataset as a known discovery oracle.
 External variability can make timing differences descriptive rather than
 attributable to Hylianscan.
 
-### Separate DNSx battery — not implemented or verified
+### Observation and diagnostic companions
+
+`--passive-observations minimal` removes per-record observer counters, full
+runner-result copies and helper timings from successful primary workers.
+The real candidate journal, network guards, deadlines, process ownership and
+saved TXT/JSON oracles remain enabled. Unobserved metrics are `null`; fault
+cases retain detailed observation for interruption and writer-error injection.
+
+To measure observer cost independently, use identical product checkouts with
+`--reference-observations detailed --passive-observations minimal`. The harness
+rejects differing product hashes. Resource companions inherit the variant's
+mode in this comparison; ordinary product comparisons use detailed companions.
+`--resources --diagnostic-profile` saves `cli.prof` in companions only.
+These profiles do not participate in primary timing comparisons.
+
+### Separate DNSx battery — maintained selected cases
 
 Reuse the candidate manifest with an independent expected DNS-response map.
 Start with a local authoritative CoreDNS zone using its

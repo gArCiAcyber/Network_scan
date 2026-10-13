@@ -10,6 +10,7 @@ import json
 import math
 import os
 import platform
+import re
 import shlex
 import shutil
 import signal
@@ -84,14 +85,22 @@ def scenarios(args: argparse.Namespace) -> list[Scenario]:
     cases = [
         make("sparse", args.base_ports, plain),
         make("protocols", args.base_ports, protocols),
-        make("silent", args.base_ports, [{"port": 9000, "kind": "silent"}], slow=True),
-        make("mixed", args.base_ports, plain, [19000, 19001, 19002, 19003], slow=True),
+        make("silent", args.base_ports, [{"port": 9000 + index, "kind": "silent"}
+                                        for index in range(args.silent_listeners)], slow=True),
+        make("mixed", args.base_ports, plain, list(range(19000, 19000 + args.drop_ports)), slow=True),
         make("scaling-sparse", args.scale_ports, plain),
         make("scaling-open", args.scale_ports,
              [{"port": 10000 + index, "kind": "banner"} for index in range(args.many_open)]),
     ]
     if args.profile == "full":
-        cases.append(make("scaling-all", 65535, plain))
+        full_services = plain + [{"port": 10000 + index, "kind": "banner"}
+                                 for index in range(args.full_open - 1)]
+        cases.append(make("scaling-all", 65535, full_services))
+    if args.tcp_scenarios:
+        unknown = set(args.tcp_scenarios) - {case.name for case in cases}
+        if unknown:
+            raise ValueError("Unknown TCP scenario: " + ", ".join(sorted(unknown)))
+        cases = [case for case in cases if case.name in args.tcp_scenarios]
     return cases
 
 
@@ -171,12 +180,37 @@ def parser() -> argparse.ArgumentParser:
                      help="Offline subdomain provider budget in seconds (default: 30).")
     cli.add_argument("--scenario", action="append", dest="subdomain_scenarios",
                      help="Select an offline subdomain scenario; repeat to select several.")
+    cli.add_argument("--tcp-scenario", action="append", dest="tcp_scenarios",
+                     help="Select a TCP scenario; repeat to select several.")
+    cli.add_argument("--first-variant", choices=("reference", "candidate"), default="reference",
+                     help="First variant in alternating measured pairs (default: reference).")
+    cli.add_argument("--min-free-gib", type=positive_float, default=1.0,
+                     help="Minimum available evidence-disk space before each sample (default: 1 GiB).")
+    cli.add_argument("--drop-ports", type=positive_int, default=4,
+                     help="Number of mixed-case DROP ports, at most 256 (default: 4).")
+    cli.add_argument("--silent-listeners", type=positive_int, default=1,
+                     help="Silent-case open listeners, at most 256 (default: 1).")
+    cli.add_argument("--full-open", type=positive_int, default=1,
+                     help="Full-port case open listeners, at most 1024 (default: 1).")
+    cli.add_argument("--resources", action="store_true",
+                     help="Run separate Linux process-tree resource samples; excluded from primary timings.")
+    cli.add_argument("--passive-observations", choices=("detailed", "minimal"), default="detailed",
+                     help="Passive worker observation; saved-evidence oracles remain enabled.")
+    cli.add_argument("--reference-observations", choices=("detailed", "minimal"),
+                     help="Compare observation modes on identical passive product snapshots.")
+    cli.add_argument("--diagnostic-profile", action="store_true",
+                     help="Profile resource companions only; primary samples stay unprofiled.")
+    cli.add_argument("--subfinder-path", default="subfinder", help="Real-provider lab Subfinder executable.")
+    cli.add_argument("--amass-path", default="amass", help="Real-provider lab Amass executable.")
+    cli.add_argument("--dnsx-path", default="dnsx", help="Real DNSx lab executable.")
     return cli
 
 
 def resolve_options(args: argparse.Namespace) -> argparse.Namespace:
     if args.benchmark != "subdomain" and args.subdomain_scenarios:
         raise ValueError("--scenario requires --benchmark subdomain.")
+    if args.benchmark != "tcp_scan" and args.tcp_scenarios:
+        raise ValueError("--tcp-scenario requires --benchmark tcp_scan.")
     args.many_open = args.many_open if args.many_open is not None else (64 if args.profile == "quick" else 256)
     args.warmups = args.warmups if args.warmups is not None else (1 if args.profile == "quick" else 2)
     if not math.isfinite(args.delay_ms) or args.delay_ms < 0 or args.warmups < 0:
@@ -185,6 +219,19 @@ def resolve_options(args: argparse.Namespace) -> argparse.Namespace:
         raise ValueError("Port counts must be between 5 and 65535.")
     if args.benchmark == "tcp_scan" and (args.many_open >= args.scale_ports or args.many_open > 1024):
         raise ValueError("Dense listeners must be below the scaling size and at most 1024.")
+    if args.benchmark == "tcp_scan" and (args.drop_ports > 256 or args.drop_ports + 1 >= args.base_ports):
+        raise ValueError("DROP ports must be at most 256 and leave an open and a closed base port.")
+    if args.benchmark == "tcp_scan" and (args.silent_listeners > 256 or args.silent_listeners >= args.base_ports
+                                          or args.full_open > 1024):
+        raise ValueError("Silent listeners must be below the base size and at most 256; full-port listeners at most 1024.")
+    if args.resources and sys.platform != "linux":
+        raise ValueError("Process-tree resource samples require Linux /proc and resource accounting.")
+    if (args.passive_observations != "detailed" or args.reference_observations) and args.benchmark != "subdomain":
+        raise ValueError("Observation modes require --benchmark subdomain.")
+    if args.reference_observations and args.reference is None:
+        raise ValueError("--reference-observations requires --reference.")
+    if args.diagnostic_profile and (not args.resources or args.benchmark not in {"subdomain", "tcp_scan"}):
+        raise ValueError("--diagnostic-profile requires --resources and a passive or TCP benchmark.")
     for count in (args.fast_runs, args.slow_runs, args.full_runs):
         if count is not None and count < 2:
             raise ValueError("Measured repetition counts must be at least two.")
@@ -268,6 +315,47 @@ def validate_document(document: dict, case: Scenario, counters: dict[int, int]) 
         if counters.get(port, 0) <= 0:
             errors.append(f"No measured DROP traffic on filtered port {port}.")
     return errors
+
+
+def validate_text(text: str, case: Scenario) -> list[str]:
+    """Check saved quiet TXT against the independent service configuration."""
+    errors = []
+    if "\x1b" in text or "\x9b" in text:
+        errors.append("ANSI escapes in saved TCP TXT.")
+    actual = {}
+    for line in text.splitlines():
+        if not re.match(r"- [0-9]", line):
+            continue
+        match = re.fullmatch(r"- ([0-9]+)/tcp open (\S+) (.+)", line)
+        if match is None:
+            errors.append("Malformed TCP TXT finding: " + line)
+            continue
+        port, service, evidence = int(match[1]), match[2], match[3]
+        if port in actual:
+            errors.append(f"Duplicate TXT open port: {port}.")
+        actual[port] = (service, evidence)
+    expected = {service["port"]: service["kind"] for service in case.services}
+    if set(actual) != set(expected):
+        errors.append(f"TXT open ports differ: missing={sorted(set(expected) - set(actual))}, "
+                      f"unexpected={sorted(set(actual) - set(expected))}.")
+    for port in set(expected) & set(actual):
+        wanted = (banner(port) if expected[port] == "banner" else
+                  "active, no banner" if expected[port] == "silent" else "200 OK")
+        if actual[port][1] != wanted or (expected[port] in ("http", "https") and actual[port][0] != expected[port]):
+            errors.append(f"Incorrect TXT banner/evidence on port {port}.")
+    if f"Target: {TARGET}" not in text.splitlines() or f"Resolved IP: {TARGET}" not in text.splitlines():
+        errors.append("Unexpected TCP TXT target.")
+    return errors
+
+
+def disk_preflight(directory: Path, args: argparse.Namespace) -> dict:
+    """Keep an explicit reserve; never remove previous evidence to make room."""
+    usage = shutil.disk_usage(directory)
+    minimum = int(args.min_free_gib * 1024 ** 3)
+    if usage.free < minimum:
+        raise RuntimeError(f"Evidence disk has {usage.free} bytes free; {minimum} bytes required. "
+                           "Choose a filesystem with more space or a smaller bounded campaign.")
+    return {"total_bytes": usage.total, "free_bytes": usage.free, "minimum_free_bytes": minimum}
 
 
 class Lab:
@@ -506,6 +594,7 @@ def preflight(args: argparse.Namespace, directory: Path) -> dict:
     if missing:
         raise RuntimeError("Missing laboratory executables: " + ", ".join(missing))
     metadata = environment_metadata(args)
+    metadata["disk"] = disk_preflight(directory, args)
     version_flags = {"ip": "-Version", "nft": "--version", "setpriv": "--version",
                      "hyperfine": "--version"}
     if args.delay_ms:
@@ -564,12 +653,19 @@ def execute_sample(report: dict, args: argparse.Namespace, case: Scenario,
     caught: BaseException | None = None
     print(f"[{role}] {case.name}: {variant}, sample {index}", flush=True)
     try:
+        sample["disk_preflight"] = disk_preflight(directory, args)
         lab.prepare()
         if role == "resources":
             resource_path = directory / "resources.json"
-            fmt = ('{"execution_seconds":%e,"cpu_user_seconds":%U,'
-                   '"cpu_system_seconds":%S,"peak_memory_kib":%M}')
-            measured = ["/usr/bin/time", "--format", fmt, "--output", str(resource_path), *command]
+            if args.diagnostic_profile:
+                command = [args.python, str(ROOT / "scripts/benchmark_cli_profile.py"),
+                           "--output", str(directory / "cli-stages.json"), "--", *command[1:]]
+            if args.resources:
+                measured = resource_command(args, resource_path, command)
+            else:
+                fmt = ('{"execution_seconds":%e,"cpu_user_seconds":%U,'
+                       '"cpu_system_seconds":%S,"peak_memory_kib":%M}')
+                measured = ["/usr/bin/time", "--format", fmt, "--output", str(resource_path), *command]
         else:
             measured = ["hyperfine", "--shell=none", "--runs", "1", "--warmup", "0",
                         "--style", "basic", "--export-json", str(directory / "hyperfine.json"),
@@ -584,8 +680,10 @@ def execute_sample(report: dict, args: argparse.Namespace, case: Scenario,
             raise RuntimeError(f"Measured execution exited {process.returncode}; see {directory / 'launcher.log'}.")
         if role == "resources":
             metrics = json.loads(resource_path.read_text(encoding="utf-8"))
-            metrics["peak_memory_bytes"] = metrics.pop("peak_memory_kib") * 1024
-            metrics["measurement_source"] = "gnu_time_companion"
+            if not args.resources:
+                metrics["peak_memory_bytes"] = metrics.pop("peak_memory_kib") * 1024
+                metrics["measurement_source"] = "gnu_time_companion"
+            sample["cleanup_errors"].extend(metrics.get("cleanup_errors", []))
         else:
             metrics = read_hyperfine(directory / "hyperfine.json")
             metrics["measurement_source"] = "hyperfine"
@@ -598,6 +696,8 @@ def execute_sample(report: dict, args: argparse.Namespace, case: Scenario,
         counters = lab.counters()
         write_json(directory / "drop-after.json", counters)
         sample["validation_errors"] = validate_document(document, case, counters)
+        sample["validation_errors"].extend(validate_text(
+            (directory / "scan.txt").read_text(encoding="utf-8"), case))
         if lab.service_process.poll() is not None:
             sample["validation_errors"].append("Laboratory services exited during measurement.")
         sample["status"] = "failed" if sample["validation_errors"] else "completed"
@@ -612,7 +712,7 @@ def execute_sample(report: dict, args: argparse.Namespace, case: Scenario,
         previous = {signum: signal.signal(signum, signal.SIG_IGN) for signum in (signal.SIGINT, signal.SIGTERM)}
         try:
             try:
-                sample["cleanup_errors"] = lab.close()
+                sample["cleanup_errors"].extend(lab.close())
             except (OSError, ValueError, subprocess.SubprocessError, RuntimeError) as error:
                 sample["cleanup_errors"].append(f"Cleanup failed: {error}")
         finally:
@@ -645,12 +745,17 @@ def sample_bundle(report: dict, args: argparse.Namespace, case: Scenario, varian
                   checkout: Path, role: str, index: int) -> float:
     started = time.perf_counter()
     sample = execute_sample(report, args, case, variant, checkout, role, index)
-    if sample["metrics"]["peak_memory_bytes"] is None and role != "warmup":
+    if (args.resources or sample["metrics"]["peak_memory_bytes"] is None) and role != "warmup":
         companion = execute_sample(report, args, case, variant, checkout, "resources", index,
                                    parent_id=sample["id"])
         sample["memory_companion_id"] = companion["id"]
         write_json(Path(sample["directory"]) / "sample.json", sample)
     return time.perf_counter() - started
+
+
+def resource_command(args: argparse.Namespace, path: Path, command: list[str]) -> list[str]:
+    return [args.python, str(ROOT / "scripts/benchmark_resources.py"), "--output", str(path),
+            "--timeout", str(max(1, args.run_timeout - 10)), "--", *command]
 
 
 def repetitions(args: argparse.Namespace, cases: list[Scenario], costs: dict[str, float],
@@ -692,22 +797,46 @@ def summarize(report: dict) -> list[dict]:
                           and sample["status"] == "completed"
                           and sample["parent_id"] in {sample["id"] for sample in samples}]
             metrics = ("execution_seconds", "merge_seconds", "txt_write_seconds",
-                       "json_write_seconds", "json_build_seconds") if subdomain else (
+                       "json_write_seconds", "json_build_seconds", "cpu_user_seconds", "cpu_system_seconds",
+                       "peak_memory_bytes") if subdomain else (
                 "execution_seconds", "native_scan_seconds", "cpu_user_seconds", "cpu_system_seconds", "peak_memory_bytes")
+            metrics += ("sampled_tree_peak_rss_bytes", "sampled_tree_peak_descriptors", "sampled_tree_peak_processes")
             for metric in metrics:
                 source = samples
-                if metric == "peak_memory_bytes" and companions:
+                if companions and (metric == "peak_memory_bytes" or metric.startswith("sampled_tree_")
+                                   or subdomain and metric.startswith("cpu_")):
                     source = companions
                 values = [sample["metrics"][metric] for sample in source
                           if sample["metrics"].get(metric) is not None]
                 if values:
                     rows.append({"scenario": case["name"], "variant": variant, "metric": metric,
-                                 "source": ("gnu_time_companion" if source is companions else
+                                 "source": (source[0]["metrics"].get("measurement_source", "gnu_time_companion") if source is companions else
                                             "stdlib_perf_counter" if subdomain else
                                             "hylianscan_json" if metric == "native_scan_seconds" else "hyperfine"),
                                  "count": len(values), "mean": statistics.mean(values),
                                  "median": statistics.median(values), "min": min(values), "max": max(values),
                                  "stddev": statistics.stdev(values) if len(values) > 1 else None})
+    return rows
+
+
+def paired_comparisons(report: dict) -> list[dict]:
+    """Retain pair/order observations without declaring statistical significance."""
+    groups = {}
+    for sample in report["samples"]:
+        if sample["role"] == "measured" and sample["status"] == "completed":
+            groups.setdefault((sample["scenario"], sample.get("index")), []).append(sample)
+    rows = []
+    for (scenario, index), samples in groups.items():
+        variants = {sample["variant"]: sample for sample in samples}
+        if len(samples) != 2 or set(variants) != {"reference", "candidate"}:
+            continue
+        reference = variants["reference"]["metrics"]["execution_seconds"]
+        candidate = variants["candidate"]["metrics"]["execution_seconds"]
+        rows.append({"scenario": scenario, "index": index,
+                     "order": "/".join(sample["variant"] for sample in samples),
+                     "reference_seconds": reference, "candidate_seconds": candidate,
+                     "change_percent": (candidate / reference - 1) * 100 if reference else None,
+                     "valid": report["status"] == "completed"})
     return rows
 
 
@@ -743,6 +872,7 @@ def save_report(report: dict, elapsed: float, threshold: float | None) -> None:
     report["total_battery_seconds"] = elapsed
     report["summary"] = summarize(report)
     report["comparisons"] = comparisons(report, threshold)
+    report["paired_comparisons"] = paired_comparisons(report)
     directory = Path(report["directory"])
     write_json(directory / "report.json", report)
     sample_rows = [{**sample, **{key: json.dumps(value, sort_keys=True) if isinstance(value, dict) else value
@@ -760,6 +890,10 @@ def save_report(report: dict, elapsed: float, threshold: float | None) -> None:
                       "emitted_stdout_bytes", "emitted_stderr_bytes", "peak_memory_bytes", "memory_reason", "error"]
                      if report.get("benchmark") == "subdomain" else
                      ["native_scan_seconds", "cpu_user_seconds", "cpu_system_seconds", "peak_memory_bytes"])
+    metric_fields += ["sampled_tree_peak_rss_bytes", "sampled_tree_peak_descriptors",
+                      "sampled_tree_peak_processes", "traffic"]
+    if report.get("benchmark") == "subdomain":
+        metric_fields += ["cpu_user_seconds", "cpu_system_seconds"]
     write_csv(directory / "samples.csv", ["id", "scenario", "variant", "role", "parent_id", "status",
               "exit_code", "execution_seconds", *metric_fields, "measurement_source", "total_sample_seconds", "total_battery_seconds",
               "validation_errors", "cleanup_errors", "directory"], sample_rows)
@@ -768,6 +902,8 @@ def save_report(report: dict, elapsed: float, threshold: float | None) -> None:
     write_csv(directory / "battery.csv", ["status", "benchmark", "profile", "total_battery_seconds", "error", "directory"], [report])
     write_csv(directory / "comparison.csv", ["scenario", "valid", "change_percent", "threshold_percent", "regressed"],
               report["comparisons"])
+    write_csv(directory / "pairs.csv", ["scenario", "index", "order", "reference_seconds",
+                                       "candidate_seconds", "change_percent", "valid"], report["paired_comparisons"])
 
 
 def run_tcp_scan(args: argparse.Namespace) -> int:
@@ -786,6 +922,8 @@ def run_tcp_scan(args: argparse.Namespace) -> int:
     variants = [("candidate", args.candidate)]
     if args.reference:
         variants.insert(0, ("reference", args.reference))
+    if args.first_variant == "candidate":
+        variants.reverse()
 
     def interrupt(_signum: int, _frame: object) -> None:
         raise KeyboardInterrupt
@@ -795,6 +933,8 @@ def run_tcp_scan(args: argparse.Namespace) -> int:
     try:
         report["environment"] = preflight(args, directory)
         report["versions"] = {name: source_metadata(checkout) for name, checkout in variants}
+        report["harness_sha256"] = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                    for path in sorted((ROOT / "scripts").glob("benchmark*.py"))}
         costs = {}
         for case in cases:
             costs[case.name] = sum(sample_bundle(report, args, case, name, checkout, "pilot", 0)
@@ -841,7 +981,13 @@ def run_subdomain(args: argparse.Namespace) -> int:
     return runner(args)
 
 
-BENCHMARKS = {"tcp_scan": run_tcp_scan, "subdomain": run_subdomain}
+def run_providers(args: argparse.Namespace) -> int:
+    from scripts.benchmark_providers import run_benchmark
+    return run_benchmark(resolve_options(args))
+
+
+BENCHMARKS = {"tcp_scan": run_tcp_scan, "subdomain": run_subdomain,
+              "providers": run_providers, "dnsx": run_providers}
 
 
 def main(argv: list[str] | None = None) -> int:

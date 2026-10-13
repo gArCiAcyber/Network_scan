@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import cProfile
+import errno
 import hashlib
 import inspect
 import json
 import os
 import platform
 import runpy
+import selectors
 import signal
 import socket
 import subprocess
@@ -140,6 +143,30 @@ def process_identity(pid: int) -> str | None:
     return None if fields[0] == "Z" else fields[19]
 
 
+def wait_for_worker(process: subprocess.Popen, timeout: float) -> tuple[int, str]:
+    """Avoid the POSIX timed-wait polling delay in primary measurements."""
+    deadline = time.monotonic() + timeout
+    if process.returncode is not None:
+        return process.returncode, "already_exited"
+    opener = getattr(os, "pidfd_open", None)
+    if opener is not None:
+        try:
+            descriptor = opener(process.pid)
+        except OSError as error:
+            if error.errno not in (errno.ENOSYS, errno.EPERM):
+                raise
+        else:
+            try:
+                with selectors.DefaultSelector() as completion:
+                    completion.register(descriptor, selectors.EVENT_READ)
+                    if not completion.select(max(0, deadline - time.monotonic())):
+                        raise subprocess.TimeoutExpired(process.args, timeout)
+                return process.wait(), "linux_pidfd"
+            finally:
+                os.close(descriptor)
+    return process.wait(timeout=max(0, deadline - time.monotonic())), "popen_wait"
+
+
 def stop_worker(process: subprocess.Popen, directory: Path | None = None) -> None:
     if process.poll() is None:
         try:
@@ -189,6 +216,8 @@ def worker(checkout: Path, manifest: Path) -> int:
     import ssl  # Initialize its socket subclasses before guarding outbound traffic.
     from modules import subdomain, json_exporter
     config = json.loads(manifest.read_text(encoding="utf-8"))
+    detailed = config.get("observations", "detailed") == "detailed"
+    profiler = cProfile.Profile() if config.get("diagnostic_profile") else None
     directory = manifest.parent
     real_popen, real_socket, real_getaddrinfo = subprocess.Popen, socket.socket, socket.getaddrinfo
     real_runner = subdomain.run_passive_provider
@@ -199,6 +228,10 @@ def worker(checkout: Path, manifest: Path) -> int:
     metrics = {"merge_seconds": 0.0, "txt_write_seconds": 0.0, "json_write_seconds": 0.0,
                "json_build_seconds": 0.0, "peak_memory_bytes": None,
                "memory_reason": "No validated passive process-tree memory collector"}
+    if not detailed:
+        for name in ("merge_seconds", "txt_write_seconds", "json_write_seconds", "json_build_seconds"):
+            metrics[name] = None
+        metrics["helper_timing_reason"] = "Disabled in minimal observation mode"
     signal_requested = False
 
     def interrupt(signum, _frame):
@@ -264,7 +297,7 @@ def worker(checkout: Path, manifest: Path) -> int:
         bound = inspect.signature(real_runner).bind(*args, **kwargs).arguments
         name = str(bound["provider_name"]).lower().split()[0]
         is_data = bound["domain"] == DOMAIN
-        if is_data:
+        if is_data and detailed:
             original_callback = kwargs.get("candidate_callback")
             original_parser = kwargs.get("output_parser")
 
@@ -301,9 +334,12 @@ def worker(checkout: Path, manifest: Path) -> int:
         finally:
             if "result" in locals():
                 checkpoint = {"provider_name": bound["provider_name"], "command": list(map(str, bound["command"])),
-                              "elapsed_seconds": time.perf_counter() - started, "result": asdict(result)}
+                              "elapsed_seconds": time.perf_counter() - started,
+                              "result": asdict(result) if detailed else {
+                                  "status": result.status, "finding_count": len(result.subdomains)}}
                 calls.append(checkpoint)
-                (directory / "runner-results.json").write_text(json.dumps(calls), encoding="utf-8")
+                if detailed:
+                    (directory / "runner-results.json").write_text(json.dumps(calls), encoding="utf-8")
         return result
 
     namespace = runpy.run_path(str(checkout / "hylianscan.py"), run_name="hylianlab_worker")["main"].__globals__
@@ -333,16 +369,22 @@ def worker(checkout: Path, manifest: Path) -> int:
         sys.argv += ["--" + name, "--" + name + "-path", executable,
                      "--" + name + "-timeout", str(config["provider_timeout"])]
     exit_code = 0
+    helpers = {
+        "merge_subdomain_results": timed(namespace["merge_subdomain_results"], "merge_seconds"),
+        "save_subdomain_results": timed(namespace["save_subdomain_results"], "txt_write_seconds", txt=True),
+        "write_subdomain_json_report": timed(namespace["write_subdomain_json_report"], "json_write_seconds")
+    } if detailed else {}
+    builder = (timed(json_exporter.build_subdomain_discovery_document, "json_build_seconds")
+               if detailed else json_exporter.build_subdomain_discovery_document)
     try:
         with (patch.object(subprocess, "Popen", side_effect=launch),
               patch.object(subdomain, "run_passive_provider", side_effect=observe),
               patch.object(socket, "socket", LocalSocket), patch.object(socket, "getaddrinfo", side_effect=lookup),
-              patch.dict(namespace, {
-                  "merge_subdomain_results": timed(namespace["merge_subdomain_results"], "merge_seconds"),
-                  "save_subdomain_results": timed(namespace["save_subdomain_results"], "txt_write_seconds", txt=True),
-                  "write_subdomain_json_report": timed(namespace["write_subdomain_json_report"], "json_write_seconds")}),
+              patch.dict(namespace, helpers),
               patch.object(json_exporter, "build_subdomain_discovery_document",
-                           side_effect=timed(json_exporter.build_subdomain_discovery_document, "json_build_seconds"))):
+                           new=builder)):
+            if profiler:
+                profiler.enable()
             namespace["main"]()
     except SystemExit as error:
         exit_code = error.code if isinstance(error.code, int) else (1 if error.code else 0)
@@ -352,6 +394,8 @@ def worker(checkout: Path, manifest: Path) -> int:
         traceback.print_exc()
         exit_code = 1
     finally:
+        if profiler:
+            profiler.disable()
         for signum in (signal.SIGINT, signal.SIGTERM, *([signal.SIGBREAK] if os.name == "nt" else [])):
             signal.signal(signum, signal.SIG_IGN)
         cleanup_errors = []
@@ -362,10 +406,18 @@ def worker(checkout: Path, manifest: Path) -> int:
                 child.wait(timeout=3)
             except (OSError, subprocess.SubprocessError) as error:
                 cleanup_errors.append(str(error))
-        metrics["first_candidate_seconds"] = {name: first_candidate.get(name) for name in config["providers"]}
-        metrics["received_lines"] = received
-        metrics["accepted_unique"] = {name: len(values) for name, values in accepted.items()}
+        if profiler:
+            try:
+                profiler.dump_stats(str(directory / "cli.prof"))
+            except OSError as error:
+                cleanup_errors.append(f"Profile persistence failed: {error}")
+        if not detailed:
+            (directory / "runner-results.json").write_text(json.dumps(calls), encoding="utf-8")
+        metrics["first_candidate_seconds"] = {name: first_candidate.get(name) for name in config["providers"]} if detailed else None
+        metrics["received_lines"] = received if detailed else None
+        metrics["accepted_unique"] = {name: len(values) for name, values in accepted.items()} if detailed else None
         (directory / "worker.json").write_text(json.dumps({"exit_code": exit_code, "metrics": metrics,
+            "observations": config.get("observations", "detailed"), "diagnostic_profile": bool(profiler),
             "signals": signals, "cli_command": sys.argv,
             "provider_processes_reaped": all(child.poll() is not None for child in children),
             "cleanup_errors": cleanup_errors, "network_policy": "Only loopback Amass readiness connections",
@@ -448,17 +500,26 @@ def execute_sample(common, report, args, case, variant, checkout, role, index):
                 "interrupt_provider": case.get("interrupt_provider"),
                 "interrupt_after": len(expected.get(case.get("interrupt_provider"), {}).get("accepted_expected", [])),
                 "interrupt_save": case.get("interrupt_save", False), "writer_error": case["mode"] == "writer_error"}
-    common.write_json(directory / "fixture.json", manifest)
     common.write_json(directory / "dataset.json", dataset(case["size"] or 1000))
     for name, data in expected.items():
         emission = {**data, "status": data["execution_status"]}
         common.write_json(directory / f"{name}.json", emission)
     common.write_json(directory / "expected.json", expected)
     workload_hash = hashlib.sha256(json.dumps({"manifest": manifest, "data": expected}, sort_keys=True).encode()).hexdigest()
+    requested = (args.reference_observations if variant == "reference" and args.reference_observations
+                 else args.passive_observations)
+    effective = ("detailed" if not case["comparison_eligible"] or
+                 (role == "resources" and not args.reference_observations) else requested)
+    manifest.update(observations=effective, diagnostic_profile=bool(args.diagnostic_profile and role == "resources"))
+    common.write_json(directory / "fixture.json", manifest)
     command = [args.python, str(SCRIPT), "--worker", str(checkout), str(directory / "fixture.json")]
+    if role == "resources":
+        command = common.resource_command(args, directory / "resources.json", command)
     wanted_exit = 130 if case["mode"] == "interrupted" else 1 if case["mode"] in {"failed", "timed_out", "writer_error"} else 0
     sample = {"id": directory.name, "directory": str(directory), "scenario": case["name"], "variant": variant,
-              "role": role, "index": index, "command": command, "cwd": str(directory),
+              "role": role, "index": index, "parent_id": None, "command": command, "cwd": str(directory),
+              "observations_requested": requested, "observations_effective": effective,
+              "diagnostic_profile": manifest["diagnostic_profile"],
               "workload_sha256": workload_hash, "status": "running", "validation_errors": [],
               "cleanup_errors": [], "providers": {}, "metrics": {}, "comparison_eligible": case["comparison_eligible"],
               "expected_exit_code": wanted_exit, "expected_outcome": case["mode"]}
@@ -468,11 +529,16 @@ def execute_sample(common, report, args, case, variant, checkout, role, index):
     process, caught = None, None
     print(f"[{role}] {case['name']}: {variant}, sample {index}", flush=True)
     try:
+        sample["disk_preflight"] = common.disk_preflight(directory, args)
         with (directory / "worker.log").open("w", encoding="utf-8") as log:
             group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
             execution_started = time.perf_counter()
             process = subprocess.Popen(command, cwd=directory, stdout=log, stderr=log, **group)
-            sample["exit_code"] = process.wait(timeout=args.run_timeout)
+            if role == "resources":
+                sample["exit_code"] = process.wait(timeout=args.run_timeout)
+                sample["process_wait_method"] = "popen_wait"
+            else:
+                sample["exit_code"], sample["process_wait_method"] = wait_for_worker(process, args.run_timeout)
             sample["observed_exit_code"] = sample["exit_code"]
         sample["metrics"] = {"execution_seconds": time.perf_counter() - execution_started,
                              "measurement_source": "stdlib_perf_counter"}
@@ -488,6 +554,11 @@ def execute_sample(common, report, args, case, variant, checkout, role, index):
         sample["worker"] = worker_record
         sample["cli_command"] = worker_record["cli_command"]
         sample["metrics"].update(worker_record["metrics"])
+        if role == "resources":
+            resources = json.loads((directory / "resources.json").read_text(encoding="utf-8"))
+            sample["metrics"].update(resources)
+            sample["metrics"]["memory_reason"] = None
+            sample["cleanup_errors"].extend(resources["cleanup_errors"])
         if not worker_record["provider_processes_reaped"]:
             sample["cleanup_errors"].append("Fixture processes were not reaped")
         sample["cleanup_errors"].extend(worker_record["cleanup_errors"])
@@ -565,9 +636,11 @@ def run_subdomain(args: argparse.Namespace) -> int:
               "scope_policy": "ASCII DNS hostnames in hylianlab.test, including the apex; wildcards and URLs rejected",
               "timing_policy": "Worker launch through exit, including bootstrap, fixture subprocesses, evidence logging, CLI and reports; fixture preparation and validation excluded",
               "limitations": ["Fixtures do not verify real provider compatibility or discovery coverage",
-                              "No live discovery, DNSx, HTTPx, CPU or validated memory measurements"],
+                              "No live discovery, DNSx or HTTPx; resource measurements require --resources"],
               "_started": time.perf_counter()}
     variants = [("reference", args.reference), ("candidate", args.candidate)] if args.reference else [("candidate", args.candidate)]
+    if args.first_variant == "candidate":
+        variants.reverse()
 
     def interrupt(_signum, _frame):
         raise KeyboardInterrupt
@@ -575,6 +648,7 @@ def run_subdomain(args: argparse.Namespace) -> int:
     previous = {s: signal.signal(s, interrupt) for s in (signal.SIGINT, signal.SIGTERM)}
     exit_code = 0
     try:
+        report["disk_preflight"] = common.disk_preflight(directory, args)
         report["environment"] = {"platform": platform.platform(), "kernel": platform.release(),
             "architecture": platform.machine(), "cpu_count": os.cpu_count(), "python_executable": args.python,
             "python": common.run([args.python, "--version"]).stdout.strip(), "cwd": str(Path.cwd()),
@@ -583,13 +657,25 @@ def run_subdomain(args: argparse.Namespace) -> int:
                 and "ID=kali" in Path("/etc/os-release").read_text(),
             "provider_contracts": {"subfinder": "2.16.0 simulated", "amass": "5.0.0/4.2.0 simulated"}}
         report["harness_sha256"] = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-                                    for path in (SCRIPT, ROOT / "scripts/benchmark.py", PROVIDER_SCRIPT,
-                                                 SCRIPT.with_name("benchmark_subdomain_data.py"))}
+                                    for path in sorted((ROOT / "scripts").glob("benchmark*.py"))}
         report["versions"] = {name: common.source_metadata(checkout) for name, checkout in variants}
+        if args.reference_observations and len({item["source_sha256"] for item in report["versions"].values()}) != 1:
+            raise ValueError("Observation comparisons require identical product snapshots.")
         common.save_report(report, time.perf_counter() - report["_started"], args.regression_percent)
         costs = {}
+        def sample_bundle(case, name, checkout, role, index):
+            sample = execute_sample(common, report, args, case, name, checkout, role, index)
+            elapsed = sample["total_sample_seconds"]
+            if args.resources and role != "warmup":
+                companion = execute_sample(common, report, args, case, name, checkout, "resources", index)
+                companion["parent_id"] = sample["id"]
+                sample["memory_companion_id"] = companion["id"]
+                common.write_json(Path(companion["directory"]) / "sample.json", companion)
+                common.write_json(Path(sample["directory"]) / "sample.json", sample)
+                elapsed += companion["total_sample_seconds"]
+            return elapsed
         for case in cases:
-            costs[case["name"]] = sum(execute_sample(common, report, args, case, name, checkout, "pilot", 0)["total_sample_seconds"]
+            costs[case["name"]] = sum(sample_bundle(case, name, checkout, "pilot", 0)
                                      for name, checkout in variants)
         report["calibration"] = common.repetitions(args, [SimpleNamespace(**case) for case in cases], costs,
                                                    time.perf_counter() - report["_started"])
@@ -597,11 +683,11 @@ def run_subdomain(args: argparse.Namespace) -> int:
         for case in cases:
             for index in range(args.warmups):
                 for name, checkout in variants:
-                    execute_sample(common, report, args, case, name, checkout, "warmup", index + 1)
+                    sample_bundle(case, name, checkout, "warmup", index + 1)
             for index in range(report["calibration"]["repetitions"][case["name"]]):
                 order = variants if index % 2 == 0 else list(reversed(variants))
                 for name, checkout in order:
-                    execute_sample(common, report, args, case, name, checkout, "measured", index + 1)
+                    sample_bundle(case, name, checkout, "measured", index + 1)
         report["validation"]["battery_completed"] = True
         report["validation"]["correctness_passed"] = all(sample["status"] == "completed" for sample in report["samples"])
         report["status"] = "completed" if report["validation"]["correctness_passed"] else "failed"

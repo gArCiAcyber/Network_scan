@@ -478,7 +478,7 @@ def write_subdomain_json_report(
         final_subdomains=final_subdomains,
     )
     output_path.write_text(
-        json.dumps(document, indent=2, sort_keys=True) + "\n",
+        json.dumps(document, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 

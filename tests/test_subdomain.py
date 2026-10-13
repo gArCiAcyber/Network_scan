@@ -30,6 +30,56 @@ from modules.subdomain import (
 class PassiveProviderExecutableTests(unittest.TestCase):
     """Validate provider executable resolution without running external tools."""
 
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_discovery_checkpoint_is_reused_without_losing_intermediate_state(self, compatibility):
+        for providers in (["subfinder"], ["subfinder", "amass"]):
+            with self.subTest(providers=providers), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "subdomains.txt"
+                report = Path(directory) / "subdomains.json"
+                first = ProviderRunResult(["api.example.com"], "completed", 0, elapsed_seconds=1.5)
+                second = ProviderRunResult(["www.example.com"], "completed", 0, elapsed_seconds=2.0)
+
+                def amass(*args, **kwargs):
+                    checkpoint = json.loads(report.read_text())
+                    self.assertEqual(checkpoint["results"]["subdomains"], first.subdomains)
+                    statuses = {row["name"]: row["status"] for row in checkpoint["providers"]}
+                    self.assertEqual(statuses, {"subfinder": "completed", "amass": "skipped"})
+                    return second
+
+                with (patch("hylianscan.resolve_provider_executable", return_value=sys.executable),
+                      patch("hylianscan.run_subfinder", return_value=first),
+                      patch("hylianscan.run_amass", side_effect=amass),
+                      patch("hylianscan.write_subdomain_json_report",
+                            wraps=hylianscan.write_subdomain_json_report) as write):
+                    hylianscan.run_passive_subdomain_discovery(
+                        "example.com", providers, output, report, quiet=True,
+                    )
+                self.assertEqual(write.call_count, len(providers))
+                saved = json.loads(report.read_text())
+                expected = first.subdomains + (second.subdomains if "amass" in providers else [])
+                self.assertEqual(saved["results"]["subdomains"], sorted(expected))
+                self.assertEqual(output.read_text().splitlines(), sorted(expected))
+                latest_name = "amass" if "amass" in providers else "subfinder"
+                self.assertEqual(next(row for row in saved["providers"] if row["name"] == latest_name)["elapsed_seconds"],
+                                 second.elapsed_seconds if "amass" in providers else first.elapsed_seconds)
+
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_reused_checkpoint_still_persists_dnsx_metadata_for_unchanged_names(self, compatibility):
+        with tempfile.TemporaryDirectory() as directory:
+            output, report = Path(directory) / "subdomains.txt", Path(directory) / "subdomains.json"
+            names = ["api.example.com"]
+            resolved = ProviderRunResult(names, "completed", 0, metadata=[{"host": names[0], "a": ["192.0.2.10"]}])
+            with (patch("hylianscan.resolve_provider_executable", return_value=sys.executable),
+                  patch("hylianscan.run_subfinder", return_value=ProviderRunResult(names, "completed", 0)),
+                  patch("hylianscan.run_dnsx", return_value=resolved)):
+                hylianscan.run_passive_subdomain_discovery(
+                    "example.com", ["subfinder", "dnsx"], output, report, quiet=True,
+                )
+            resolution = json.loads(report.read_text())["results"]["resolution"]
+            self.assertEqual(resolution["status"], "completed")
+            self.assertEqual(resolution["metadata"], resolved.metadata)
+            self.assertEqual(resolution["subdomains"], names)
+
     def test_enabled_provider_notice_precedes_compatibility_checks(self) -> None:
         events = []
         with tempfile.TemporaryDirectory() as temporary_dir:

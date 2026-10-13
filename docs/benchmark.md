@@ -113,7 +113,7 @@ python3 scripts/benchmark.py --benchmark tcp_scan --delay-ms 25 --run-timeout 18
 Explicit repetition overrides are preserved, even if they exceed the quick
 target. `--base-ports`, `--scale-ports`, `--warmups`, `--timeout`, `--max-rate`,
 and `--full-runs` are configurable. Measured repetition counts must be at
-least two. The full profile always includes all 65,535 ports. Worker/timeout
+least two. The full profile includes all 65,535 ports by default. Worker/timeout
 sweeps are separate invocations, not an automatic Cartesian product.
 
 ## What the clocks measure
@@ -203,10 +203,19 @@ be caught; retained checkpoints identify resource names for recovery.
 
 ## Validation status and future stages
 
-**Kali acceptance is pending.** Windows localhost checks validate the
-persistent services, real dispatcher, report checks, and mocked failure/
-interruption cleanup. They do not validate Linux namespace/nftables behavior
-or establish a calibrated Kali baseline.
+**Selected Kali acceptance was recorded on 2026-10-06/07**, at product revision
+`5b0585219a6dcbf9daaa07fd2bd5ebf9021b86d2`: quick/full TCP cases, dense probes,
+65,535 ports, per-port DROP checks, failure/SIGINT cleanup and alternating A/A.
+Five full-port A/A pairs showed a +1.75% median difference for identical code;
+protocol pairs ranged from -11.86% to +22.86%. An independent 2026-10-08 UTC
+campaign increased full-port pairs to twelve and used twenty protocol pairs,
+starting with the candidate and alternating measured order. Identical product
+hashes produced median changes of -0.18% and +0.49%, respectively; individual
+pairs still ranged from -4.41% to +2.74% and -9.19% to +4.00%. Host activity was
+observed but uncontrolled. These are variability observations, not regression
+thresholds; no universal threshold is enabled.
+Session evidence is retained separately under `output/validation/` and is not
+distributed as repository fixtures. Windows checks remain separate.
 
 Before declaring the benchmark validated, run quick and full batteries on
 Kali (including dense probes and 65,535 ports), confirm each DROP counter,
@@ -214,6 +223,63 @@ compare the reference against itself, and exercise Ctrl+C and a failing
 measured command. Check the recorded namespace names against `ip netns list`
 and verify their absence from `/etc/netns`. The report distinguishes actual
 lab execution, Kali execution, and complete battery execution.
+
+## Additional verification and bounded campaigns
+
+Every execution now reads the saved `scan.txt`, checking exact port membership,
+duplicates, per-port banner/status evidence and ANSI escapes against the service
+configuration. Legitimate TLS explanation bullets are not finding rows.
+TXT and JSON are independently checked; matching two reports is insufficient.
+
+`--min-free-gib` reserves 1 GiB by default before each execution and records
+available bytes. It does not estimate the entire campaign or cap a growing file.
+Choose a campaign that fits the disk; previous 100k evidence campaigns generated
+about 12 GiB. No previous evidence is deleted automatically.
+
+Use `--tcp-scenario` repeatedly for selected TCP cases. `--first-variant`
+chooses the initial measured order; later pairs alternate. `pairs.csv` preserves
+individual pair differences and order without changing the opt-in median verdict.
+Start a new campaign with the opposite initial order, fixed VM/host conditions,
+and more full-port pairs before configuring thresholds. Correctness failures
+invalidate comparisons.
+
+```sh
+python3.12 scripts/benchmark.py --profile full --reference . --candidate . \
+  --tcp-scenario protocols --tcp-scenario scaling-all --full-runs 20 \
+  --first-variant candidate
+python3.12 scripts/benchmark.py --tcp-scenario scaling-open --many-open 256 --workers 100 --resources
+python3.12 scripts/benchmark.py --tcp-scenario mixed --drop-ports 64 --timeout .2 --resources
+python3.12 scripts/benchmark.py --tcp-scenario protocols --delay-ms 10 --resources
+python3.12 scripts/benchmark.py --tcp-scenario silent --silent-listeners 32 --resources
+python3.12 scripts/benchmark.py --profile full --tcp-scenario scaling-all --full-open 64 --resources
+```
+
+`--resources` enables separately identified Linux companions even if Hyperfine
+exports memory. They record waited-child user/system CPU, `ru_maxrss` in bytes,
+sampled process-tree RSS/fd/process peaks at 20 ms intervals, owned process
+births, cleanup and interface packet/byte deltas. RSS sums can count shared
+pages repeatedly; short children and peaks between observations may be missed.
+`ru_maxrss` is the largest waited-child high-water mark, not simultaneous tree
+memory. Resource execution time is excluded from primary time statistics.
+Interface deltas cover all namespace traffic during the companion; the dedicated
+TCP scanner namespace excludes readiness and other batteries. Record latency,
+workers, listeners, DROP count, timeout and traffic rather than inferring cost
+from finding count. Sweeps remain separate bounded invocations, not automatic
+Cartesian products. No scanner traffic or defaults change.
+
+The selected 2026-10-08 resource campaign completed eleven TCP configurations
+across two finite sessions, covering delay, workers, listeners, silent services
+and DROP-heavy timeouts. The final session closed the three interrupted cases:
+64 DROP ports at .2/1-second timeouts and 65,535 ports with 64 listeners. Each
+had one pilot and two measured executions, with separate resource companions;
+all TXT/JSON, per-port DROP and cleanup checks passed. Primary medians were
+0.524, 2.129 and 12.395 seconds. One of the two measured full-port companions
+could not inspect a PID and retained unknown tree RSS/descriptors/processes;
+CPU, waited-child maximum RSS and traffic remained available. This is selected
+functional/resource evidence, not a calibrated optimization result. All 36
+recorded namespaces and their configurations/interfaces were absent afterward.
+Raw evidence and final checks are retained under
+`output/validation/benchmark_completion_20261008_181222/`.
 
 Offline checks use Python 3.12 for the repository suite:
 
@@ -223,11 +289,16 @@ python3.12 -m unittest discover -s tests -p "test_*.py" -v
 python3.12 -m compileall -q hylianscan.py core modules scripts tests
 ```
 
-Future stages get independent expected results and scenarios: IPv6,
-multiple addresses, optional Nmap enrichment/import, real passive binaries,
-and DNSx against controlled local DNS. The offline Subfinder/Amass battery
-measures orchestration separately from real-binary compatibility/performance
-checks. These stages do not become part of the native TCP numbers.
+`--resources --diagnostic-profile` adds `cli-stages.json` and `cli-stages.prof`
+to TCP resource companions. Markers cover imports, resolution, native scanning,
+terminal output and report construction/persistence without changing quiet
+output. Nested spans overlap. Time outside the wrapper markers remains
+unattributed; profiled companion timings are excluded from primary pairs.
+
+Future stages need independent expected results for IPv6, multiple addresses,
+and optional Nmap enrichment/import. Maintained [real-provider and DNSx
+acceptance cases](benchmark_providers.md) complement the offline Subfinder/Amass
+orchestration battery. Their observations remain separate from native TCP timings.
 
 References: [Hyperfine manual](https://github.com/sharkdp/hyperfine/blob/master/doc/hyperfine.1),
 [Hyperfine Unix resource measurement](https://github.com/sharkdp/hyperfine/blob/v1.20.0/src/timer/unix_timer.rs),

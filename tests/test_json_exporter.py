@@ -1,7 +1,10 @@
 """Tests for TCP JSON export document builders."""
 
 import socket
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from modules.json_exporter import (
@@ -10,6 +13,7 @@ from modules.json_exporter import (
     build_port_document,
     build_tcp_scan_document,
     parse_set_cookie_header,
+    write_subdomain_json_report,
 )
 from modules.host_discovery import HostDiscoveryResult
 from modules.nmap_enrichment import (
@@ -135,8 +139,20 @@ def make_scan_result(open_ports: list[SimpleNamespace]) -> SimpleNamespace:
 
 
 class JSONExporterTests(unittest.TestCase):
-    """Validate pure TCP JSON export structure."""
+    """Validate JSON export structure and persistence."""
 
+    def test_compact_passive_report_preserves_the_document_contract(self) -> None:
+        providers = {"subfinder": ProviderRunResult(
+            ["API.EXAMPLE.COM", "api.example.com"], "timed_out", 1,
+            reason="Request timed out", elapsed_seconds=2.5, diagnostics=("timeout",),
+        )}
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "nested" / "report.json"
+            write_subdomain_json_report("example.com", providers, report)
+            text = report.read_text(encoding="utf-8")
+        self.assertEqual(json.loads(text), build_subdomain_discovery_document("example.com", providers))
+        self.assertEqual(text.count("\n"), 1)
+        self.assertTrue(text.endswith("\n"))
     def test_nmap_xml_import_document_contains_import_evidence(self) -> None:
         import_result = parse_nmap_xml_text(NMAP_XML)
         document = build_nmap_xml_import_document(import_result, "scan.xml")
@@ -925,6 +941,37 @@ class JSONExporterTests(unittest.TestCase):
                 ],
             },
         )
+
+    def test_subdomain_source_maps_have_independent_provider_lists(self) -> None:
+        for with_dnsx in (False, True):
+            with self.subTest(with_dnsx=with_dnsx):
+                providers = {
+                    "amass": ["api.example.com"],
+                    "subfinder": ProviderRunResult(
+                        ["API.EXAMPLE.COM", "api.example.com", "mail.example.com"],
+                        "failed", 7, "Partial discovery.",
+                    ),
+                }
+                if with_dnsx:
+                    providers["dnsx"] = ProviderRunResult(["api.example.com"], "completed", 0)
+                document = build_subdomain_discovery_document("example.com", providers)
+                sources = document["results"]["sources"]
+                candidates = document["results"]["candidates"]["sources"]
+                self.assertIsNot(sources, candidates)
+                self.assertEqual(candidates, {
+                    "api.example.com": ["amass", "subfinder"],
+                    "mail.example.com": ["subfinder"],
+                })
+                self.assertEqual(sources["api.example.com"],
+                                 ["amass", "dnsx", "subfinder"] if with_dnsx else ["amass", "subfinder"])
+                for name in candidates:
+                    self.assertIsNot(sources[name], candidates[name])
+                sources["api.example.com"].append("other")
+                candidates["mail.example.com"].clear()
+                self.assertEqual(candidates["api.example.com"], ["amass", "subfinder"])
+                self.assertEqual(sources["mail.example.com"], ["subfinder"])
+                self.assertEqual(providers["subfinder"].subdomains,
+                                 ["API.EXAMPLE.COM", "api.example.com", "mail.example.com"])
 
     def test_subdomain_document_accepts_legacy_list_provider_results(self) -> None:
         document = build_subdomain_discovery_document(

@@ -2,8 +2,10 @@
 
 import copy
 import csv
+import errno
 import json
 import os
+import pstats
 import shutil
 import signal
 import subprocess
@@ -35,6 +37,172 @@ def case_named(name):
 
 
 class SubdomainBenchmarkTests(unittest.TestCase):
+    def test_kernel_exit_notification_reaps_without_timed_wait(self):
+        process = MagicMock(returncode=None, pid=123, args=["worker"])
+        process.wait.return_value = 7
+        with (patch.object(bench.os, "pidfd_open", return_value=19, create=True) as opener,
+              patch.object(bench.os, "close") as close,
+              patch.object(bench.selectors, "DefaultSelector") as selector,
+              patch.object(bench.time, "monotonic", side_effect=[100, 100.02])):
+            completion = selector.return_value.__enter__.return_value
+            completion.select.return_value = [("exit", 1)]
+            self.assertEqual(bench.wait_for_worker(process, .5), (7, "linux_pidfd"))
+            opener.assert_called_once_with(123)
+            completion.register.assert_called_once_with(19, bench.selectors.EVENT_READ)
+            completion.select.assert_called_once()
+            self.assertAlmostEqual(completion.select.call_args.args[0], .48)
+            process.wait.assert_called_once_with()
+            close.assert_called_once_with(19)
+
+    def test_kernel_wait_timeout_and_interruption_close_descriptor(self):
+        for failure in (None, KeyboardInterrupt()):
+            with self.subTest(failure=failure):
+                process = MagicMock(returncode=None, pid=123, args=["worker"])
+                with (patch.object(bench.os, "pidfd_open", return_value=19, create=True),
+                      patch.object(bench.os, "close") as close,
+                      patch.object(bench.selectors, "DefaultSelector") as selector):
+                    completion = selector.return_value.__enter__.return_value
+                    completion.select.return_value = []
+                    completion.select.side_effect = failure
+                    with self.assertRaises(KeyboardInterrupt if failure else subprocess.TimeoutExpired) as caught:
+                        bench.wait_for_worker(process, .5)
+                    if failure is None:
+                        self.assertEqual(caught.exception.cmd, ["worker"])
+                        self.assertEqual(caught.exception.timeout, .5)
+                    process.wait.assert_not_called()
+                    close.assert_called_once_with(19)
+
+    def test_wait_fallback_and_resource_exhaustion(self):
+        for unavailable in (None, OSError(errno.ENOSYS, "unsupported"), OSError(errno.EPERM, "blocked")):
+            with self.subTest(unavailable=unavailable):
+                process = MagicMock(returncode=None, pid=123, args=["worker"])
+                process.wait.return_value = 0
+                opener = None if unavailable is None else MagicMock(side_effect=unavailable)
+                with (patch.object(bench.os, "pidfd_open", opener, create=True),
+                      patch.object(bench.time, "monotonic", side_effect=[100, 100.02])):
+                    self.assertEqual(bench.wait_for_worker(process, .5), (0, "popen_wait"))
+                    process.wait.assert_called_once()
+                    self.assertAlmostEqual(process.wait.call_args.kwargs["timeout"], .48)
+        process = MagicMock(returncode=None, pid=123)
+        with patch.object(bench.os, "pidfd_open", side_effect=OSError(errno.EMFILE, "fds exhausted"), create=True):
+            with self.assertRaises(OSError):
+                bench.wait_for_worker(process, .5)
+            process.wait.assert_not_called()
+        process.returncode = 7
+        self.assertEqual(bench.wait_for_worker(process, .5), (7, "already_exited"))
+
+    def test_real_worker_wait_preserves_exit_and_deadline(self):
+        for code, timeout, expected in (("raise SystemExit(7)", 5, 7), ("import time; time.sleep(60)", .02, None)):
+            with self.subTest(expected=expected):
+                process = subprocess.Popen([sys.executable, "-c", code])
+                try:
+                    if expected is None:
+                        with self.assertRaises(subprocess.TimeoutExpired):
+                            bench.wait_for_worker(process, timeout)
+                    else:
+                        exit_code, method = bench.wait_for_worker(process, timeout)
+                        self.assertEqual(exit_code, expected)
+                        self.assertIn(method, ("linux_pidfd", "popen_wait", "already_exited"))
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=5)
+
+    def test_minimal_observation_preserves_oracles_and_workload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            battery = report(directory)
+            case = case_named("baseline-1k")
+            detailed = bench.execute_sample(common, battery, options(), case, "candidate", common.ROOT, "measured", 1)
+            minimal = bench.execute_sample(common, battery, options("--passive-observations", "minimal"),
+                                           case, "candidate", common.ROOT, "measured", 2)
+            self.assert_saved_sample(detailed, case)
+            self.assert_saved_sample(minimal, case)
+            self.assertEqual(detailed["workload_sha256"], minimal["workload_sha256"])
+            self.assertEqual(minimal["observations_effective"], "minimal")
+            self.assertIsNone(minimal["metrics"]["json_build_seconds"])
+            self.assertIsNone(minimal["metrics"]["accepted_unique"])
+            calls = json.loads((Path(minimal["directory"]) / "runner-results.json").read_text())
+            self.assertTrue(calls)
+            self.assertTrue(all("subdomains" not in entry["result"] for entry in calls))
+
+    def test_minimal_faults_keep_detailed_injections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            case = case_named("writer-error")
+            sample = bench.execute_sample(common, report(directory), options("--passive-observations", "minimal"),
+                                          case, "candidate", common.ROOT, "measured", 1)
+            self.assert_saved_sample(sample, case)
+            self.assertEqual(sample["observations_effective"], "detailed")
+            self.assertEqual(sample["expected_exit_code"], 1)
+
+    @unittest.skipUnless(sys.platform == "linux", "Resource companions require Linux")
+    def test_resource_observation_modes_and_companion_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            battery = report(directory)
+            case = case_named("baseline-1k")
+            args = options("--resources", "--diagnostic-profile", "--passive-observations", "minimal")
+            detailed = bench.execute_sample(common, battery, args, case, "candidate", common.ROOT, "resources", 1)
+            self.assert_saved_sample(detailed, case)
+            self.assertEqual(detailed["observations_effective"], "detailed")
+            stats = pstats.Stats(str(Path(detailed["directory"]) / "cli.prof"))
+            self.assertTrue(any(key[2] == "build_subdomain_discovery_document" for key in stats.stats))
+            args.reference = common.ROOT
+            args.reference_observations = "detailed"
+            minimal = bench.execute_sample(common, battery, args, case, "candidate", common.ROOT, "resources", 2)
+            self.assert_saved_sample(minimal, case)
+            self.assertEqual(minimal["observations_effective"], "minimal")
+            self.assertTrue(minimal["diagnostic_profile"])
+
+    def test_observation_options_reject_invalid_comparisons(self):
+        for arguments in (["--passive-observations", "minimal"], ["--diagnostic-profile"],
+                          ["--benchmark", "subdomain", "--reference-observations", "minimal"]):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                common.resolve_options(common.parser().parse_args(arguments))
+
+    def test_observation_comparison_rejects_different_product_hashes_before_samples(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = options("--reference", str(common.ROOT), "--reference-observations", "detailed",
+                           "--passive-observations", "minimal", "--scenario", "baseline-1k",
+                           "--output-dir", directory)
+            with patch.object(common, "source_metadata", side_effect=[{"source_sha256": "a"}, {"source_sha256": "b"}]), \
+                    patch.object(bench, "execute_sample") as execute:
+                self.assertEqual(bench.run_subdomain(args), 1)
+                execute.assert_not_called()
+            saved = json.loads(next(Path(directory).glob("*/report.json")).read_text())
+            self.assertIn("identical product snapshots", saved["error"])
+
+    @unittest.skipUnless(sys.platform == "linux", "Resource companions require Linux")
+    def test_profile_write_failure_still_reaps_owned_children(self):
+        real_resource_command = common.resource_command
+
+        def inject_failure(args, output, command):
+            shim = ("import sys; from pathlib import Path; from unittest.mock import patch; "
+                    f"sys.path.insert(0, {str(common.ROOT)!r}); "
+                    "from scripts.benchmark_subdomain import worker; "
+                    "failure=patch('cProfile.Profile.dump_stats', side_effect=OSError('profile disk fault')); "
+                    "failure.start(); raise SystemExit(worker(Path(sys.argv[1]), Path(sys.argv[2])))")
+            return real_resource_command(args, output, [args.python, "-c", shim, *command[-2:]])
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(common, "resource_command", side_effect=inject_failure):
+            sample = bench.execute_sample(common, report(directory), options("--resources", "--diagnostic-profile"),
+                                          case_named("baseline-1k"), "candidate", common.ROOT, "resources", 1)
+            self.assertEqual(sample["status"], "failed")
+            worker_record = json.loads((Path(sample["directory"]) / "worker.json").read_text())
+            self.assertTrue(worker_record["provider_processes_reaped"])
+            self.assertTrue(any("profile disk fault" in error for error in worker_record["cleanup_errors"]))
+
+    def test_cli_profile_preserves_information_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = str(common.ROOT / "hylianscan.py")
+            original = subprocess.run([sys.executable, target, "--version"], capture_output=True, text=True)
+            output = Path(directory) / "stages.json"
+            profiled = subprocess.run([sys.executable, str(common.ROOT / "scripts/benchmark_cli_profile.py"),
+                                      "--output", str(output), "--", target, "--version"], capture_output=True, text=True)
+            self.assertEqual((profiled.returncode, profiled.stdout, profiled.stderr),
+                             (original.returncode, original.stdout, original.stderr))
+            events = json.loads(output.read_text())["events"]
+            self.assertTrue(any(event["stage"] == "imports" and event["event"] == "end" for event in events))
+            self.assertTrue(output.with_suffix(".prof").is_file())
+
     def assert_processes_stopped(self, entries):
         for pid in {entry["pid"] for entry in entries}:
             if os.name == "nt":
@@ -56,6 +224,7 @@ class SubdomainBenchmarkTests(unittest.TestCase):
                     os.kill(pid, 0)
 
     def assert_saved_sample(self, sample, case):
+        self.assertIn(sample["process_wait_method"], ("linux_pidfd", "popen_wait", "already_exited"))
         directory = Path(sample["directory"])
         if sample["status"] != "completed":
             retained = Path(tempfile.mkdtemp(prefix="hylianscan-failed-test-")) / directory.name
@@ -245,8 +414,9 @@ class SubdomainBenchmarkTests(unittest.TestCase):
             with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
                 battery = report(directory)
                 process = MagicMock()
-                process.wait.side_effect = failure
-                with patch.object(bench.subprocess, "Popen", return_value=process), patch.object(bench, "stop_worker") as stop:
+                with (patch.object(bench.subprocess, "Popen", return_value=process),
+                      patch.object(bench, "wait_for_worker", side_effect=failure),
+                      patch.object(bench, "stop_worker") as stop):
                     if isinstance(failure, KeyboardInterrupt):
                         with self.assertRaises(KeyboardInterrupt):
                             bench.execute_sample(common, battery, options(), case_named("subfinder-1k"), "candidate", common.ROOT, "measured", 1)
@@ -289,35 +459,21 @@ class SubdomainBenchmarkTests(unittest.TestCase):
 
     def test_outer_cancellation_saves_real_subfinder_prefix_and_leaves_no_children(self):
         case = {**case_named("timeout-partial"), "providers": ["subfinder"]}
-        real_popen = subprocess.Popen
         with tempfile.TemporaryDirectory() as directory:
             battery = report(directory)
+            def wait(process, timeout):
+                path = Path(battery["samples"][0]["directory"])
+                deadline = time.monotonic() + 20
+                while True:
+                    journals = list((path / "evidence").glob("subdomains_observed_*.tsv"))
+                    if journals and len(journals[0].read_text(encoding="utf-8").splitlines()) == 120:
+                        raise KeyboardInterrupt
+                    if process.poll() is not None:
+                        self.fail((path / "worker.log").read_text())
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(.01)
 
-            def launch(command, **kwargs):
-                process = real_popen(command, **kwargs)
-                real_wait = process.wait
-                interrupted = False
-
-                def wait(timeout=None):
-                    nonlocal interrupted
-                    if interrupted:
-                        return real_wait(timeout=timeout)
-                    interrupted = True
-                    path = Path(battery["samples"][0]["directory"])
-                    deadline = time.monotonic() + 20
-                    while True:
-                        journals = list((path / "evidence").glob("subdomains_observed_*.tsv"))
-                        if journals and len(journals[0].read_text(encoding="utf-8").splitlines()) == 120:
-                            raise KeyboardInterrupt
-                        if process.poll() is not None:
-                            self.fail((path / "worker.log").read_text())
-                        self.assertLess(time.monotonic(), deadline)
-                        time.sleep(.01)
-
-                process.wait = wait
-                return process
-
-            with patch.object(bench.subprocess, "Popen", side_effect=launch), self.assertRaises(KeyboardInterrupt):
+            with patch.object(bench, "wait_for_worker", side_effect=wait), self.assertRaises(KeyboardInterrupt):
                 bench.execute_sample(common, battery, options(), case, "candidate", common.ROOT, "measured", 1)
             sample = battery["samples"][0]
             path = Path(sample["directory"])
@@ -334,43 +490,29 @@ class SubdomainBenchmarkTests(unittest.TestCase):
 
     def test_abrupt_worker_loss_cleans_its_separate_provider_and_retains_evidence(self):
         case = {**case_named("timeout-partial"), "providers": ["subfinder"]}
-        real_popen = subprocess.Popen
+        real_wait = bench.wait_for_worker
         with tempfile.TemporaryDirectory() as directory:
             battery = report(directory)
             orphan_identity = []
+            def wait(process, timeout):
+                path = Path(battery["samples"][0]["directory"])
+                deadline = time.monotonic() + 20
+                while True:
+                    journals = list((path / "evidence").glob("subdomains_observed_*.tsv"))
+                    if journals and len(journals[0].read_text(encoding="utf-8").splitlines()) == 120:
+                        break
+                    if process.poll() is not None:
+                        self.fail((path / "worker.log").read_text())
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(.01)
+                ledger = [json.loads(line) for line in (path / "launches.jsonl").read_text().splitlines()]
+                provider = ledger[-1]
+                process.kill()  # Kill only the worker, leaving its provider alive.
+                result = real_wait(process, timeout)
+                orphan_identity.append(bench.process_identity(provider["pid"]))
+                return result
 
-            def launch(command, **kwargs):
-                process = real_popen(command, **kwargs)
-                if command[0] == "taskkill":
-                    return process
-                real_wait = process.wait
-                killed = False
-
-                def wait(timeout=None):
-                    nonlocal killed
-                    if not killed:
-                        killed = True
-                        path = Path(battery["samples"][0]["directory"])
-                        deadline = time.monotonic() + 20
-                        while True:
-                            journals = list((path / "evidence").glob("subdomains_observed_*.tsv"))
-                            if journals and len(journals[0].read_text(encoding="utf-8").splitlines()) == 120:
-                                break
-                            if process.poll() is not None:
-                                self.fail((path / "worker.log").read_text())
-                            self.assertLess(time.monotonic(), deadline)
-                            time.sleep(.01)
-                        ledger = [json.loads(line) for line in (path / "launches.jsonl").read_text().splitlines()]
-                        provider = ledger[-1]
-                        process.kill()  # Kill only the worker, leaving its provider alive.
-                        real_wait(timeout=timeout)
-                        orphan_identity.append(bench.process_identity(provider["pid"]))
-                    return real_wait(timeout=timeout)
-
-                process.wait = wait
-                return process
-
-            with patch.object(bench.subprocess, "Popen", side_effect=launch):
+            with patch.object(bench, "wait_for_worker", side_effect=wait):
                 sample = bench.execute_sample(common, battery, options(), case, "candidate", common.ROOT, "measured", 1)
             self.assertIsNotNone(orphan_identity[0])
             self.assertEqual(sample["status"], "failed")

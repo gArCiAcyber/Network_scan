@@ -50,12 +50,12 @@ class BenchmarkTests(unittest.TestCase):
                 self.assertEqual(args.benchmark, "tcp_scan")
                 self.assertEqual(args.profile, profile)
         help_text = benchmark.parser().format_help()
-        self.assertIn("--benchmark {tcp_scan,subdomain}", help_text)
+        self.assertIn("--benchmark {tcp_scan,subdomain,providers,dnsx}", help_text)
         self.assertIn("--profile {quick,full}", help_text)
         self.assertIn("default: quick", help_text)
         with tempfile.TemporaryDirectory() as directory, patch("sys.stderr"):
             with self.assertRaises(SystemExit) as rejection:
-                benchmark.main(["--benchmark", "dnsx", "--output-dir", directory])
+                benchmark.main(["--benchmark", "nmap", "--output-dir", directory])
             self.assertEqual(rejection.exception.code, 2)
             self.assertEqual(list(Path(directory).iterdir()), [])
 
@@ -123,6 +123,48 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(benchmark.validate_document(good, case, {}), [])
         good["results"]["open_ports"][0]["banner"]["raw"] = "invented evidence"
         self.assertTrue(benchmark.validate_document(good, case, {}))
+
+    def test_saved_txt_requires_exact_findings_evidence_and_no_ansi(self):
+        case = benchmark.Scenario("txt", [2222, 8080, 8443, 9000], [
+            {"port": 2222, "kind": "banner"}, {"port": 8080, "kind": "http"},
+            {"port": 8443, "kind": "https"}, {"port": 9000, "kind": "silent"}], [])
+        text = (f"Target: {benchmark.TARGET}\nResolved IP: {benchmark.TARGET}\nOpen Ports:\n"
+                "- 2222/tcp open unknown MOCK TCP SERVICE 2222\n"
+                "- 8080/tcp open http 200 OK\n- 8443/tcp open https 200 OK\n"
+                "- 9000/tcp open unknown active, no banner\n")
+        self.assertEqual(benchmark.validate_text(text, case), [])
+        self.assertEqual(benchmark.validate_text(text + "TLS analysis notes:\n"
+                         "- hostname_mismatch [medium]: Certificate hostname mismatch.\n", case), [])
+        for broken in ("", text.replace("2222/tcp", "2223/tcp"),
+                       text.replace("MOCK TCP SERVICE 2222", "wrong"),
+                       text.replace("200 OK", "404 Not Found"),
+                       text.replace("open http 200", "open ftp 200"),
+                       text.replace("open https 200", "open http 200"),
+                       text.replace("active, no banner", "invented evidence"),
+                       text + "- 2222/tcp open unknown MOCK TCP SERVICE 2222\n",
+                       text + "\x1b[31m", text + "\x9b31m"):
+            with self.subTest(text=broken):
+                self.assertTrue(benchmark.validate_text(broken, case))
+
+    def test_disk_reserve_and_tcp_selection(self):
+        args = options("--profile", "full", "--tcp-scenario", "scaling-all", "--min-free-gib", "2")
+        self.assertEqual([case.name for case in benchmark.scenarios(args)], ["scaling-all"])
+        with patch.object(benchmark.shutil, "disk_usage") as usage:
+            usage.return_value.total = 10 * 1024 ** 3
+            usage.return_value.free = 3 * 1024 ** 3
+            self.assertEqual(benchmark.disk_preflight(ROOT, args)["minimum_free_bytes"], 2 * 1024 ** 3)
+            usage.return_value.free = 1024 ** 3
+            with self.assertRaises(RuntimeError):
+                benchmark.disk_preflight(ROOT, args)
+        with self.assertRaises(ValueError):
+            options("--benchmark", "subdomain", "--tcp-scenario", "sparse")
+        with self.assertRaises(ValueError):
+            benchmark.scenarios(options("--tcp-scenario", "missing"))
+        cases = benchmark.scenarios(options("--profile", "full", "--drop-ports", "64",
+                                             "--silent-listeners", "32", "--full-open", "64"))
+        self.assertEqual(len(next(case for case in cases if case.name == "mixed").filtered_ports), 64)
+        self.assertEqual(len(next(case for case in cases if case.name == "silent").services), 32)
+        self.assertEqual(len(next(case for case in cases if case.name == "scaling-all").services), 64)
 
     def test_single_sample_resource_attribution_and_memory_capability(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -240,6 +282,19 @@ class BenchmarkTests(unittest.TestCase):
         self.assertFalse(comparison["valid"])
         self.assertIsNone(comparison["regressed"])
 
+    def test_pair_observations_retain_actual_order_without_setting_a_threshold(self):
+        report = {"status": "completed", "samples": [
+            {"scenario": "sparse", "index": 1, "role": "measured", "status": "completed",
+             "variant": "candidate", "metrics": {"execution_seconds": 2}},
+            {"scenario": "sparse", "index": 1, "role": "measured", "status": "completed",
+             "variant": "reference", "metrics": {"execution_seconds": 1}}]}
+        row = benchmark.paired_comparisons(report)[0]
+        self.assertEqual(row["order"], "candidate/reference")
+        self.assertEqual(row["change_percent"], 100)
+        self.assertTrue(row["valid"])
+        report["status"] = "failed"
+        self.assertFalse(benchmark.paired_comparisons(report)[0]["valid"])
+
     def test_persistent_service_lab_handles_real_protocols_and_many_open_ports(self):
         """Exercise the real CLI/dispatcher on localhost, including an expired probe."""
         import socket
@@ -281,9 +336,10 @@ class BenchmarkTests(unittest.TestCase):
                         self.assertLess(time.monotonic(), deadline)
                         time.sleep(0.05)
                     self.assertTrue(check_services(config)["ready"])
-                    command = [sys.executable, str(ROOT / "hylianscan.py"), "127.0.0.1", "--ipv4", "--quiet",
+                    command = [sys.executable, str(ROOT / "hylianscan.py"), "127.0.0.1", "--ipv4", "--quiet", "--http-probing",
                                "--threads", "16", "--timeout", "1", "--ports",
-                               ",".join(str(service["port"]) for service in services), "--json-output", "scan.json"]
+                               ",".join(str(service["port"]) for service in services), "--json-output", "scan.json",
+                               "--output", "scan.txt"]
                     result = subprocess.run(command, cwd=directory, capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     output = json.loads((directory / "output/scan.json").read_text())
@@ -297,6 +353,9 @@ class BenchmarkTests(unittest.TestCase):
                                      benchmark.CERTIFICATE_SHA256)
                     self.assertIsNone(findings[silent_port]["banner"]["raw"])
                     self.assertEqual(findings[silent_port]["status"], "open")
+                    case = benchmark.Scenario("localhost", [service["port"] for service in services], services, [])
+                    with patch.object(benchmark, "TARGET", "127.0.0.1"):
+                        self.assertEqual(benchmark.validate_text((directory / "scan.txt").read_text(), case), [])
                 finally:
                     (directory / "stop").touch()
                     try:
