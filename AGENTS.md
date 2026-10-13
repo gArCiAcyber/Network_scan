@@ -26,6 +26,7 @@ Hylianscan is a Python CLI for authorized TCP reconnaissance, protocol evidence 
 | `modules/http_*.py`, `modules/tls_analysis.py` | HTTP parsing/filtering and evidence interpretation |
 | `modules/json_exporter.py`, `core/output.py` | JSON contracts, output paths, and report persistence |
 | `tests/`, `tests/fixtures/` | Regression checks and reusable localhost services |
+| `benchmark/` | Kali/offline lab runners (TCP, subdomain, providers). Not part of the installed package. `scripts/benchmark.py` remains a compatibility entry point. |
 
 Keep network/protocol logic out of terminal rendering. Extend the existing flow before introducing another orchestration layer.
 
@@ -87,7 +88,7 @@ For shared CLI, scanner, probe, or reporting changes, run the broader CI checks:
 
 ```sh
 python -m unittest discover -s tests -p "test_*.py" -v
-python -m compileall -q hylianscan.py core modules tests
+python -m compileall -q hylianscan.py core modules tests benchmark
 python hylianscan.py --help
 git diff --check
 ```

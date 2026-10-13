@@ -426,10 +426,11 @@ python3 hylianscan.py --help
 ### Native TCP benchmark on Kali
 
 ```bash
-python3 scripts/benchmark.py --benchmark tcp_scan
-python3 scripts/benchmark.py --benchmark tcp_scan --profile full
+python3 -m benchmark --benchmark tcp_scan
+python3 -m benchmark --benchmark tcp_scan --profile full
 ```
 
+`scripts/benchmark.py` is a compatibility entry point for the same dispatcher.
 `--benchmark` selects the test type; `--profile quick|full` selects workloads
 and repetitions, defaulting to `quick`. Both profiles validate correctness.
 The isolated laboratory checks known findings and records execution time,

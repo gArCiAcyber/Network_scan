@@ -22,7 +22,7 @@ class ResourceTests(unittest.TestCase):
             directory = Path(temporary)
             for name, code, expected in (("allocation", program, 0), ("fault", "raise SystemExit(7)", 7)):
                 output = directory / f"{name}.json"
-                result = subprocess.run([sys.executable, str(ROOT / "scripts/benchmark_resources.py"),
+                result = subprocess.run([sys.executable, str(ROOT / "benchmark/resources.py"),
                                          "--output", str(output), "--", sys.executable, "-c", code],
                                         capture_output=True, text=True, timeout=15)
                 self.assertEqual(result.returncode, expected, result.stderr)
@@ -52,7 +52,7 @@ class ResourceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             output = directory / "timeout.json"
-            result = subprocess.run([sys.executable, str(ROOT / "scripts/benchmark_resources.py"),
+            result = subprocess.run([sys.executable, str(ROOT / "benchmark/resources.py"),
                                      "--output", str(output), "--timeout", ".1", "--",
                                      sys.executable, "-c", "import time; time.sleep(10)"],
                                     capture_output=True, text=True, timeout=15)
@@ -70,7 +70,7 @@ class ResourceTests(unittest.TestCase):
             code = ("import subprocess,sys,time; "
                     f"p=subprocess.Popen([sys.executable,'-c',{child!r}]); "
                     f"open({str(child_pid)!r},'w').write(str(p.pid)); time.sleep(.15)")
-            result = subprocess.run([sys.executable, str(ROOT / "scripts/benchmark_resources.py"),
+            result = subprocess.run([sys.executable, str(ROOT / "benchmark/resources.py"),
                                      "--output", str(directory / "resources.json"), "--", sys.executable, "-c", code],
                                     capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -86,7 +86,7 @@ class ResourceTests(unittest.TestCase):
             command = ("import subprocess,sys,time; "
                        f"p=subprocess.Popen([sys.executable,'-c',{child!r}]); "
                        f"open({str(child_pid)!r},'w').write(str(p.pid)); time.sleep(.1)")
-            code = ("from pathlib import Path; from scripts.benchmark_resources import measure; "
+            code = ("from pathlib import Path; from benchmark.resources import measure; "
                     f"result=measure([{sys.executable!r},'-c',{command!r}],Path({temporary!r}),3,interval=1); "
                     "assert not result['cleanup_errors'], result")
             result = subprocess.run([sys.executable, "-c", code], cwd=ROOT,

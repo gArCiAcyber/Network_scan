@@ -1,7 +1,7 @@
 # Controlled real-provider and DNSx acceptance
 
 The accepted 2026-10-07 procedures are maintained in
-`scripts/benchmark_providers.py` and dispatched by `scripts/benchmark.py`.
+`benchmark/providers.py` and dispatched by `python -m benchmark`.
 Run as the ordinary Kali user. The launcher creates a unique evidence directory
 and uses `unshare --user --map-root-user --net --mount --fork`; the worker rejects
 the original network/mount namespaces, extra interfaces and routes. Only

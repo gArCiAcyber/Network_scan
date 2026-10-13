@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 
 from modules.json_exporter import build_tcp_scan_document
 from modules.tcp_scanner import PortScanResult, ScanResult
-from scripts import benchmark
-from scripts.benchmark_services import banner, check_services
+from benchmark import cli as benchmark
+from benchmark.services import banner, check_services
 from tests.fixtures.mock_servers import get_closed_ephemeral_port
 
 
@@ -326,7 +326,7 @@ class BenchmarkTests(unittest.TestCase):
             path = directory / "lab.json"
             benchmark.write_json(path, config)
             with (directory / "server.log").open("w") as log:
-                process = subprocess.Popen([sys.executable, str(ROOT / "scripts/benchmark_services.py"), str(path)],
+                process = subprocess.Popen([sys.executable, str(ROOT / "benchmark/services.py"), str(path)],
                                            stdout=log, stderr=log)
                 try:
                     deadline = time.monotonic() + 10

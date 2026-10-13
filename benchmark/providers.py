@@ -26,9 +26,9 @@ import uuid
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from scripts import benchmark as common
-from scripts.benchmark import write_json as save
-from scripts.benchmark_subdomain import process_identity as birth
+from benchmark import cli as common
+from benchmark.cli import write_json as save
+from benchmark.subdomain import process_identity as birth
 
 
 def saved_names(path: Path) -> set[str]:
@@ -656,7 +656,7 @@ def dnsx_worker(args) -> int:
         manifest = directory / 'manifest.json'
         save(manifest, {'domain': 'example.test', 'version': '2.16.0', 'lines': lines})
         wrapper = directory / 'subfinder-fixture'
-        wrapper.write_text(f'#!{PYTHON}\nimport sys\nfrom pathlib import Path\nsys.path.insert(0, {str(SOURCE)!r})\nfrom scripts.benchmark_subdomain_provider import main\nraise SystemExit(main("subfinder", Path({str(manifest)!r}), sys.argv[1:]))\n')
+        wrapper.write_text(f'#!{PYTHON}\nimport sys\nfrom pathlib import Path\nsys.path.insert(0, {str(SOURCE)!r})\nfrom benchmark.subdomain_provider import main\nraise SystemExit(main("subfinder", Path({str(manifest)!r}), sys.argv[1:]))\n')
         wrapper.chmod(0o700)
         command = [PYTHON, str(SOURCE / 'hylianscan.py'), 'example.test', '--subfinder',
             '--subfinder-path', str(wrapper), '--dnsx', '--dnsx-path', DNSX,
@@ -805,7 +805,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             code = process.wait(timeout=args.run_timeout)
         except subprocess.TimeoutExpired:
-            from scripts.benchmark_subdomain import stop_worker
+            from benchmark.subdomain import stop_worker
             stop_worker(process)
             common.write_json(args.directory / "outcome.json", {"status": "timed_out"})
             return 1
@@ -815,7 +815,7 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             # Native providers may own separate process groups. Stop only recorded
             # births that still match; namespace removal alone does not reap them.
-            from scripts.benchmark_subdomain import process_identity, stop_worker
+            from benchmark.subdomain import process_identity, stop_worker
             recorded = args.directory / "processes.json"
             entries = []
             watchdog = args.directory / "watchdog"

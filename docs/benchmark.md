@@ -12,9 +12,11 @@ Install the benchmark executables inside the Kali VM:
 ```sh
 sudo apt update
 sudo apt install python3 hyperfine iproute2 nftables util-linux time
-python3 scripts/benchmark.py --benchmark tcp_scan
-python3 scripts/benchmark.py --benchmark tcp_scan --profile full
+python3 -m benchmark --benchmark tcp_scan
+python3 -m benchmark --benchmark tcp_scan --profile full
 ```
+
+`scripts/benchmark.py` is a compatibility entry point for the same dispatcher.
 
 `--benchmark tcp_scan` selects the native TCP tests. `--profile quick|full`
 selects their workloads and repetition counts, with `quick` as the default.

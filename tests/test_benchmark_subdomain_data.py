@@ -4,7 +4,7 @@ import hashlib
 import json
 import unittest
 
-from scripts import benchmark_subdomain_data as data
+from benchmark import subdomain_data as data
 
 
 def digest(dataset):

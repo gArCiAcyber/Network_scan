@@ -15,8 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.benchmark import positive_float, write_json
-from scripts.benchmark_subdomain import process_identity, stop_worker
+from benchmark.cli import positive_float, write_json
+from benchmark.subdomain import process_identity, stop_worker
 
 
 def process_tree(pid: int) -> list[int]:
