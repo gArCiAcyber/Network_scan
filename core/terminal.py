@@ -1,8 +1,11 @@
 """Terminal management helpers for hylianscan."""
 
 import os
+import re
+import shutil
 import sys
 import threading
+import unicodedata
 
 try:
     import select
@@ -21,11 +24,33 @@ try:
 except ImportError:
     msvcrt = None
 
-from core.colors import CLEAR_LINE
+from core.colors import CLEAR_LINE, RESET
 
 
 _OUTPUT_LOCK = threading.Lock()
 _CLEAR_FROM_CURSOR_DOWN = "\033[J"
+_SGR_OR_CHARACTER = re.compile(r"\x1b\[[0-9;]*m|[^\x00-\x1f\x7f]")
+
+
+def _fit_terminal_line(line: str, columns: int) -> str:
+    """Keep colors while fitting one live row, leaving the wrap column unused."""
+    output = []
+    used = 0
+    for match in _SGR_OR_CHARACTER.finditer(line):
+        token = match.group()
+        if token.startswith("\x1b["):
+            output.append(token)
+            continue
+        if unicodedata.category(token).startswith("C"):
+            continue
+        width = 0 if unicodedata.combining(token) else (
+            2 if unicodedata.east_asian_width(token) in {"W", "F"} else 1
+        )
+        if used + width > max(0, columns - 1):
+            break
+        output.append(token)
+        used += width
+    return "".join(output) + RESET
 
 
 def has_posix_terminal_control() -> bool:
@@ -74,13 +99,16 @@ class DynamicBlockRenderer:
     def render(self, lines: list[str]) -> None:
         """Rewrite the current dynamic block with the provided lines."""
         with _OUTPUT_LOCK:
+            columns, rows = shutil.get_terminal_size()
+            # A block taller than the screen scrolls beyond cursor-up's reach.
+            lines = lines[-max(1, rows - 1):]
             if self._line_count:
                 sys.stdout.write(f"\033[{self._line_count}A")
 
             sys.stdout.write(f"\r{_CLEAR_FROM_CURSOR_DOWN}")
 
             for line in lines:
-                sys.stdout.write(f"{line}\n")
+                sys.stdout.write(f"{_fit_terminal_line(line, columns)}\n")
 
             sys.stdout.flush()
             self._line_count = len(lines)

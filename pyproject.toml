@@ -39,3 +39,6 @@ py-modules = ["hylianscan"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["core*", "modules*"]
+
+[tool.setuptools.package-data]
+modules = ["provider_compatibility.json"]
