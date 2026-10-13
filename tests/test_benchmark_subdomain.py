@@ -16,8 +16,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from benchmark import cli as common
-from benchmark import subdomain as bench
+from benchmarks import cli as common
+from benchmarks import subdomain as bench
 
 
 def options(*arguments):
@@ -177,7 +177,7 @@ class SubdomainBenchmarkTests(unittest.TestCase):
         def inject_failure(args, output, command):
             shim = ("import sys; from pathlib import Path; from unittest.mock import patch; "
                     f"sys.path.insert(0, {str(common.ROOT)!r}); "
-                    "from benchmark.subdomain import worker; "
+                    "from benchmarks.subdomain import worker; "
                     "failure=patch('cProfile.Profile.dump_stats', side_effect=OSError('profile disk fault')); "
                     "failure.start(); raise SystemExit(worker(Path(sys.argv[1]), Path(sys.argv[2])))")
             return real_resource_command(args, output, [args.python, "-c", shim, *command[-2:]])
@@ -195,7 +195,7 @@ class SubdomainBenchmarkTests(unittest.TestCase):
             target = str(common.ROOT / "hylianscan.py")
             original = subprocess.run([sys.executable, target, "--version"], capture_output=True, text=True)
             output = Path(directory) / "stages.json"
-            profiled = subprocess.run([sys.executable, str(common.ROOT / "benchmark/cli_profile.py"),
+            profiled = subprocess.run([sys.executable, str(common.ROOT / "benchmarks/cli_profile.py"),
                                       "--output", str(output), "--", target, "--version"], capture_output=True, text=True)
             self.assertEqual((profiled.returncode, profiled.stdout, profiled.stderr),
                              (original.returncode, original.stdout, original.stderr))

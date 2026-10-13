@@ -28,7 +28,7 @@ from unittest.mock import patch
 SCRIPT = Path(__file__).resolve()
 ROOT = SCRIPT.parents[1]
 sys.path.insert(0, str(ROOT))
-from benchmark.subdomain_data import DOMAIN, build_dataset, in_scope
+from benchmarks.subdomain_data import DOMAIN, build_dataset, in_scope
 
 PROVIDER_SCRIPT = SCRIPT.with_name("benchmark_subdomain_provider.py")
 FIX_REVISION = "284a07111f90a8714dbc8b8e7fb6e0a3045f8a5e"
@@ -261,7 +261,7 @@ def worker(checkout: Path, manifest: Path) -> int:
     for name in config["providers"]:
         executable = directory / (name + ".py" if os.name == "nt" else name)
         executable.write_text(f"#!{sys.executable}\nimport sys\nfrom pathlib import Path\n"
-            f"sys.path.insert(0, {str(ROOT)!r})\nfrom benchmark.subdomain_provider import main\n"
+            f"sys.path.insert(0, {str(ROOT)!r})\nfrom benchmarks.subdomain_provider import main\n"
             f"raise SystemExit(main({name!r}, Path({str(directory / (name + '.json'))!r}), sys.argv[1:]))\n",
             encoding="utf-8")
         executable.chmod(0o755)
@@ -615,7 +615,7 @@ def execute_sample(common, report, args, case, variant, checkout, role, index):
 
 
 def run_subdomain(args: argparse.Namespace) -> int:
-    from benchmark import cli as common
+    from benchmarks import cli as common
     args = common.resolve_options(args)
     cases = scenarios(args.profile)
     if args.subdomain_scenarios:

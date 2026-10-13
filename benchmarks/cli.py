@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core.output import build_timestamp, resolve_output_workspace
-from benchmark.services import banner
+from benchmarks.services import banner
 from tests.fixtures.certificates import TEST_CERTIFICATE_PEM
 
 
@@ -428,7 +428,7 @@ class Lab:
         write_json(config_path, self.config)
         self.service_log = (self.directory / "services.log").open("w", encoding="utf-8")
         self.service_process = subprocess.Popen(
-            self.user_command(self.target, [self.python, str(ROOT / "benchmark/services.py"), str(config_path)]),
+            self.user_command(self.target, [self.python, str(ROOT / "benchmarks/services.py"), str(config_path)]),
             cwd=self.directory, stdout=self.service_log, stderr=subprocess.STDOUT,
         )
         deadline = time.monotonic() + 15
@@ -439,7 +439,7 @@ class Lab:
                 raise TimeoutError("Laboratory listeners were not ready within 15 seconds.")
             time.sleep(0.05)
         readiness = run(self.user_command(self.scanner, [self.python,
-                        str(ROOT / "benchmark/services.py"), str(config_path), "--check"]),
+                        str(ROOT / "benchmarks/services.py"), str(config_path), "--check"]),
                         cwd=self.directory, timeout=max(30, self.config["timeout"] * 4 + self.config["delay_ms"] / 100))
         write_json(self.directory / "readiness.json", json.loads(readiness.stdout))
         self.reset_counters()
@@ -658,7 +658,7 @@ def execute_sample(report: dict, args: argparse.Namespace, case: Scenario,
         if role == "resources":
             resource_path = directory / "resources.json"
             if args.diagnostic_profile:
-                command = [args.python, str(ROOT / "benchmark/cli_profile.py"),
+                command = [args.python, str(ROOT / "benchmarks/cli_profile.py"),
                            "--output", str(directory / "cli-stages.json"), "--", *command[1:]]
             if args.resources:
                 measured = resource_command(args, resource_path, command)
@@ -754,7 +754,7 @@ def sample_bundle(report: dict, args: argparse.Namespace, case: Scenario, varian
 
 
 def resource_command(args: argparse.Namespace, path: Path, command: list[str]) -> list[str]:
-    return [args.python, str(ROOT / "benchmark/resources.py"), "--output", str(path),
+    return [args.python, str(ROOT / "benchmarks/resources.py"), "--output", str(path),
             "--timeout", str(max(1, args.run_timeout - 10)), "--", *command]
 
 
@@ -977,12 +977,12 @@ def run_tcp_scan(args: argparse.Namespace) -> int:
 
 # Only implemented benchmarks belong here; help and dispatch share this registry.
 def run_subdomain(args: argparse.Namespace) -> int:
-    from benchmark.subdomain import run_subdomain as runner
+    from benchmarks.subdomain import run_subdomain as runner
     return runner(args)
 
 
 def run_providers(args: argparse.Namespace) -> int:
-    from benchmark.providers import run_benchmark
+    from benchmarks.providers import run_benchmark
     return run_benchmark(resolve_options(args))
 
 

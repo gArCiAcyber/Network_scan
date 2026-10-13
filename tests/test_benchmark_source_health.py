@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmark import source_health as health
+from benchmarks import source_health as health
 
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures/source_health.json").read_text(encoding="utf-8"))

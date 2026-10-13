@@ -10,8 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from benchmark import cli as benchmark
-from benchmark import providers as lab
+from benchmarks import cli as benchmark
+from benchmarks import providers as lab
 
 
 class ProviderLabTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class ProviderLabTests(unittest.TestCase):
                   patch.object(lab.common, "disk_preflight"),
                   patch.object(lab.common, "source_metadata", return_value={}),
                   patch.object(lab.subprocess, "Popen", side_effect=launch),
-                  patch("benchmark.subdomain.stop_worker") as stop):
+                  patch("benchmarks.subdomain.stop_worker") as stop):
                 with self.assertRaises(json.JSONDecodeError):
                     lab.main(["--output-dir", temporary])
             stop.assert_called_once_with(process, created[0] / "watchdog")

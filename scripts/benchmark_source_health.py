@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmark.source_health import main
+from benchmarks.source_health import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

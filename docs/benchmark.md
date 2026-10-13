@@ -12,8 +12,8 @@ Install the benchmark executables inside the Kali VM:
 ```sh
 sudo apt update
 sudo apt install python3 hyperfine iproute2 nftables util-linux time
-python3 -m benchmark --benchmark tcp_scan
-python3 -m benchmark --benchmark tcp_scan --profile full
+python3 -m benchmarks --benchmark tcp_scan
+python3 -m benchmarks --benchmark tcp_scan --profile full
 ```
 
 `scripts/benchmark.py` is a compatibility entry point for the same dispatcher.

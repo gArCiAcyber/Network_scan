@@ -52,7 +52,7 @@ superseded. They are not the acceptance policy or expected outcome of this lab.
 
 ## Deterministic datasets and independent oracle
 
-[The generator](../benchmark/subdomain_data.py) creates exactly 1,000,
+[The generator](../benchmarks/subdomain_data.py) creates exactly 1,000,
 10,000, or 100,000 canonical names. It mixes simple names such as
 `api.hylianlab.test` with hierarchical names such as
 `api.dev.europa.hylianlab.test`, and includes punycode and label/total-length
@@ -88,7 +88,7 @@ invalidates performance comparisons.
 
 ## Provider executable contracts
 
-[Local executable fixtures](../benchmark/subdomain_provider.py) emulate
+[Local executable fixtures](../benchmarks/subdomain_provider.py) emulate
 Subfinder 2.16.0, Amass 4.2.0, and Amass 5.0.0. They validate the requested
 domain, version/help commands, required switches, repeated/unknown options,
 and configuration paths. Hylianscan performs its real startup compatibility

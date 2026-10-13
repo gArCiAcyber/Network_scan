@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "benchmark/subdomain_provider.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "benchmarks/subdomain_provider.py"
 
 
 class OfflineProviderTests(unittest.TestCase):
