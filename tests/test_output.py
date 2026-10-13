@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,19 +37,52 @@ class OutputHelperTests(unittest.TestCase):
         self.assertEqual(sanitize_target_name("   "), "target")
 
     def test_resolve_output_workspace_uses_target_and_timestamp(self) -> None:
-        self.assertEqual(
-            resolve_output_workspace("Example.COM", timestamp="20260616_120000"),
-            resolve_output_dir() / "example.com" / "20260616_120000",
-        )
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "core.output.resolve_output_dir", return_value=Path(directory)
+        ):
+            self.assertEqual(
+                resolve_output_workspace("Example.COM", timestamp="20260616_120000"),
+                Path(directory) / "example.com" / "20260616_120000",
+            )
 
     def test_resolve_output_workspace_can_use_injected_timestamp_factory(self) -> None:
-        self.assertEqual(
-            resolve_output_workspace(
-                "192.0.2.10",
-                timestamp_factory=lambda: "20260616_121500",
-            ),
-            resolve_output_dir() / "192.0.2.10" / "20260616_121500",
-        )
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "core.output.resolve_output_dir", return_value=Path(directory)
+        ):
+            self.assertEqual(
+                resolve_output_workspace(
+                    "192.0.2.10", timestamp_factory=lambda: "20260616_121500",
+                ),
+                Path(directory) / "192.0.2.10" / "20260616_121500",
+            )
+
+    def test_concurrent_workspaces_never_reuse_existing_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "core.output.resolve_output_dir", return_value=Path(directory)
+        ):
+            original = resolve_output_workspace("example.test", timestamp="same_second")
+            save_report("original", original / "tcp_report.txt")
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                workspaces = list(pool.map(
+                    lambda _: resolve_output_workspace("example.test", timestamp="same_second"),
+                    range(8),
+                ))
+            self.assertEqual(len(set(workspaces)), 8)
+            self.assertNotIn(original, workspaces)
+            self.assertTrue(all(path.is_dir() for path in workspaces))
+            self.assertEqual((original / "tcp_report.txt").read_text(), "original\n")
+
+    def test_failed_atomic_save_preserves_previous_report_and_removes_temporary_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "report.txt"
+            report.write_text("previous evidence", encoding="utf-8")
+            for operation in ("os.fsync", "os.replace"):
+                with self.subTest(operation=operation), patch(
+                    "core.output." + operation, side_effect=OSError("write failed")
+                ), self.assertRaises(OSError):
+                    save_report("new evidence", report)
+                self.assertEqual(report.read_text(), "previous evidence")
+                self.assertEqual(list(Path(directory).iterdir()), [report])
 
     def test_default_outputs_use_runtime_current_working_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:

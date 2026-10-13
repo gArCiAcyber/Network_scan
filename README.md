@@ -119,6 +119,64 @@ Passive discovery always saves a TXT report in `output/<target>/<timestamp>/subd
 
 This makes it easier to keep evidence, compare scans, and reuse results in later automation.
 
+The final TCP report lists open endpoints, then an optional Nmap service scan section. It keeps
+connection outcomes explicit: a finished timeout is still an unknown port state.
+For example, this synthetic report has complete attempt coverage but unknown
+states for most ports:
+
+```text
+------------------------------------------------------------------------
+[ SCAN BY THE TRIFORCE ▲ ]
+Hylianscan scan report for example.com (192.0.2.10, 192.0.2.11)
+Scope: All TCP Ports (65,535 ports/address)
+Attempts: 131,070/131,070 finished
+Results: 2 open; 131,068 unknown (connection timeout)
+Time: native 266.93s
+------------------------------------------------------------------------
+
+Open 192.0.2.10:80
+Open 192.0.2.10:443
+192.0.2.11: no open TCP ports observed
+------------------------------------------------------------------------
+
+[+] NMAP SERVICE SCAN
+Target          : 192.0.2.10
+Ports scanned   : 80,443
+Status          : completed
+
+PORT       STATE  SERVICE   VERSION
+80/tcp     open   http      nginx
+443/tcp    open   https     nginx
+------------------------------------------------------------------------
+```
+
+Timeouts do not establish closed or filtered ports. An interrupted run is labeled
+`interrupted` even if all TCP attempts finished before interruption during probing
+or enrichment. Missing connection outcomes are reported as incomplete coverage.
+`Time: native` covers native discovery and probing. `Time: overall` also
+includes resolution and optional enrichment when orchestration timing is available.
+Open counts refer to TCP endpoints (address and port), before any report-only
+HTTP filter.
+
+Normal and quiet output retain the same evidence; quiet output omits decorative
+titles, separators, and live activity. Normal reports use 72-hyphen separators,
+shortened to fit narrow terminals. Long lines wrap to the terminal width. Service names,
+HTTP responses, banners, probe details, and TLS evidence remain in JSON rather than
+the compact native endpoint list. Request `--json-output` to save them. See [the reporting review](docs/reporting_review.md) for the
+reference-tool comparison and field-by-field decisions.
+
+During TCP discovery, a bright green sword fills as connection attempts finish:
+
+```text
+TCP scan about : ◈╬[━━━━━━━━━━━━────────]▷   62% ·  6,200 / 10,000 ports · ~8s left
+```
+
+The estimate covers discovery only; service probing and optional Nmap enrichment
+follow separately. Multiple addresses use a combined connection-attempt count.
+Progress refreshes in place at most ten times per second, with an immediate final
+update. Narrow terminals use a shorter blade and fewer details to avoid wrapping;
+terminals without Unicode support use ASCII.
+
 <img src="Pictures/clean-reporting.gif" alt="Hylianscan Clean Reporting Demo" width="780">
 
 ```bash
@@ -135,17 +193,21 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Explicit `--ipv4`, `--ipv6`, and `--dual-stack` resolution modes.
 * Resolver-provided IPv4/IPv6 separation and reverse-DNS metadata.
 * Optional TCP or ICMP host discovery with `--host-discovery tcp|icmp`.
+* TCP discovery probes up to three selected scan ports, prioritizing 443, 80, and 22; it shares `--max-rate` pacing with native scanning. Addresses that do not respond are reported as unconfirmed and excluded from TCP scanning. If none respond, reports retain discovery evidence and the command exits 1.
 * Complete `quick`, `web`, and `cautious` scan profiles.
 * Custom port lists, ranges, top-port presets, and full TCP range support.
 * Multi-threaded TCP scanning.
 * Optional pacing with `--max-rate`.
+* `--timeout` limits individual socket operations; timed-out port scans are partial, while timed-out TCP host discovery leaves addresses unconfirmed. `--probe-timeout` limits a service probe to 10 seconds by default. `--resolve-timeout` optionally bounds DNS resolution, including reverse lookups. Neither option controls Nmap or passive providers.
 * Protocol-aware probes for common services.
 * HTTP status, header, content-type, and URL hints.
 * STARTTLS/STLS/AUTH TLS upgrade checks for supported services.
+* Fragmented upgrade responses are read to their protocol terminator within the response timeout and 64 KiB limit.
 * TLS certificate metadata for implicit TLS services.
 * Passive banner fallback for unknown services.
 * Clean final terminal panel.
 * TXT and JSON exports.
+* An interrupted TCP scan saves requested partial reports before exiting 130. JSON records the run status, selected ports, connection outcomes, effective settings, and phase durations.
 * Quiet mode for automation.
 
 ### 🗺️ Passive Discovery
@@ -178,10 +240,12 @@ python3 hylianscan.py -u scanme.nmap.org -p 22,80,443 -o --json-output
 * Nmap runs only against TCP ports already found open by Hylianscan.
 * Nmap must be installed separately.
 * Enrichment is printed to the terminal and included in saved TXT/JSON reports when `-o` and/or `--json-output` are used.
+* Startup failures, including permission errors, are recorded as skipped enrichment while native reports are saved.
 
 ### Optional HTTPx Web Probing
 
 * Runs ProjectDiscovery HTTPx after passive discovery and optional DNSx filtering when `--httpx` is provided.
+* Validates every input hostname against the requested domain before launching HTTPx; malformed or out-of-scope batches are rejected.
 * Probes both HTTP and HTTPS and collects status, title, technologies, server, IP, CNAME, and redirect location.
 * Saves the raw structured findings as `httpx.jsonl` and embeds them in the passive JSON report.
 * HTTPx must be installed separately or selected with `--httpx-path`.
@@ -219,7 +283,7 @@ For Passive Discovery, install Subfinder and/or Amass separately and keep them a
 
 For optional live web fingerprinting, install ProjectDiscovery HTTPx separately and keep it available in your `PATH`, or pass an explicit path with `--httpx-path`.
 
-For optional live Nmap enrichment, install Nmap separately and keep it available in your `PATH`, or pass an explicit path with `--nmap-path`.
+For the optional Nmap service scan, install Nmap separately and keep it available in your `PATH`, or pass an explicit path with `--nmap-path`.
 
 ---
 
@@ -244,19 +308,57 @@ python3 hylianscan.py -u example.com --dual-stack -p 80,443
 
 # Optional host reachability preflight
 python3 hylianscan.py -u example.com --host-discovery tcp -p 80,443
+
+# Bound name resolution and service collection separately
+python3 hylianscan.py -u example.com -p 80,443 --resolve-timeout 5 --probe-timeout 8
 ```
+
+The startup summary shows resolved addresses, ports selected per address, workers,
+socket timeout, and the execution workflow. It lists a rate limit only when selected
+and notes when HTTP probing is disabled. For example, with `--nmap`:
+
+```text
+[*] Hylianscan TCP Scan
+Target        : example.com
+Resolved IP   : 192.0.2.10
+Port Scope    : 3 ports per address
+Workers       : 50
+Socket Timeout: 1.00s
+Workflow      : TCP discovery -> Native service probing
+                -> Nmap service/version detection
+```
+
+Native discovery retains the sword progress indicator and immediate open-port
+lines. Native service probing follows, then a completion summary shows the native
+status, open endpoint count, and elapsed time before optional enrichment starts.
+Without `--nmap`, the workflow ends with the native report.
+JSON output retains PTR names, exact requested ports, detailed run settings, and
+phase timings. TXT includes the readable results, run ID, and timestamps without
+repeating configuration dictionaries.
 
 ### Optional Live Nmap Enrichment
 
-Use `--nmap` when you want Hylianscan to scan first, then ask Nmap for service/version enrichment only on ports Hylianscan already found open.
+Use `--nmap` when you want Hylianscan to discover TCP ports and probe services
+first, then ask Nmap for service/version enrichment only on native open endpoints.
+Before each address's Nmap process, the live display shows its concrete IP,
+selected open ports, and running status. The spinner is cleared when that process
+finishes, fails, or is interrupted. No Nmap process runs when no ports are open.
+Nmap has no deadline by default. Set `--nmap-timeout SEC` to limit each address's
+Nmap process; `--timeout` controls native socket operations instead. The final
+report shows one Nmap section with per-address target, ports, status, elapsed time,
+and a `PORT / STATE / SERVICE / VERSION` table. This section is green in normal
+terminal output. A known
+Npcap warning is shown once as a short notice; full stderr remains in JSON.
 
 ```bash
 python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap
+python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap --nmap-timeout 120
 python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap --nmap-path /usr/bin/nmap
 python3 hylianscan.py scanme.nmap.org -p 22,80,443 --nmap -o --json-output
 ```
 
-This does not replace Hylianscan's native TCP scan. When report output is enabled, the saved TXT and JSON reports include the optional Nmap enrichment evidence.
+This does not replace Hylianscan's native TCP scan. When report output is enabled, the saved TXT and JSON reports include the optional Nmap service scan evidence.
+Nmap output is checked against the requested address and native open ports. Failed or partial runs retain captured output in JSON; a later closed observation does not replace the native open observation. A real Nmap installation is needed to verify integration in your environment.
 
 ---
 
@@ -392,11 +494,22 @@ python3 hylianscan.py scanme.nmap.org -p 1-1000 -t 100 -T 1.0 --max-rate 50
 
 ## 📁 Output
 
-When output is enabled, Hylianscan creates organized workspaces:
+Each run reserves `output/<target>/<timestamp>/`, adding a numeric suffix on collision:
 
 ```text
 output/<target>/<timestamp>/
+output/<target>/<timestamp>_1/
 ```
+
+If another run already reserved that UTC timestamp, a numeric suffix is added,
+for example `output/example.test/20260923_120000_1/`. Concurrent runs cannot reuse
+the same default workspace. Reusing an explicit output name replaces that report;
+Nmap XML imports use their existing filenames directly under `output/`.
+
+TXT, JSON, and HTTPx JSONL files are written to temporary files beside the destination
+and atomically replaced after a successful write. A failed write leaves the previous
+file intact. Passive candidate checkpoints use the same protection; the observed-name
+journal continues to append discoveries as they arrive.
 
 Common files:
 
@@ -412,6 +525,15 @@ nmap_import_results.json
 
 TXT output is designed for quick reading.
 JSON output is designed for automation, parsing, evidence tracking, and later tooling.
+Bare `-o` uses each mode's default TXT path, and `-o PATH` selects that exact file. TXT and JSON paths must resolve to different files. Each file is replaced atomically after it has been written; the two files are not a single transaction. Matching `scan.run_id` values identify a report pair.
+
+TCP JSON schema version 2 adds run status, exact port scope, connection outcomes, probe status, IPv6 scope IDs, raw collected response bytes in base64, and Nmap execution evidence. HTTP security-header absence is reported only for complete HTTP response headers. Service names derived from port numbers are labeled as hints. The schema is unchanged by the presentation refactor: `scan.status = partial` can mean that all attempts finished but some states remain unknown; read it alongside `connection_attempts_completed` and `connection_outcomes`.
+
+HTTP banner evidence retains response line breaks. Headers are parsed one line at a
+time, including fields such as `Server:nginx`; body text and text inside field values
+cannot create extra headers. `http.security.applicable` is `false` for non-HTTP,
+malformed, or incomplete responses, with empty security observations. Legacy compact
+banners can still expose a status code, but their lost header boundaries are not guessed.
 
 ---
 
@@ -422,6 +544,10 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 python3 -m compileall -q hylianscan.py core modules tests
 python3 hylianscan.py --help
 ```
+
+Release validation (`python3 scripts/validate_release.py`) places its import reports
+and pip metadata build in exclusive temporary directories. Existing reports and
+package metadata are preserved; the pip dry run may access the network.
 
 ---
 

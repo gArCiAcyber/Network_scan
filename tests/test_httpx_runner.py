@@ -12,6 +12,8 @@ from core.cli import parse_arguments, validate_mode
 from modules.httpx_runner import (
     HttpxResult,
     build_httpx_command,
+    build_skipped_httpx_result,
+    format_httpx_summary,
     parse_httpx_jsonl,
     run_httpx,
 )
@@ -44,6 +46,21 @@ HTTPX_JSONL = "\n".join(
 class HttpxRunnerTests(unittest.TestCase):
     """Validate HTTPx argv, stdin, parsing, and report integration."""
 
+    def test_skipped_summary_does_not_claim_targets_were_probed(self) -> None:
+        report = format_httpx_summary(HttpxResult("skipped", ("example.test",), reason="missing"))
+        self.assertIn("Targets requested: 1", report)
+        self.assertIn("Records returned : 0", report)
+        self.assertNotIn("Targets probed", report)
+        self.assertNotIn("Live services", report)
+
+    def test_summary_escapes_controls_but_keeps_raw_record(self) -> None:
+        finding = {"url": "https://example.test", "status_code": 200, "title": "test\x1b[2J"}
+        result = HttpxResult("completed", ("example.test",), (finding,))
+        report = format_httpx_summary(result)
+        self.assertNotIn("\x1b", report)
+        self.assertIn("\\x1b[2J", report)
+        self.assertEqual(result.findings[0]["title"], "test\x1b[2J")
+
     def test_command_collects_web_fingerprints_and_both_schemes(self) -> None:
         command = build_httpx_command("/opt/tools/httpx")
 
@@ -75,6 +92,7 @@ class HttpxRunnerTests(unittest.TestCase):
         ) as run:
             result = run_httpx(
                 ["Example.test", "api.example.test", "example.test."],
+                scope="Example.test.",
                 httpx_binary="/opt/tools/httpx",
                 timeout=12.0,
             )
@@ -87,6 +105,27 @@ class HttpxRunnerTests(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(len(result.findings), 2)
         self.assertEqual(result.findings[0]["status_code"], 200)
+
+    def test_runner_rejects_invalid_and_out_of_scope_targets_before_execution(self) -> None:
+        for target in ("evil.test", "notexample.test", "example.test.evil.test",
+                       "good.example.test\nevil.test", "api.example.test\x00",
+                       "api.example.test\r", "api.example.test\t", "api.example.test\x7f",
+                       "bad_label.example.test", "-bad.example.test", "a..example.test",
+                       "https://api.example.test", ".api.example.test", "api.example.test..", ".", "",
+                       "a" * 64 + ".example.test", 42):
+            with self.subTest(target=target), patch("modules.httpx_runner.subprocess.run") as run:
+                with self.assertRaises(ValueError):
+                    run_httpx(["example.test", target], scope="example.test")
+                run.assert_not_called()
+                skipped = build_skipped_httpx_result([target], "invalid target", scope="example.test")
+                self.assertEqual(skipped.targets_requested, ())
+
+    def test_runner_rejects_invalid_scope(self) -> None:
+        for scope in ("", "example.test\n", "https://example.test", "bad_label.test", 42):
+            with self.subTest(scope=scope), patch("modules.httpx_runner.subprocess.run") as run:
+                with self.assertRaises(ValueError):
+                    run_httpx(["example.test"], scope=scope)
+                run.assert_not_called()
 
     def test_parser_rejects_malformed_jsonl(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "malformed JSONL"):
@@ -132,6 +171,7 @@ class HttpxRunnerTests(unittest.TestCase):
 
             runner.assert_called_once_with(
                 ["example.test", "api.example.test"],
+                scope="example.test",
             )
             self.assertTrue(output_path.with_name("httpx.jsonl").is_file())
             document = json.loads(json_output_path.read_text(encoding="utf-8"))
@@ -175,7 +215,7 @@ class HttpxRunnerTests(unittest.TestCase):
                 )
 
         dnsx.assert_called_once()
-        httpx.assert_called_once_with(["example.test", "live.example.test"])
+        httpx.assert_called_once_with(["example.test", "live.example.test"], scope="example.test")
 
 
 if __name__ == "__main__":

@@ -58,6 +58,7 @@ def propose_promotions(report: dict, registry: dict) -> list[dict[str, str]]:
             continue
         if version not in spec["tested_versions"]:
             spec["tested_versions"].append(version)
+            spec.get("tested_platforms", {}).pop(version, None)
             spec["tested_versions"].sort(key=lambda value: tuple(map(int, value.split("."))))
             proposals.append({"provider": provider, "version": version})
     return proposals

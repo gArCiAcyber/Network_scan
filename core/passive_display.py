@@ -4,9 +4,12 @@ import os
 import threading
 from pathlib import Path
 
-from core.colors import HACKER_GREEN, LIGHT_BLUE, RESET, TRIFORCE_BLUE, TRIFORCE_RED
+from core.colors import GREEN, LIGHT_BLUE, RESET, TRIFORCE_BLUE, TRIFORCE_RED
 from core.nmap_live_display import NMAP_SPINNER_INTERVAL_SECONDS, select_spinner_frames
 from core.terminal import clear_dynamic_line, print_safe, write_dynamic_line
+
+# The merged palette names this green GREEN; passive UI still says HACKER_GREEN.
+HACKER_GREEN = GREEN
 
 
 PASSIVE_PROVIDER_LABELS = {

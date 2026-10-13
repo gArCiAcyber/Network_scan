@@ -32,7 +32,7 @@ class MockServiceScanTests(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result.port, server.port)
-        self.assertEqual(result.banner, "MOCK TCP SERVICE")
+        self.assertEqual(result.banner, "MOCK TCP SERVICE\r\n")
 
     def test_minimal_http_service_is_detected_and_probed(self) -> None:
         request_data: list[bytes] = []
@@ -121,7 +121,7 @@ class MockServiceScanTests(unittest.TestCase):
         self.assertEqual(result.port, server.port)
         self.assertIsNotNone(result.banner)
         self.assertIn("220 hylianscan.mock ESMTP ready", result.banner)
-        self.assertIn("250-hylianscan.mock 250-STARTTLS 250 HELP", result.banner)
+        self.assertIn("250-hylianscan.mock\r\n250-STARTTLS\r\n250 HELP", result.banner)
         self.assertTrue(any(b"EHLO hylianscan.local" in data for data in request_data))
 
     def test_ftp_service_is_detected_and_protocol_probed(self) -> None:

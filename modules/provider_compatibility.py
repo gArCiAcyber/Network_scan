@@ -1,6 +1,7 @@
 """Local compatibility policy shared by runtime checks and maintenance scripts."""
 
 import json
+import platform
 import re
 from importlib.resources import files
 
@@ -10,13 +11,19 @@ VERSION_PATTERN = re.compile(r"(?<![\w.])v?(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-
 
 
 def classify_version(provider: str, version: str) -> str:
-    """Exact contract baselines are tested; other supported stable versions are untested."""
+    """Classify a version using the evidence available for the current platform."""
     spec = PROVIDERS[provider]
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         return "unsupported"
     if int(version.split(".")[0]) not in spec["supported_majors"]:
         return "unsupported"
-    return "tested" if version in spec["tested_versions"] else "untested"
+    if version in spec["tested_versions"]:
+        return "tested"
+    architecture = platform.machine().lower()
+    if architecture == "x86_64":
+        architecture = "amd64"
+    tested_architectures = spec.get("tested_platforms", {}).get(version, {}).get(platform.system(), [])
+    return "tested" if architecture in tested_architectures else "untested"
 
 
 def missing_flags(provider: str, help_output: str, required: list[str] | None = None) -> list[str]:
