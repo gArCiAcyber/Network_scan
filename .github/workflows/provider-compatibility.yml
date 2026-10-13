@@ -1,0 +1,163 @@
+name: Provider compatibility
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Optional historical provider: subfinder, amass, or dnsx"
+        required: false
+        type: string
+      version:
+        description: "Optional stable historical version, paired with provider"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-compatibility
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.releases.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: releases
+        shell: python {0}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HISTORICAL_PROVIDER: ${{ inputs.provider }}
+          HISTORICAL_VERSION: ${{ inputs.version }}
+        run: |
+          import os, subprocess, sys
+          command = [sys.executable, 'scripts/provider_updates.py', 'monitor',
+                     '--output', 'docs/provider_updates.json']
+          provider, version = os.environ.get('HISTORICAL_PROVIDER'), os.environ.get('HISTORICAL_VERSION')
+          if provider or version:
+              command.extend(['--provider', provider or '', '--version', version or ''])
+          subprocess.run(command, check=True)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: provider-updates
+          path: docs/provider_updates.json
+
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tests -p "test_*.py" -v
+
+  smoke:
+    needs: detect
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        release: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install isolated official release and check its contract
+        shell: python {0}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROVIDER: ${{ matrix.release.provider }}
+          VERSION: ${{ matrix.release.version }}
+        run: |
+          import json, os, platform, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0, os.getcwd())
+          from scripts.provider_updates import install_release
+          provider, version = os.environ['PROVIDER'], os.environ['VERSION']
+          evidence = Path(f'evidence/{provider}-{version}.json')
+          try:
+              executable = install_release(provider, version, Path(os.environ['RUNNER_TEMP']) / 'provider-bin')
+          except Exception as error:
+              evidence.parent.mkdir(parents=True, exist_ok=True)
+              evidence.write_text(json.dumps({
+                  'provider': provider, 'expected_version': version,
+                  'platform': platform.system(), 'architecture': platform.machine(),
+                  'status': 'failed', 'classification': 'limited',
+                  'phase': 'installation', 'error': str(error),
+              }, indent=2) + '\n')
+              raise
+          completed = subprocess.run([
+              sys.executable, 'scripts/check_provider.py', provider, version,
+              '--executable', str(executable), '--output', str(evidence),
+          ], check=False)
+          raise SystemExit(completed.returncode)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ matrix.os }}-${{ matrix.release.provider }}-${{ matrix.release.version }}
+          path: evidence/*.json
+          if-no-files-found: warn
+
+  review:
+    needs: [detect, regression, smoke]
+    if: always() && needs.detect.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: provider-updates
+          path: docs
+      - uses: actions/download-artifact@v4
+        id: evidence
+        continue-on-error: true
+        with:
+          pattern: evidence-*
+          path: provider-evidence
+      - name: Classify evidence and propose registry promotions
+        env:
+          REGRESSION_RESULT: ${{ needs.regression.result }}
+        run: |
+          python scripts/summarize_provider_checks.py \
+            --manifest docs/provider_updates.json \
+            --evidence provider-evidence \
+            --regression "$REGRESSION_RESULT" \
+            --registry modules/provider_compatibility.json \
+            --output docs/provider_update_checks.json
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/provider-compatibility
+          commit-message: "docs: refresh external provider compatibility evidence"
+          title: "Review external provider releases and compatibility evidence"
+          body: |
+            Official stable releases were compared with the packaged compatibility registry.
+            See `docs/provider_updates.json` and `docs/provider_update_checks.json` for versions, unsupported releases, and actual check outcomes.
+
+            Versions classified as approved are proposed in `modules/provider_compatibility.json`. Limited or incompatible versions retain their evidence without registry promotion. Review is required before merging registry changes; no binary is installed on user systems.
+
+            Validation run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          add-paths: |
+            docs/provider_updates.json
+            docs/provider_update_checks.json
+            modules/provider_compatibility.json

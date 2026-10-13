@@ -12,7 +12,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import hylianscan
-from core.output import DEFAULT_TCP_TEXT_ARGUMENT
 from core.panel import build_quiet_final_panel
 from modules.subdomain import ProviderRunResult
 from modules.target import TargetInfo
@@ -244,7 +243,7 @@ class QuietModeTests(unittest.TestCase):
                 port_profile=None,
                 subfinder=False,
                 amass=False,
-                output=DEFAULT_TCP_TEXT_ARGUMENT,
+                output="",
                 json_output=None,
                 threads=None,
                 timeout=None,
@@ -270,7 +269,8 @@ class QuietModeTests(unittest.TestCase):
             self.assertNotIn("Report saved to", rendered)
             self.assertTrue((workspace_dir / "tcp_report.txt").exists())
 
-    def test_passive_discovery_quiet_disables_telemetry_callback(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_passive_discovery_quiet_disables_telemetry_callback(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_path = Path(temporary_dir) / "subdomains.txt"
 
@@ -279,7 +279,7 @@ class QuietModeTests(unittest.TestCase):
                 return_value=ProviderRunResult(
                     ["www.example.com"], "completed", 0
                 ),
-            ) as subfinder:
+            ) as subfinder, patch("hylianscan.resolve_provider_executable"):
                 summary = hylianscan.run_passive_subdomain_discovery(
                     domain="example.com",
                     providers=["subfinder"],
@@ -287,12 +287,13 @@ class QuietModeTests(unittest.TestCase):
                     quiet=True,
                 )
 
-            self.assertIn("Raw Discoveries: 1", summary)
-            self.assertIn("Unique Subdomains: 1", summary)
+            self.assertIn("Raw Candidates: 1", summary)
+            self.assertIn("Unique Candidates: 1", summary)
             self.assertEqual(output_path.read_text(encoding="utf-8"), "www.example.com\n")
             self.assertIsNone(subfinder.call_args.kwargs["telemetry_callback"])
 
-    def test_passive_discovery_quiet_summary_is_plain_text(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_passive_discovery_quiet_summary_is_plain_text(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_path = Path(temporary_dir) / "subdomains.txt"
 
@@ -301,7 +302,7 @@ class QuietModeTests(unittest.TestCase):
                 return_value=ProviderRunResult(
                     ["www.example.com"], "completed", 0
                 ),
-            ):
+            ), patch("hylianscan.resolve_provider_executable"):
                 summary = hylianscan.run_passive_subdomain_discovery(
                     domain="example.com",
                     providers=["subfinder"],
@@ -313,16 +314,18 @@ class QuietModeTests(unittest.TestCase):
             self.assertNotIn("SHEIKAH MAP UPDATED", summary)
             self.assertNotIn("=", summary)
             self.assertIn("Target: example.com", summary)
-            self.assertIn("Raw Discoveries: 1", summary)
-            self.assertIn("Unique Subdomains: 1", summary)
-            self.assertIn(f"Output Path: {output_path.name}", summary)
+            self.assertIn("Raw Candidates: 1", summary)
+            self.assertIn("Unique Candidates: 1", summary)
+            self.assertIn(f"Output Path: {output_path.as_posix()}", summary)
 
-    def test_dnsx_filters_passive_output_but_keeps_source_candidates_for_json(self) -> None:
+    @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
+    def test_dnsx_filters_passive_output_but_keeps_source_candidates_for_json(self, compatibility) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_path = Path(temporary_dir) / "subdomains.txt"
             json_output_path = Path(temporary_dir) / "subdomains.json"
 
             with (
+                patch("hylianscan.resolve_provider_executable"),
                 patch(
                     "hylianscan.run_subfinder",
                     return_value=ProviderRunResult(
@@ -338,7 +341,7 @@ class QuietModeTests(unittest.TestCase):
                     ),
                 ) as dnsx,
             ):
-                hylianscan.run_passive_subdomain_discovery(
+                summary = hylianscan.run_passive_subdomain_discovery(
                     domain="example.com",
                     providers=["subfinder", "dnsx"],
                     output_path=output_path,
@@ -353,6 +356,8 @@ class QuietModeTests(unittest.TestCase):
                     quiet=True,
                 )
 
+            self.assertIn("Unique Candidates: 2", summary)
+            self.assertIn("DNSx Confirmed: 1", summary)
             self.assertEqual(
                 output_path.read_text(encoding="utf-8"),
                 "live.example.com\n",
