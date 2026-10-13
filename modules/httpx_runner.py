@@ -8,7 +8,10 @@ import json
 from pathlib import Path
 import subprocess
 from typing import Any
+from core.terminal import escape_controls, wrap_report
 
+from core.output import write_text_atomic
+from modules.subdomain import scoped_subdomain
 
 DEFAULT_HTTPX_BINARY = "httpx"
 # ponytail: one batch timeout; add chunking/resume when large scopes require it.
@@ -27,16 +30,26 @@ class HttpxResult:
     reason: str | None = None
 
 
-def normalize_httpx_targets(targets: Sequence[str]) -> list[str]:
-    """Validate, deduplicate, and sort HTTPx input targets."""
+def normalize_httpx_targets(targets: Sequence[str], *, scope: str) -> list[str]:
+    """Accept only DNS hostnames within the explicitly supplied domain."""
     if isinstance(targets, (str, bytes)):
         raise ValueError("HTTPx requires a sequence of target hosts.")
 
+    if not isinstance(scope, str) or any(ord(char) < 32 or ord(char) == 127 for char in scope):
+        raise ValueError("HTTPx requires a valid scope domain.")
+    root = scope.strip().lower().removesuffix(".")
+    if scoped_subdomain(root, root) != root:
+        raise ValueError("HTTPx requires a valid scope domain.")
+
     normalized: set[str] = set()
     for target in targets:
-        if not isinstance(target, str) or not target.strip():
+        if not isinstance(target, str) or any(ord(char) < 32 or ord(char) == 127 for char in target):
             raise ValueError(f"Invalid HTTPx target: {target!r}.")
-        normalized.add(target.strip().lower().strip("."))
+        hostname = target.strip().lower().removesuffix(".")
+        candidate = scoped_subdomain(hostname, root)
+        if candidate is None or candidate != hostname:
+            raise ValueError(f"Invalid HTTPx target: {target!r}.")
+        normalized.add(candidate)
 
     if not normalized:
         raise ValueError("HTTPx requires at least one target host.")
@@ -96,11 +109,12 @@ def parse_httpx_jsonl(output: str) -> tuple[dict[str, Any], ...]:
 def run_httpx(
     targets: Sequence[str],
     *,
+    scope: str,
     httpx_binary: str = DEFAULT_HTTPX_BINARY,
     timeout: float = DEFAULT_HTTPX_TIMEOUT,
 ) -> HttpxResult:
     """Probe target hosts with HTTPx and parse JSONL stdout."""
-    normalized_targets = normalize_httpx_targets(targets)
+    normalized_targets = normalize_httpx_targets(targets, scope=scope)
     command = build_httpx_command(httpx_binary)
 
     try:
@@ -139,11 +153,17 @@ def run_httpx(
 def build_skipped_httpx_result(
     targets: Sequence[str],
     reason: str,
+    *,
+    scope: str,
 ) -> HttpxResult:
     """Build a skipped HTTPx result without losing passive discoveries."""
+    try:
+        requested = tuple(normalize_httpx_targets(targets, scope=scope))
+    except ValueError:
+        requested = ()  # Validation rejected the batch before starting HTTPx.
     return HttpxResult(
         status="skipped",
-        targets_requested=tuple(normalize_httpx_targets(targets)),
+        targets_requested=requested,
         reason=reason,
     )
 
@@ -156,8 +176,8 @@ def format_httpx_summary(
     lines = [
         "[+] HTTPX WEB PROBE",
         f"Status          : {result.status}",
-        f"Targets probed  : {len(result.targets_requested)}",
-        f"Live services   : {len(result.findings)}",
+        f"Targets requested: {len(result.targets_requested)}",
+        f"Records returned : {len(result.findings)}",
     ]
 
     if result.reason:
@@ -189,8 +209,7 @@ def format_httpx_summary(
     if output_path:
         lines.append(f"JSONL output    : {output_path}")
 
-    lines.append("-" * 72)
-    return "\n".join(lines)
+    return wrap_report(escape_controls("\n".join(lines), multiline=True))
 
 
 def write_httpx_jsonl(result: HttpxResult, output_path: Path) -> None:
@@ -198,11 +217,10 @@ def write_httpx_jsonl(result: HttpxResult, output_path: Path) -> None:
     if result.status != "completed":
         return
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
+    write_text_atomic(
+        output_path,
         "".join(
             json.dumps(finding, sort_keys=True) + "\n"
             for finding in result.findings
         ),
-        encoding="utf-8",
     )

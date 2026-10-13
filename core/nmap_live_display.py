@@ -1,12 +1,13 @@
 """Live terminal feedback for optional Nmap Service Scan."""
 
 import threading
-import time
 import sys
+import shutil
 from collections.abc import Sequence
 
-from core.colors import ALERT_RED, RESET
-from core.terminal import clear_dynamic_line, write_dynamic_line
+from core.colors import BRIGHT_WHITE, RESET
+from core.terminal import clear_dynamic_line, escape_controls, print_safe, wrap_report, write_dynamic_line
+from modules.nmap_enrichment import format_enriched_ports
 
 
 NMAP_BRAILLE_SPINNER_FRAMES = (
@@ -37,7 +38,15 @@ class NmapServiceScanDisplay:
         self._spinner_frames = select_spinner_frames()
 
     def start(self) -> None:
-        """Start the live Nmap Service Scan spinner."""
+        """Show the concrete Nmap scope before starting its spinner."""
+        print_safe()
+        print_safe(f"{BRIGHT_WHITE}[*] Nmap Service/Version Detection{RESET}")
+        print_safe(wrap_report(escape_controls(
+            f"Target          : {self.target}\n"
+            f"Ports scanned   : {format_enriched_ports(self.ports)}\n"
+            "Status          : running",
+            multiline=True,
+        )))
         self._write_spinner_frame()
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
@@ -53,17 +62,18 @@ class NmapServiceScanDisplay:
 
     def _spin(self) -> None:
         """Update the spinner line until Nmap finishes."""
-        while not self._stop_event.is_set():
+        while not self._stop_event.wait(NMAP_SPINNER_INTERVAL_SECONDS):
             self._write_spinner_frame()
-            time.sleep(NMAP_SPINNER_INTERVAL_SECONDS)
 
     def _write_spinner_frame(self) -> None:
         """Write one dynamic spinner frame."""
         frame = self._spinner_frames[self._frame_index % len(self._spinner_frames)]
         self._frame_index += 1
-        write_dynamic_line(
-            f"{ALERT_RED}{frame}{RESET} Running Nmap service/version detection..."
-        )
+        width = max(1, shutil.get_terminal_size(fallback=(100, 24)).columns - 1)
+        message = "Running Nmap service/version detection..."
+        if len(message) + 2 > width:
+            message = "Nmap service detection..."
+        write_dynamic_line(f"{BRIGHT_WHITE}{frame}{RESET} " + message[:max(0, width - 2)])
 
 
 def select_spinner_frames(encoding: str | None = None) -> tuple[str, ...]:
