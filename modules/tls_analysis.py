@@ -1,12 +1,13 @@
 """TLS risk analysis helpers for scan evidence."""
 
 import math
+import ipaddress
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
-from modules.target import is_ip_address
+from modules.target import is_ip_address, normalize_host_identity
 
 
 TLS_EXPIRY_SOON_DAYS = 30
@@ -57,7 +58,10 @@ def calculate_days_until_expiry(expires_at: datetime, now: datetime) -> int:
 
 def normalize_hostname(value: str) -> str:
     """Normalize a DNS hostname for certificate matching."""
-    return value.strip().lower().rstrip(".")
+    try:
+        return normalize_host_identity(value)
+    except (ValueError, UnicodeError):
+        return ""
 
 
 def dns_name_matches(pattern: str, hostname: str) -> bool:
@@ -124,12 +128,13 @@ def detect_hostname_mismatch(
         if not isinstance(ip_addresses, Sequence) or isinstance(ip_addresses, str):
             return None
 
-        normalized_ip_addresses = {
-            str(ip_address).strip()
-            for ip_address in ip_addresses
-            if str(ip_address).strip()
-        }
-        return normalized_target not in normalized_ip_addresses
+        normalized_ip_addresses = set()
+        for address in ip_addresses:
+            try:
+                normalized_ip_addresses.add(ipaddress.ip_address(str(address).split("%", 1)[0]))
+            except ValueError:
+                continue
+        return ipaddress.ip_address(normalized_target.split("%", 1)[0]) not in normalized_ip_addresses
 
     dns_names = subject_alt_names.get("dns_names", [])
 

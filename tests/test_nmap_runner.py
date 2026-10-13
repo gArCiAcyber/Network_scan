@@ -122,6 +122,12 @@ class NmapRunnerTests(unittest.TestCase):
         self.assertEqual(result.metadata.scanner, "nmap")
         self.assertEqual(result.up_hosts[0].open_tcp_ports[0].service.name, "ssh")
 
+    def test_runner_has_no_default_process_deadline(self) -> None:
+        process = subprocess.CompletedProcess(["nmap"], 0, SINGLE_HOST_XML, "")
+        with patch("modules.nmap_runner.subprocess.run", return_value=process) as run:
+            run_nmap_service_version_scan("127.0.0.1", [22])
+        self.assertIsNone(run.call_args.kwargs["timeout"])
+
     def test_runner_converts_missing_binary_to_clear_runtime_error(self) -> None:
         with patch(
             "modules.nmap_runner.subprocess.run",
@@ -165,7 +171,7 @@ class NmapRunnerTests(unittest.TestCase):
             "modules.nmap_runner.subprocess.run",
             return_value=completed_process,
         ):
-            with self.assertRaisesRegex(ValueError, "malformed XML"):
+            with self.assertRaisesRegex(RuntimeError, "malformed XML"):
                 run_nmap_service_version_scan("example.com", [80])
 
 

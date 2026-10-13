@@ -50,7 +50,7 @@ the result.
 
 ## Decision
 
-Subfinder 2.13.0 is now listed in `tested_versions`. Its official Windows amd64
+Subfinder 2.13.0 is recorded in `tested_platforms` for Windows amd64. Its official Windows amd64
 binary reported the expected version, exposed the required flags, produced
 in-scope output that Hylianscan parsed and deduplicated, and handled empty output
 and invalid flags as expected. The committed replay test verifies parsing and
@@ -61,7 +61,10 @@ provider source availability or performance, and Linux real-binary coverage is
 still pending. The registry entry is:
 
 ```json
-"tested_versions": ["2.13.0", "2.16.0"]
+{
+  "tested_versions": ["2.16.0"],
+  "tested_platforms": {"2.13.0": {"Windows": ["amd64"]}}
+}
 ```
 
 ## Platform coverage
@@ -77,5 +80,6 @@ The new offline replay suite checks version/flag evidence, normal output parsing
 duplicate handling, empty output, timeout handling, and TXT/JSON serialization.
 The full repository suite and compilation checks were also run. A successful
 test replay does not turn 2.13.0 into a supported baseline; that requires
-repeatable real-binary output evidence on both platforms or an explicit reviewed
-policy decision.
+reviewed evidence. Promotion to the shared tested-version list requires real-binary
+execution/CLI evidence and passing fixture regressions on both required platforms;
+populated external-source output is not an approval requirement.
