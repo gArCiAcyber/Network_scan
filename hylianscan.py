@@ -455,7 +455,7 @@ def run_passive_subdomain_discovery(
                     len(provider_results[provider].subdomains),
                 )
 
-            save_progress()
+            subdomains = save_progress()
 
         if "dnsx" in providers:
             provider = "dnsx"
@@ -490,7 +490,9 @@ def run_passive_subdomain_discovery(
                     len(provider_results["dnsx"].subdomains),
                 )
 
-        subdomains = save_progress()
+        # Discovery already saved its final checkpoint; DNSx changes that state.
+        if "dnsx" in providers or not discovery_providers:
+            subdomains = save_progress()
 
         raw_discovery_count = sum(
             len(provider_results[provider].subdomains)
