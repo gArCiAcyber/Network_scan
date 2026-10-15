@@ -1,0 +1,1393 @@
+{
+  "regression": "failure",
+  "evidence_complete": true,
+  "results": [
+    {
+      "provider": "subfinder",
+      "version": "2.16.0",
+      "classification": "limited",
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "architectures": [
+        "amd64",
+        "x86_64"
+      ],
+      "missing_platforms": [],
+      "evidence": [
+        {
+          "provider": "subfinder",
+          "expected_version": "2.16.0",
+          "platform": "Linux",
+          "architecture": "x86_64",
+          "status": "passed",
+          "classification": "approved",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options",
+            "reserved-domain execution and exit behavior"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subfinder_release_compatibility"
+            ],
+            "tests_run": 37,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "..................................[-] Subfinder timeout fixture: timed out after 0.15 seconds. Returning partial results.\n..[-] Subfinder unknown flag fixture: exited with status code 2. Returning partial results.\n.\n----------------------------------------------------------------------\nRan 37 tests in 0.303s\n\nOK\n"
+          },
+          "version": "2.16.0",
+          "compatibility": "tested",
+          "required_flags": [
+            "-d",
+            "-silent"
+          ],
+          "subfinder": {
+            "normal_output": {
+              "arguments": [
+                "-d",
+                "example.test",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 8.172,
+              "reason": null
+            },
+            "empty_output": {
+              "arguments": [
+                "-d",
+                "hylianscan-empty.invalid",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 33.787,
+              "reason": null
+            },
+            "unknown_option": {
+              "arguments": [
+                "--hylianscan-unknown"
+              ],
+              "status": "failed",
+              "exit_code": 2,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 0.101,
+              "reason": "Exited with status code 2."
+            }
+          },
+          "source_availability": {
+            "status": "not_observed",
+            "candidate_count": 0,
+            "required_for_approval": false
+          }
+        },
+        {
+          "provider": "subfinder",
+          "expected_version": "2.16.0",
+          "platform": "Windows",
+          "architecture": "AMD64",
+          "status": "passed",
+          "classification": "approved",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options",
+            "reserved-domain execution and exit behavior"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subfinder_release_compatibility"
+            ],
+            "tests_run": 37,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "..................................[-] Subfinder timeout fixture: timed out after 0.15 seconds. Returning partial results.\n..[-] Subfinder unknown flag fixture: exited with status code 2. Returning partial results.\n.\n----------------------------------------------------------------------\nRan 37 tests in 0.380s\n\nOK\n"
+          },
+          "version": "2.16.0",
+          "compatibility": "tested",
+          "required_flags": [
+            "-d",
+            "-silent"
+          ],
+          "subfinder": {
+            "normal_output": {
+              "arguments": [
+                "-d",
+                "example.test",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 33.265,
+              "reason": null
+            },
+            "empty_output": {
+              "arguments": [
+                "-d",
+                "hylianscan-empty.invalid",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 21.407,
+              "reason": null
+            },
+            "unknown_option": {
+              "arguments": [
+                "--hylianscan-unknown"
+              ],
+              "status": "failed",
+              "exit_code": 2,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 0.093,
+              "reason": "Exited with status code 2."
+            }
+          },
+          "source_availability": {
+            "status": "not_observed",
+            "candidate_count": 0,
+            "required_for_approval": false
+          }
+        }
+      ]
+    },
+    {
+      "provider": "subfinder",
+      "version": "2.14.0",
+      "classification": "limited",
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "architectures": [
+        "amd64",
+        "x86_64"
+      ],
+      "missing_platforms": [],
+      "evidence": [
+        {
+          "provider": "subfinder",
+          "expected_version": "2.14.0",
+          "platform": "Linux",
+          "architecture": "x86_64",
+          "status": "passed",
+          "classification": "approved",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options",
+            "reserved-domain execution and exit behavior"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subfinder_release_compatibility"
+            ],
+            "tests_run": 37,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "..................................[-] Subfinder timeout fixture: timed out after 0.15 seconds. Returning partial results.\n..[-] Subfinder unknown flag fixture: exited with status code 2. Returning partial results.\n.\n----------------------------------------------------------------------\nRan 37 tests in 0.266s\n\nOK\n"
+          },
+          "version": "2.14.0",
+          "compatibility": "tested",
+          "required_flags": [
+            "-d",
+            "-silent"
+          ],
+          "subfinder": {
+            "normal_output": {
+              "arguments": [
+                "-d",
+                "example.test",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [
+                "test.example.test",
+                "test1.example.test",
+                "test11.example.test",
+                "test2.example.test",
+                "test2017082301.example.test",
+                "test6.example.test",
+                "www.test2017090103.example.test",
+                "www.test2017122101.example.test",
+                "www.test2017122102.example.test"
+              ],
+              "diagnostics": [],
+              "elapsed_seconds": 6.469,
+              "reason": null
+            },
+            "empty_output": {
+              "arguments": [
+                "-d",
+                "hylianscan-empty.invalid",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 6.168,
+              "reason": null
+            },
+            "unknown_option": {
+              "arguments": [
+                "--hylianscan-unknown"
+              ],
+              "status": "failed",
+              "exit_code": 2,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 0.101,
+              "reason": "Exited with status code 2."
+            }
+          },
+          "source_availability": {
+            "status": "observed",
+            "candidate_count": 9,
+            "required_for_approval": false
+          }
+        },
+        {
+          "provider": "subfinder",
+          "expected_version": "2.14.0",
+          "platform": "Windows",
+          "architecture": "AMD64",
+          "status": "passed",
+          "classification": "approved",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options",
+            "reserved-domain execution and exit behavior"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subfinder_release_compatibility"
+            ],
+            "tests_run": 37,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "..................................[-] Subfinder timeout fixture: timed out after 0.15 seconds. Returning partial results.\n..[-] Subfinder unknown flag fixture: exited with status code 2. Returning partial results.\n.\n----------------------------------------------------------------------\nRan 37 tests in 0.419s\n\nOK\n"
+          },
+          "version": "2.14.0",
+          "compatibility": "tested",
+          "required_flags": [
+            "-d",
+            "-silent"
+          ],
+          "subfinder": {
+            "normal_output": {
+              "arguments": [
+                "-d",
+                "example.test",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [
+                "test.example.test",
+                "test1.example.test",
+                "test11.example.test",
+                "test2.example.test",
+                "test2017082301.example.test",
+                "test6.example.test",
+                "www.test2017090103.example.test",
+                "www.test2017122101.example.test",
+                "www.test2017122102.example.test"
+              ],
+              "diagnostics": [],
+              "elapsed_seconds": 20.797,
+              "reason": null
+            },
+            "empty_output": {
+              "arguments": [
+                "-d",
+                "hylianscan-empty.invalid",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 20.484,
+              "reason": null
+            },
+            "unknown_option": {
+              "arguments": [
+                "--hylianscan-unknown"
+              ],
+              "status": "failed",
+              "exit_code": 2,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 0.157,
+              "reason": "Exited with status code 2."
+            }
+          },
+          "source_availability": {
+            "status": "observed",
+            "candidate_count": 9,
+            "required_for_approval": false
+          }
+        }
+      ]
+    },
+    {
+      "provider": "subfinder",
+      "version": "2.17.0",
+      "classification": "limited",
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "architectures": [
+        "amd64",
+        "x86_64"
+      ],
+      "missing_platforms": [],
+      "evidence": [
+        {
+          "provider": "subfinder",
+          "expected_version": "2.17.0",
+          "platform": "Linux",
+          "architecture": "x86_64",
+          "status": "passed",
+          "classification": "approved",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options",
+            "reserved-domain execution and exit behavior"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subfinder_release_compatibility"
+            ],
+            "tests_run": 37,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "..................................[-] Subfinder timeout fixture: timed out after 0.15 seconds. Returning partial results.\n..[-] Subfinder unknown flag fixture: exited with status code 2. Returning partial results.\n.\n----------------------------------------------------------------------\nRan 37 tests in 0.269s\n\nOK\n"
+          },
+          "version": "2.17.0",
+          "compatibility": "untested",
+          "required_flags": [
+            "-d",
+            "-silent"
+          ],
+          "subfinder": {
+            "normal_output": {
+              "arguments": [
+                "-d",
+                "example.test",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 32.766,
+              "reason": null
+            },
+            "empty_output": {
+              "arguments": [
+                "-d",
+                "hylianscan-empty.invalid",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 29.108,
+              "reason": null
+            },
+            "unknown_option": {
+              "arguments": [
+                "--hylianscan-unknown"
+              ],
+              "status": "failed",
+              "exit_code": 2,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 0.051,
+              "reason": "Exited with status code 2."
+            }
+          },
+          "source_availability": {
+            "status": "not_observed",
+            "candidate_count": 0,
+            "required_for_approval": false
+          }
+        },
+        {
+          "provider": "subfinder",
+          "expected_version": "2.17.0",
+          "platform": "Windows",
+          "architecture": "AMD64",
+          "status": "passed",
+          "classification": "approved",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options",
+            "reserved-domain execution and exit behavior"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subfinder_release_compatibility"
+            ],
+            "tests_run": 37,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "..................................[-] Subfinder timeout fixture: timed out after 0.15 seconds. Returning partial results.\n..[-] Subfinder unknown flag fixture: exited with status code 2. Returning partial results.\n.\n----------------------------------------------------------------------\nRan 37 tests in 0.380s\n\nOK\n"
+          },
+          "version": "2.17.0",
+          "compatibility": "untested",
+          "required_flags": [
+            "-d",
+            "-silent"
+          ],
+          "subfinder": {
+            "normal_output": {
+              "arguments": [
+                "-d",
+                "example.test",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 34.094,
+              "reason": null
+            },
+            "empty_output": {
+              "arguments": [
+                "-d",
+                "hylianscan-empty.invalid",
+                "-silent"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 22.453,
+              "reason": null
+            },
+            "unknown_option": {
+              "arguments": [
+                "--hylianscan-unknown"
+              ],
+              "status": "failed",
+              "exit_code": 2,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 0.14,
+              "reason": "Exited with status code 2."
+            }
+          },
+          "source_availability": {
+            "status": "not_observed",
+            "candidate_count": 0,
+            "required_for_approval": false
+          }
+        }
+      ]
+    },
+    {
+      "provider": "amass",
+      "version": "4.2.0",
+      "classification": "limited",
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "architectures": [
+        "amd64",
+        "x86_64"
+      ],
+      "missing_platforms": [],
+      "evidence": [
+        {
+          "provider": "amass",
+          "expected_version": "4.2.0",
+          "platform": "Linux",
+          "architecture": "x86_64",
+          "status": "failed",
+          "classification": "limited",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subdomain"
+            ],
+            "tests_run": 76,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "............................................................................\n----------------------------------------------------------------------\nRan 76 tests in 4.170s\n\nOK\n"
+          },
+          "version": "4.2.0",
+          "compatibility": "tested",
+          "required_flags": [
+            "-d",
+            "-passive"
+          ],
+          "amass": {
+            "normal_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "example.test"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 74.957,
+              "reason": "Timed out after 74.9491 seconds."
+            },
+            "empty_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "hylianscan-empty.invalid"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": 74.957,
+              "reason": "Timed out after 74.949 seconds."
+            }
+          },
+          "source_availability": {
+            "status": "unknown",
+            "candidate_count": 0,
+            "required_for_approval": false
+          },
+          "error": "Provider execution did not complete: normal_output, empty_output"
+        },
+        {
+          "provider": "amass",
+          "expected_version": "4.2.0",
+          "platform": "Windows",
+          "architecture": "AMD64",
+          "status": "passed",
+          "classification": "approved",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options",
+            "reserved-domain execution and exit behavior"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subdomain"
+            ],
+            "tests_run": 76,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 1,
+            "output": ".........................................................................s..\n----------------------------------------------------------------------\nRan 76 tests in 5.114s\n\nOK (skipped=1)\n"
+          },
+          "version": "4.2.0",
+          "compatibility": "tested",
+          "required_flags": [
+            "-d",
+            "-passive"
+          ],
+          "amass": {
+            "normal_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "example.test"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [
+                "The enumeration has finished"
+              ],
+              "elapsed_seconds": 35.235,
+              "reason": null
+            },
+            "empty_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "hylianscan-empty.invalid"
+              ],
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [],
+              "diagnostics": [
+                "The enumeration has finished"
+              ],
+              "elapsed_seconds": 33.172,
+              "reason": null
+            }
+          },
+          "source_availability": {
+            "status": "not_observed",
+            "candidate_count": 0,
+            "required_for_approval": false
+          }
+        }
+      ]
+    },
+    {
+      "provider": "amass",
+      "version": "5.0.0",
+      "classification": "limited",
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "architectures": [
+        "amd64",
+        "x86_64"
+      ],
+      "missing_platforms": [],
+      "evidence": [
+        {
+          "provider": "amass",
+          "expected_version": "5.0.0",
+          "platform": "Linux",
+          "architecture": "x86_64",
+          "status": "failed",
+          "classification": "limited",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subdomain"
+            ],
+            "tests_run": 76,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "............................................................................\n----------------------------------------------------------------------\nRan 76 tests in 4.172s\n\nOK\n"
+          },
+          "version": "5.0.0",
+          "compatibility": "tested",
+          "required_flags": [
+            "-config",
+            "-d",
+            "-dir",
+            "-names",
+            "-nocolor"
+          ],
+          "amass": {
+            "normal_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "example.test"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [
+                "example.test"
+              ],
+              "diagnostics": [
+                "Amass session-303fee00-e8e6-4317-875c-e4e0d7f1b283.log: {\"time\":\"2026-10-15T12:44:16.014889559Z\",\"level\":\"INFO\",\"msg\":\"Database connection established\",\"session\":\"303fee00-e8e6-4317-875c-e4e0d7f1b283\",\"dsn\":\"/tmp/tmpxya4ufyq/amass/assetdb.db?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)\"}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881418746Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Contract-Record-Expansion\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881424043Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Email-Expansion\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881442279Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"TLCert-Expansion\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881449221Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"URL-Expansion\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881454191Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"GLEIF\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881459365Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Horizontals\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881469877Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"HTTP-Probes\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881501515Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"RDAP\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881509954Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Bing\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.8815148Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"DNSHistory\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881519037Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"DuckDuckGo\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881524017Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"GitHub-IPVerse\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881527684Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"RapidDNS\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881531409Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"SiteDossier\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881536233Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"WHOIS\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881540036Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"IP-Netblock\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881549207Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"JARM-Fingerprint\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881568031Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Known-FQDN\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:44:15.881598766Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Verified-Email\"}}",
+                "Amass amass_engine_2026-10-15T12:44:14.log: {\"time\":\"2026-10-15T12:45:29.356608554Z\",\"level\":\"INFO\",\"msg\":\"Terminating the collection engine\"}"
+              ],
+              "elapsed_seconds": 80.004,
+              "reason": "Timed out after 73.3412 seconds."
+            },
+            "empty_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "hylianscan-empty.invalid"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [
+                "hylianscan-empty.invalid"
+              ],
+              "diagnostics": [
+                "Amass session-77ff8918-a6ca-47bd-ad62-d832479b351b.log: {\"time\":\"2026-10-15T12:45:39.382842151Z\",\"level\":\"INFO\",\"msg\":\"Database connection established\",\"session\":\"77ff8918-a6ca-47bd-ad62-d832479b351b\",\"dsn\":\"/tmp/tmpnxq67onk/amass/assetdb.db?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)\"}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.2925018Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Contract-Record-Expansion\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292519426Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Email-Expansion\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292525085Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"TLCert-Expansion\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292531489Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"URL-Expansion\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292536504Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"GLEIF\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292541204Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Horizontals\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.29255045Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"HTTP-Probes\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292568788Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"RDAP\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292590649Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Bing\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292600365Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"DNSHistory\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292617827Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"DuckDuckGo\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292622185Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"GitHub-IPVerse\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292627335Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"RapidDNS\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292631065Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"SiteDossier\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292635798Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"WHOIS\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292639644Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"IP-Netblock\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292643121Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"JARM-Fingerprint\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.29264661Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Known-FQDN\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:45:39.292663562Z\",\"level\":\"INFO\",\"msg\":\"Plugin started\",\"plugin\":{\"name\":\"Verified-Email\"}}",
+                "Amass amass_engine_2026-10-15T12:45:34.log: {\"time\":\"2026-10-15T12:46:49.415026971Z\",\"level\":\"INFO\",\"msg\":\"Terminating the collection engine\"}"
+              ],
+              "elapsed_seconds": 80.004,
+              "reason": "Timed out after 70.0298 seconds."
+            }
+          },
+          "source_availability": {
+            "status": "observed",
+            "candidate_count": 1,
+            "required_for_approval": false
+          },
+          "error": "Provider execution did not complete: normal_output, empty_output"
+        },
+        {
+          "provider": "amass",
+          "expected_version": "5.0.0",
+          "platform": "Windows",
+          "architecture": "AMD64",
+          "status": "failed",
+          "classification": "limited",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subdomain"
+            ],
+            "tests_run": 76,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 1,
+            "output": ".........................................................................s..\n----------------------------------------------------------------------\nRan 76 tests in 4.492s\n\nOK (skipped=1)\n"
+          },
+          "version": "5.0.0",
+          "compatibility": "tested",
+          "required_flags": [
+            "-config",
+            "-d",
+            "-dir",
+            "-names",
+            "-nocolor"
+          ],
+          "amass": {
+            "normal_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "example.test"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [
+                "example.test"
+              ],
+              "diagnostics": [
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=Service-Banner-URLs",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=Contract-Record-Expansion",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=Email-Expansion",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=TLCert-Expansion",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=URL-Expansion",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=GLEIF",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=Horizontals",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=HTTP-Probes",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=RDAP",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=Bing",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=DNSHistory",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=DuckDuckGo",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=GitHub-IPVerse",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=RapidDNS",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=SiteDossier",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=WHOIS",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=IP-Netblock",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=JARM-Fingerprint",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=Known-FQDN",
+                "Amass engine output: time=2026-10-15T12:44:28.151Z level=INFO msg=\"Plugin started\" plugin.name=Verified-Email",
+                "Amass session-c8af736a-09d4-4292-bce6-5e8e81d4c1d5.log: {\"time\":\"2026-10-15T12:44:28.8249046Z\",\"level\":\"INFO\",\"msg\":\"Database connection established\",\"session\":\"c8af736a-09d4-4292-bce6-5e8e81d4c1d5\",\"dsn\":\"C:\\\\Users\\\\RUNNER~1\\\\AppData\\\\Local\\\\Temp\\\\tmp20a_d_k4\\\\amass\\\\assetdb.db?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)\"}"
+              ],
+              "elapsed_seconds": 75.141,
+              "reason": "Timed out after 73.282 seconds."
+            },
+            "empty_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "hylianscan-empty.invalid"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [
+                "hylianscan-empty.invalid"
+              ],
+              "diagnostics": [
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=Service-Banner-URLs",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=Contract-Record-Expansion",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=Email-Expansion",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=TLCert-Expansion",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=URL-Expansion",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=GLEIF",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=Horizontals",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=HTTP-Probes",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=RDAP",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=Bing",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=DNSHistory",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=DuckDuckGo",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=GitHub-IPVerse",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=RapidDNS",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=SiteDossier",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=WHOIS",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=IP-Netblock",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=JARM-Fingerprint",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=Known-FQDN",
+                "Amass engine output: time=2026-10-15T12:45:42.635Z level=INFO msg=\"Plugin started\" plugin.name=Verified-Email",
+                "Amass session-110f6bd3-5b2e-48b8-a1c0-33cd17eecda2.log: {\"time\":\"2026-10-15T12:45:43.9018723Z\",\"level\":\"INFO\",\"msg\":\"Database connection established\",\"session\":\"110f6bd3-5b2e-48b8-a1c0-33cd17eecda2\",\"dsn\":\"C:\\\\Users\\\\RUNNER~1\\\\AppData\\\\Local\\\\Temp\\\\tmp0p45x86i\\\\amass\\\\assetdb.db?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)\"}"
+              ],
+              "elapsed_seconds": 75.109,
+              "reason": "Timed out after 73.984 seconds."
+            }
+          },
+          "source_availability": {
+            "status": "observed",
+            "candidate_count": 1,
+            "required_for_approval": false
+          },
+          "error": "Provider execution did not complete: normal_output, empty_output"
+        }
+      ]
+    },
+    {
+      "provider": "amass",
+      "version": "5.1.1",
+      "classification": "limited",
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "architectures": [
+        "amd64",
+        "x86_64"
+      ],
+      "missing_platforms": [],
+      "evidence": [
+        {
+          "provider": "amass",
+          "expected_version": "5.1.1",
+          "platform": "Linux",
+          "architecture": "x86_64",
+          "status": "failed",
+          "classification": "limited",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subdomain"
+            ],
+            "tests_run": 76,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "............................................................................\n----------------------------------------------------------------------\nRan 76 tests in 4.173s\n\nOK\n"
+          },
+          "version": "5.1.1",
+          "compatibility": "untested",
+          "required_flags": [
+            "-config",
+            "-d",
+            "-dir",
+            "-names",
+            "-nocolor"
+          ],
+          "amass": {
+            "normal_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "example.test"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": null,
+              "reason": "Amass engine did not become ready."
+            },
+            "empty_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "hylianscan-empty.invalid"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": null,
+              "reason": "Amass engine did not become ready."
+            }
+          },
+          "source_availability": {
+            "status": "unknown",
+            "candidate_count": 0,
+            "required_for_approval": false
+          },
+          "error": "Provider execution did not complete: normal_output, empty_output"
+        },
+        {
+          "provider": "amass",
+          "expected_version": "5.1.1",
+          "platform": "Windows",
+          "architecture": "AMD64",
+          "status": "failed",
+          "classification": "limited",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subdomain"
+            ],
+            "tests_run": 76,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 1,
+            "output": ".........................................................................s..\n----------------------------------------------------------------------\nRan 76 tests in 4.453s\n\nOK (skipped=1)\n"
+          },
+          "version": "5.1.1",
+          "compatibility": "untested",
+          "required_flags": [
+            "-config",
+            "-d",
+            "-dir",
+            "-names",
+            "-nocolor"
+          ],
+          "amass": {
+            "normal_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "example.test"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": null,
+              "reason": "Amass engine did not become ready."
+            },
+            "empty_output": {
+              "arguments": [
+                "enum",
+                "-passive",
+                "-d",
+                "hylianscan-empty.invalid"
+              ],
+              "status": "timed_out",
+              "exit_code": null,
+              "subdomains": [],
+              "diagnostics": [],
+              "elapsed_seconds": null,
+              "reason": "Amass engine did not become ready."
+            }
+          },
+          "source_availability": {
+            "status": "unknown",
+            "candidate_count": 0,
+            "required_for_approval": false
+          },
+          "error": "Provider execution did not complete: normal_output, empty_output"
+        }
+      ]
+    },
+    {
+      "provider": "dnsx",
+      "version": "1.3.1",
+      "classification": "limited",
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "architectures": [
+        "amd64",
+        "x86_64"
+      ],
+      "missing_platforms": [],
+      "evidence": [
+        {
+          "provider": "dnsx",
+          "expected_version": "1.3.1",
+          "platform": "Linux",
+          "architecture": "x86_64",
+          "status": "passed",
+          "classification": "approved",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options",
+            "localhost DNS: A/AAAA, JSON, NXDOMAIN, empty input"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subdomain"
+            ],
+            "tests_run": 76,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "output": "............................................................................\n----------------------------------------------------------------------\nRan 76 tests in 4.191s\n\nOK\n"
+          },
+          "version": "1.3.1",
+          "compatibility": "tested",
+          "required_flags": [
+            "-silent",
+            "-no-color",
+            "-a",
+            "-aaaa",
+            "-r",
+            "-t",
+            "-rl",
+            "-timeout",
+            "-retry",
+            "-auto-wildcard",
+            "-j"
+          ],
+          "dnsx": {
+            "ipv4": {
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [
+                "live.example.test"
+              ],
+              "metadata": [
+                {
+                  "host": "live.example.test",
+                  "ttl": 60,
+                  "resolver": [
+                    "127.0.0.1:37940"
+                  ],
+                  "a": [
+                    "192.0.2.1"
+                  ],
+                  "all": [
+                    "live.example.test.\t60\tIN\tA\t192.0.2.1"
+                  ],
+                  "has_internal_ips": true,
+                  "internal_ips": [
+                    "192.0.2.1"
+                  ],
+                  "status_code": "NOERROR",
+                  "timestamp": "2026-10-15T12:44:15.793037462Z",
+                  "query-time": "0s"
+                }
+              ],
+              "elapsed_seconds": 0.502
+            },
+            "ipv6": {
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [
+                "live.example.test"
+              ],
+              "metadata": [
+                {
+                  "host": "live.example.test",
+                  "ttl": 60,
+                  "resolver": [
+                    "127.0.0.1:37940"
+                  ],
+                  "aaaa": [
+                    "2001:db8::1"
+                  ],
+                  "all": [
+                    "live.example.test.\t60\tIN\tAAAA\t2001:db8::1"
+                  ],
+                  "has_internal_ips": true,
+                  "internal_ips": [
+                    "2001:db8::1"
+                  ],
+                  "status_code": "NOERROR",
+                  "timestamp": "2026-10-15T12:44:16.285364333Z",
+                  "query-time": "0s"
+                }
+              ],
+              "elapsed_seconds": 0.502
+            },
+            "dual-stack": {
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [
+                "live.example.test"
+              ],
+              "metadata": [
+                {
+                  "host": "live.example.test",
+                  "ttl": 60,
+                  "resolver": [
+                    "127.0.0.1:37940"
+                  ],
+                  "a": [
+                    "192.0.2.1"
+                  ],
+                  "aaaa": [
+                    "2001:db8::1"
+                  ],
+                  "all": [
+                    "live.example.test.\t60\tIN\tA\t192.0.2.1",
+                    "live.example.test.\t60\tIN\tAAAA\t2001:db8::1"
+                  ],
+                  "has_internal_ips": true,
+                  "internal_ips": [
+                    "192.0.2.1",
+                    "2001:db8::1"
+                  ],
+                  "status_code": "NOERROR",
+                  "timestamp": "2026-10-15T12:44:16.802312864Z",
+                  "query-time": "0s"
+                }
+              ],
+              "elapsed_seconds": 0.502
+            },
+            "empty_input": {
+              "status": "skipped",
+              "reason": "No candidate subdomains to resolve."
+            }
+          }
+        },
+        {
+          "provider": "dnsx",
+          "expected_version": "1.3.1",
+          "platform": "Windows",
+          "architecture": "AMD64",
+          "status": "passed",
+          "classification": "approved",
+          "checks": [
+            "offline fixture parsing and reports",
+            "version",
+            "required CLI options",
+            "localhost DNS: A/AAAA, JSON, NXDOMAIN, empty input"
+          ],
+          "fixtures": {
+            "status": "passed",
+            "modules": [
+              "tests.test_json_exporter",
+              "tests.test_subdomain"
+            ],
+            "tests_run": 76,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 1,
+            "output": ".........................................................................s..\n----------------------------------------------------------------------\nRan 76 tests in 4.571s\n\nOK (skipped=1)\n"
+          },
+          "version": "1.3.1",
+          "compatibility": "tested",
+          "required_flags": [
+            "-silent",
+            "-no-color",
+            "-a",
+            "-aaaa",
+            "-r",
+            "-t",
+            "-rl",
+            "-timeout",
+            "-retry",
+            "-auto-wildcard",
+            "-j"
+          ],
+          "dnsx": {
+            "ipv4": {
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [
+                "live.example.test"
+              ],
+              "metadata": [
+                {
+                  "host": "live.example.test",
+                  "ttl": 60,
+                  "resolver": [
+                    "127.0.0.1:65034"
+                  ],
+                  "a": [
+                    "192.0.2.1"
+                  ],
+                  "all": [
+                    "live.example.test.\t60\tIN\tA\t192.0.2.1"
+                  ],
+                  "has_internal_ips": true,
+                  "internal_ips": [
+                    "192.0.2.1"
+                  ],
+                  "status_code": "NOERROR",
+                  "timestamp": "2026-10-15T12:44:26.46129Z",
+                  "query-time": "1ms"
+                }
+              ],
+              "elapsed_seconds": 0.703
+            },
+            "ipv6": {
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [
+                "live.example.test"
+              ],
+              "metadata": [
+                {
+                  "host": "live.example.test",
+                  "ttl": 60,
+                  "resolver": [
+                    "127.0.0.1:65034"
+                  ],
+                  "aaaa": [
+                    "2001:db8::1"
+                  ],
+                  "all": [
+                    "live.example.test.\t60\tIN\tAAAA\t2001:db8::1"
+                  ],
+                  "has_internal_ips": true,
+                  "internal_ips": [
+                    "2001:db8::1"
+                  ],
+                  "status_code": "NOERROR",
+                  "timestamp": "2026-10-15T12:44:27.0985351Z",
+                  "query-time": "0s"
+                }
+              ],
+              "elapsed_seconds": 0.61
+            },
+            "dual-stack": {
+              "status": "completed",
+              "exit_code": 0,
+              "subdomains": [
+                "live.example.test"
+              ],
+              "metadata": [
+                {
+                  "host": "live.example.test",
+                  "ttl": 60,
+                  "resolver": [
+                    "127.0.0.1:65034"
+                  ],
+                  "a": [
+                    "192.0.2.1"
+                  ],
+                  "aaaa": [
+                    "2001:db8::1"
+                  ],
+                  "all": [
+                    "live.example.test.\t60\tIN\tA\t192.0.2.1",
+                    "live.example.test.\t60\tIN\tAAAA\t2001:db8::1"
+                  ],
+                  "has_internal_ips": true,
+                  "internal_ips": [
+                    "192.0.2.1",
+                    "2001:db8::1"
+                  ],
+                  "status_code": "NOERROR",
+                  "timestamp": "2026-10-15T12:44:27.7181728Z",
+                  "query-time": "1ms"
+                }
+              ],
+              "elapsed_seconds": 0.656
+            },
+            "empty_input": {
+              "status": "skipped",
+              "reason": "No candidate subdomains to resolve."
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "registry_proposals": []
+}

@@ -1,0 +1,52 @@
+{
+  "providers": {
+    "subfinder": {
+      "baseline": "2.16.0",
+      "latest": "2.17.0",
+      "status": "untested",
+      "release": "https://github.com/projectdiscovery/subfinder/releases/tag/v2.17.0"
+    },
+    "amass": {
+      "baseline": "4.2.0",
+      "latest": "5.1.1",
+      "status": "untested",
+      "release": "https://github.com/owasp-amass/amass/releases/tag/v5.1.1"
+    },
+    "dnsx": {
+      "baseline": "1.3.1",
+      "latest": "1.3.1",
+      "status": "tested",
+      "release": "https://github.com/projectdiscovery/dnsx/releases/tag/v1.3.1"
+    }
+  },
+  "matrix": [
+    {
+      "provider": "subfinder",
+      "version": "2.16.0"
+    },
+    {
+      "provider": "subfinder",
+      "version": "2.14.0"
+    },
+    {
+      "provider": "subfinder",
+      "version": "2.17.0"
+    },
+    {
+      "provider": "amass",
+      "version": "4.2.0"
+    },
+    {
+      "provider": "amass",
+      "version": "5.0.0"
+    },
+    {
+      "provider": "amass",
+      "version": "5.1.1"
+    },
+    {
+      "provider": "dnsx",
+      "version": "1.3.1"
+    }
+  ]
+}
