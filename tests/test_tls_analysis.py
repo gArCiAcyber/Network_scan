@@ -171,6 +171,19 @@ class TLSAnalysisTests(unittest.TestCase):
         self.assertFalse(detect_hostname_mismatch(metadata, "192.0.2.10"))
         self.assertTrue(detect_hostname_mismatch(metadata, "192.0.2.11"))
 
+    def test_ipv6_certificate_identity_uses_address_value_not_spelling(self) -> None:
+        for target, certificate_ip in (
+            ("2001:0db8:0:0:0:0:0:1", "2001:db8::1"),
+            ("2001:db8::abcd", "2001:DB8:0:0:0:0:0:ABCD"),
+            ("fe80::1%7", "fe80:0:0:0:0:0:0:1"),
+        ):
+            with self.subTest(target=target):
+                metadata = build_tls_metadata(
+                    not_after="Dec 31 00:00:00 2026 GMT", ip_addresses=["invalid", certificate_ip],
+                )
+                self.assertFalse(detect_hostname_mismatch(metadata, target))
+                self.assertTrue(detect_hostname_mismatch(metadata, "2001:db8::2"))
+
     def test_wildcard_dns_matching(self) -> None:
         self.assertTrue(dns_name_matches("*.example.com", "www.example.com"))
         self.assertTrue(dns_name_matches("*.example.com.", "api.example.com."))

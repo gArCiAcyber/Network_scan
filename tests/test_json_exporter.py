@@ -27,37 +27,17 @@ from modules.target import ResolvedAddress
 from modules.tcp_scanner import PortScanResult, ScanResult
 
 
-HTTP_BANNER = (
-    "HTTP/1.1 301 Moved Permanently "
-    "Server: cloudflare "
-    "Location: https://example.com/ "
-    "Content-Type: text/html; charset=utf-8"
-)
-
-COOKIE_BANNER = (
-    "HTTP/1.1 200 OK "
-    "Server: hylianscan-mock "
-    "Set-Cookie: session_id=abc123; Secure; HttpOnly; SameSite=Lax; Path=/; "
-    "Max-Age=3600 "
-    "Set-Cookie: tracking_id=xyz; Path=/tracking"
-)
-
+HTTP_BANNER = "HTTP/1.1 301 Moved Permanently\r\nServer: cloudflare\r\nLocation: https://example.com/\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+COOKIE_BANNER = "HTTP/1.1 200 OK\r\nServer: hylianscan-mock\r\nSet-Cookie: session_id=abc123; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=3600\r\nSet-Cookie: tracking_id=xyz; Path=/tracking\r\n\r\n"
 STRONG_SECURITY_BANNER = (
-    "HTTP/1.1 200 OK "
-    "Strict-Transport-Security: max-age=31536000; includeSubDomains "
-    "Content-Security-Policy: default-src 'self' "
-    "X-Frame-Options: DENY "
-    "X-Content-Type-Options: nosniff "
-    "Referrer-Policy: no-referrer "
-    "Permissions-Policy: geolocation=() "
-    "Cross-Origin-Opener-Policy: same-origin"
+    "HTTP/1.1 200 OK\r\n"
+    "Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n"
+    "Content-Security-Policy: default-src 'self'\r\n"
+    "X-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\n"
+    "Referrer-Policy: no-referrer\r\nPermissions-Policy: geolocation=()\r\n"
+    "Cross-Origin-Opener-Policy: same-origin\r\n\r\n"
 )
-
-MISSING_SECURITY_BANNER = (
-    "HTTP/1.1 200 OK "
-    "Server: hylianscan-mock "
-    "Content-Type: text/html"
-)
+MISSING_SECURITY_BANNER = "HTTP/1.1 200 OK\r\nServer: hylianscan-mock\r\nContent-Type: text/html\r\n\r\n"
 NMAP_XML = """<?xml version="1.0"?>
 <nmaprun scanner="nmap" args="nmap -sV -oX scan.xml 127.0.0.1"
          start="1710000000" startstr="Sat Mar 9 12:00:00 2024"
@@ -75,7 +55,7 @@ NMAP_XML = """<?xml version="1.0"?>
       </port>
     </ports>
   </host>
-</nmaprun>
+<runstats><finished exit="success"/></runstats></nmaprun>
 """
 
 TLS_METADATA = {
@@ -206,7 +186,7 @@ class JSONExporterTests(unittest.TestCase):
             document["schema"],
             {
                 "name": "hylianscan_tcp_scan",
-                "version": 1,
+                "version": 2,
             },
         )
         self.assertEqual(document["scan"]["type"], "tcp")
@@ -311,7 +291,7 @@ class JSONExporterTests(unittest.TestCase):
             host_discovery_results=results,
         )
 
-        self.assertEqual(document["schema"]["version"], 1)
+        self.assertEqual(document["schema"]["version"], 2)
         self.assertEqual(
             document["scan"]["host_discovery"],
             {
@@ -321,6 +301,7 @@ class JSONExporterTests(unittest.TestCase):
                         "address": "192.0.2.10",
                         "address_family": "ipv4",
                         "reachable": True,
+                        "state": "reachable", "scope_id": 0, "ports_attempted": [], "excluded": False,
                         "response_time_seconds": 0.003211,
                         "error": None,
                     },
@@ -328,6 +309,7 @@ class JSONExporterTests(unittest.TestCase):
                         "address": "2001:db8::10",
                         "address_family": "ipv6",
                         "reachable": False,
+                        "state": "unconfirmed", "scope_id": 0, "ports_attempted": [], "excluded": True,
                         "response_time_seconds": 1.001245,
                         "error": "No TCP discovery port responded.",
                     },
@@ -360,7 +342,7 @@ class JSONExporterTests(unittest.TestCase):
         self.assertNotIn("runs", nmap)
 
     def test_tcp_json_adds_distinct_runs_for_multi_address_nmap(self) -> None:
-        import_result = parse_nmap_xml_text(NMAP_XML)
+        import_result = parse_nmap_xml_text(NMAP_XML.replace("127.0.0.1", "192.0.2.10"))
         enrichment = build_multi_nmap_enrichment(
             "example.com",
             [
@@ -382,7 +364,7 @@ class JSONExporterTests(unittest.TestCase):
             nmap_enrichment=enrichment,
         )
 
-        self.assertEqual(document["schema"]["version"], 1)
+        self.assertEqual(document["schema"]["version"], 2)
         nmap = document["enrichment"]["nmap"]
         self.assertEqual(nmap["status"], "partial")
         self.assertEqual(nmap["target"], "example.com")
@@ -509,6 +491,7 @@ class JSONExporterTests(unittest.TestCase):
                     "name": "http",
                     "transport_security": "none",
                     "method": "http_head",
+                "status": "unknown", "error": None,
                 },
             ),
             "example.com",
@@ -595,6 +578,7 @@ class JSONExporterTests(unittest.TestCase):
                     "name": "http",
                     "transport_security": "none",
                     "method": "http_head",
+                "status": "unknown", "error": None,
                 },
             ),
             "example.com",
@@ -667,6 +651,7 @@ class JSONExporterTests(unittest.TestCase):
                     "name": "http",
                     "transport_security": "none",
                     "method": "http_head",
+                "status": "unknown", "error": None,
                 },
             ),
             "example.com",
@@ -678,6 +663,7 @@ class JSONExporterTests(unittest.TestCase):
                 "name": "http",
                 "transport_security": "none",
                 "method": "http_head",
+                "status": "unknown", "error": None,
             },
         )
 
@@ -690,6 +676,7 @@ class JSONExporterTests(unittest.TestCase):
                 "name": "https",
                 "transport_security": "implicit_tls",
                 "method": "http_head",
+                "status": "unknown", "error": None,
             },
         )
 
@@ -827,6 +814,7 @@ class JSONExporterTests(unittest.TestCase):
                     "name": "ftp",
                     "transport_security": "none",
                     "method": "ftp_syst",
+                "status": "unknown", "error": None,
                 },
             ),
             "example.com",
@@ -838,6 +826,7 @@ class JSONExporterTests(unittest.TestCase):
                 "name": "ftp",
                 "transport_security": "none",
                 "method": "ftp_syst",
+                "status": "unknown", "error": None,
             },
         )
 
@@ -853,6 +842,7 @@ class JSONExporterTests(unittest.TestCase):
                     "name": "unknown",
                     "transport_security": "unknown",
                     "method": "passive_banner",
+                "status": "unknown", "error": None,
                 },
             ),
             "example.com",
@@ -864,6 +854,7 @@ class JSONExporterTests(unittest.TestCase):
                 "name": "unknown",
                 "transport_security": "unknown",
                 "method": "passive_banner",
+                "status": "unknown", "error": None,
             },
         )
 

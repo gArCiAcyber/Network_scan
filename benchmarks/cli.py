@@ -291,7 +291,7 @@ def validate_document(document: dict, case: Scenario, counters: dict[int, int]) 
     for port in set(expected) & set(actual):
         kind, finding = expected[port], actual[port]
         raw = finding["banner"]["raw"]
-        if kind == "banner" and raw != banner(port):
+        if kind == "banner" and raw not in {banner(port), banner(port) + "\r\n"}:
             errors.append(f"Incorrect banner on port {port}.")
         if kind == "silent" and raw is not None:
             errors.append(f"Silent service unexpectedly supplied evidence on port {port}.")
@@ -318,32 +318,24 @@ def validate_document(document: dict, case: Scenario, counters: dict[int, int]) 
 
 
 def validate_text(text: str, case: Scenario) -> list[str]:
-    """Check saved quiet TXT against the independent service configuration."""
+    """Check saved quiet TXT open endpoints. Protocol evidence stays in JSON."""
     errors = []
     if "\x1b" in text or "\x9b" in text:
         errors.append("ANSI escapes in saved TCP TXT.")
-    actual = {}
+    actual = set()
     for line in text.splitlines():
-        if not re.match(r"- [0-9]", line):
-            continue
-        match = re.fullmatch(r"- ([0-9]+)/tcp open (\S+) (.+)", line)
+        match = re.fullmatch(rf"Open {re.escape(TARGET)}:([0-9]+)", line.strip())
         if match is None:
-            errors.append("Malformed TCP TXT finding: " + line)
             continue
-        port, service, evidence = int(match[1]), match[2], match[3]
+        port = int(match[1])
         if port in actual:
             errors.append(f"Duplicate TXT open port: {port}.")
-        actual[port] = (service, evidence)
-    expected = {service["port"]: service["kind"] for service in case.services}
-    if set(actual) != set(expected):
-        errors.append(f"TXT open ports differ: missing={sorted(set(expected) - set(actual))}, "
-                      f"unexpected={sorted(set(actual) - set(expected))}.")
-    for port in set(expected) & set(actual):
-        wanted = (banner(port) if expected[port] == "banner" else
-                  "active, no banner" if expected[port] == "silent" else "200 OK")
-        if actual[port][1] != wanted or (expected[port] in ("http", "https") and actual[port][0] != expected[port]):
-            errors.append(f"Incorrect TXT banner/evidence on port {port}.")
-    if f"Target: {TARGET}" not in text.splitlines() or f"Resolved IP: {TARGET}" not in text.splitlines():
+        actual.add(port)
+    expected = {service["port"] for service in case.services}
+    if actual != expected:
+        errors.append(f"TXT open ports differ: missing={sorted(expected - actual)}, "
+                      f"unexpected={sorted(actual - expected)}.")
+    if f"Hylianscan scan report for {TARGET}" not in text:
         errors.append("Unexpected TCP TXT target.")
     return errors
 

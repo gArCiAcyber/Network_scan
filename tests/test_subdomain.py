@@ -30,6 +30,13 @@ from modules.subdomain import (
 class PassiveProviderExecutableTests(unittest.TestCase):
     """Validate provider executable resolution without running external tools."""
 
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        output = patch("core.output.resolve_output_dir", return_value=Path(directory.name))
+        output.start()
+        self.addCleanup(output.stop)
+
     @patch("hylianscan.inspect_provider_compatibility", return_value={"status": "tested"})
     def test_discovery_checkpoint_is_reused_without_losing_intermediate_state(self, compatibility):
         for providers in (["subfinder"], ["subfinder", "amass"]):

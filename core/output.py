@@ -2,8 +2,13 @@
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+from itertools import count
+import os
 from pathlib import Path
 import re
+import tempfile
+
+from core.terminal import escape_controls
 
 
 DEFAULT_TCP_TEXT_ARGUMENT = "hylianscan_results.txt"
@@ -40,10 +45,62 @@ def resolve_output_workspace(
     target: str,
     timestamp: str | None = None,
     timestamp_factory: Callable[[], str] = build_timestamp,
+    reserve: bool = False,
 ) -> Path:
-    """Resolve the target-specific timestamped output workspace directory."""
+    """Reserve a unique workspace directory for every call.
+
+    ``reserve`` is accepted for existing callers. Creation stays exclusive
+    whether the flag is omitted or true.
+    """
+    del reserve
     timestamp_value = timestamp or timestamp_factory()
-    return resolve_output_dir() / sanitize_target_name(target) / timestamp_value
+    target_dir = resolve_output_dir() / sanitize_target_name(target)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for suffix in count():
+        name = timestamp_value if suffix == 0 else f"{timestamp_value}_{suffix}"
+        workspace = target_dir / name
+        try:
+            workspace.mkdir()
+        except FileExistsError:
+            continue
+        return workspace
+
+
+def validate_output_destinations(*paths: Path | None) -> None:
+    """Reject reports that would replace each other, including existing aliases."""
+    selected = [path for path in paths if path is not None]
+    for index, path in enumerate(selected):
+        for other in selected[:index]:
+            if path.resolve() == other.resolve() or (
+                path.exists() and other.exists() and path.samefile(other)
+            ):
+                raise ValueError("TXT and JSON reports require different output destinations.")
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Replace a report only after its complete UTF-8 content is written."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+write_text_atomic = atomic_write_text
 
 
 def is_default_tcp_text_output_request(output_value: str | None) -> bool:
@@ -194,15 +251,14 @@ def save_report(report_text: str, output_path: Path | None) -> None:
     if output_path is None:
         return
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    plain_report = ANSI_ESCAPE_PATTERN.sub("", report_text)
-    output_path.write_text(plain_report + "\n", encoding="utf-8")
+    plain_report = escape_controls(ANSI_ESCAPE_PATTERN.sub("", report_text), multiline=True)
+    atomic_write_text(output_path, plain_report + "\n")
 
 
 def save_subdomain_results(subdomains: list[str], output_path: Path) -> None:
     """Persist passive subdomain results without flooding the terminal."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(subdomains) + "\n", encoding="utf-8")
+    plain_names = ANSI_ESCAPE_PATTERN.sub("", "\n".join(subdomains))
+    atomic_write_text(output_path, escape_controls(plain_names, multiline=True) + "\n")
 
 
 def resolve_subdomain_candidates_path(output_path: Path) -> Path:

@@ -128,20 +128,19 @@ class BenchmarkTests(unittest.TestCase):
         case = benchmark.Scenario("txt", [2222, 8080, 8443, 9000], [
             {"port": 2222, "kind": "banner"}, {"port": 8080, "kind": "http"},
             {"port": 8443, "kind": "https"}, {"port": 9000, "kind": "silent"}], [])
-        text = (f"Target: {benchmark.TARGET}\nResolved IP: {benchmark.TARGET}\nOpen Ports:\n"
-                "- 2222/tcp open unknown MOCK TCP SERVICE 2222\n"
-                "- 8080/tcp open http 200 OK\n- 8443/tcp open https 200 OK\n"
-                "- 9000/tcp open unknown active, no banner\n")
+        text = "\n".join([
+            f"Hylianscan scan report for {benchmark.TARGET} (IPV4: {benchmark.TARGET})",
+            "Open " + f"{benchmark.TARGET}:2222",
+            "Open " + f"{benchmark.TARGET}:8080",
+            "Open " + f"{benchmark.TARGET}:8443",
+            "Open " + f"{benchmark.TARGET}:9000",
+            "",
+        ])
         self.assertEqual(benchmark.validate_text(text, case), [])
         self.assertEqual(benchmark.validate_text(text + "TLS analysis notes:\n"
                          "- hostname_mismatch [medium]: Certificate hostname mismatch.\n", case), [])
-        for broken in ("", text.replace("2222/tcp", "2223/tcp"),
-                       text.replace("MOCK TCP SERVICE 2222", "wrong"),
-                       text.replace("200 OK", "404 Not Found"),
-                       text.replace("open http 200", "open ftp 200"),
-                       text.replace("open https 200", "open http 200"),
-                       text.replace("active, no banner", "invented evidence"),
-                       text + "- 2222/tcp open unknown MOCK TCP SERVICE 2222\n",
+        for broken in ("", text.replace(":2222", ":2223"),
+                       text + f"Open {benchmark.TARGET}:2222\n",
                        text + "\x1b[31m", text + "\x9b31m"):
             with self.subTest(text=broken):
                 self.assertTrue(benchmark.validate_text(broken, case))
@@ -346,7 +345,7 @@ class BenchmarkTests(unittest.TestCase):
                     findings = {finding["port"]: finding for finding in output["results"]["open_ports"]}
                     self.assertEqual(set(findings), {service["port"] for service in services})
                     for port in ports:
-                        self.assertEqual(findings[port]["banner"]["raw"], banner(port))
+                        self.assertEqual(findings[port]["banner"]["raw"], banner(port) + "\r\n")
                     self.assertEqual(findings[http_port]["probe"]["name"], "http")
                     self.assertEqual(findings[https_port]["probe"]["name"], "https")
                     self.assertEqual(findings[https_port]["tls"]["certificate"]["fingerprints"]["sha256"],

@@ -1,6 +1,8 @@
 """JSON export helpers for hylianscan scan results."""
 
 import json
+from dataclasses import asdict
+from core.output import write_text_atomic
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -38,7 +40,14 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
         "content_type": None,
         "headers": {},
         "cookies": [],
-        "security": build_http_security_observations({}, url),
+        "security": {
+            "applicable": False,
+            "status": "unavailable",
+            "headers": {},
+            "present": [],
+            "missing": [],
+            "observations": [],
+        },
     }
 
     response_head = parse_http_response_head(banner)
@@ -51,6 +60,7 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
     metadata.update(
         {
             "protocol": response_head.protocol,
+            "complete": response_head.complete,
             "status_code": response_head.status_code,
             "reason_phrase": response_head.reason_phrase,
             "server": get_first_header(headers, "server"),
@@ -58,7 +68,7 @@ def parse_http_metadata(banner: str | None, url: str | None) -> dict[str, Any]:
             "content_type": get_first_header(headers, "content-type"),
             "headers": headers,
             "cookies": parse_http_cookies(headers),
-            "security": build_http_security_observations(headers, url),
+            "security": build_http_security_observations(headers, url, complete=response_head.complete),
         }
     )
 
@@ -73,19 +83,25 @@ def build_probe_document(finding: PortScanResult) -> dict[str, Any]:
         return {
             "name": "unknown",
             "transport_security": "unknown",
-            "method": "passive_banner",
+            "method": None,
+            "status": "unavailable",
         }
 
     document = {
         "name": probe.get("name", "unknown"),
         "transport_security": probe.get("transport_security", "unknown"),
-        "method": probe.get("method", "passive_banner"),
+        "method": probe.get("method"),
+        "status": probe.get("status", "unknown"),
+        "error": probe.get("error"),
     }
+
+    if "responses_base64" in probe:
+        document["responses_base64"] = probe["responses_base64"]
 
     starttls = probe.get("starttls")
     if isinstance(starttls, Mapping):
         document["starttls"] = {
-            "supported": bool(starttls.get("supported")),
+            "supported": starttls.get("supported"),
             "attempted": bool(starttls.get("attempted")),
             "upgraded": bool(starttls.get("upgraded")),
             "error": starttls.get("error"),
@@ -116,6 +132,7 @@ def build_port_document(
         "status": "open",
         "service": {
             "name": finding.service,
+            "source": "port_hint",
         },
         "probe": build_probe_document(finding),
         "banner": {
@@ -133,6 +150,7 @@ def build_port_document(
     if address:
         document["address"] = address
         document["address_family"] = getattr(finding, "address_family", None)
+        document["scope_id"] = finding.scope_id
 
     return document
 
@@ -162,6 +180,7 @@ def _build_scan_address_document(address: ResolvedAddress) -> dict[str, Any]:
         "address": address.address,
         "family": address.family_name,
         "reverse_dns": address.reverse_dns,
+        "scope_id": address.scope_id,
     }
 
 
@@ -207,6 +226,11 @@ def build_tcp_scan_document(
     ipv4_open_ports, ipv6_open_ports = _scan_findings_by_family(scan_result)
     scan_document: dict[str, Any] = {
         "type": "tcp",
+        "run_id": getattr(scan_result, 'run_id', ""),
+        "status": getattr(scan_result, 'status', "unknown"),
+        "started_at": getattr(scan_result, 'started_at', None),
+        "finished_at": getattr(scan_result, 'finished_at', None),
+        "settings": getattr(scan_result, 'settings', {}),
         "target": {
             "host": scan_result.target_host,
             "resolved_ip": scan_result.resolved_ip,
@@ -225,14 +249,19 @@ def build_tcp_scan_document(
         },
         "scope": {
             "ports_tested": scan_result.scanned_ports,
+            "ports_requested": list(getattr(scan_result, 'requested_ports', ())),
+            "connection_attempts_completed": getattr(scan_result, 'completed_attempts', 0),
         },
         "summary": {
             "open_ports": len(scan_result.open_ports),
+            "connection_outcomes": getattr(scan_result, 'outcomes', {}),
+            "connection_errors": getattr(scan_result, 'errors', {}),
             "ipv4_open_ports": len(ipv4_open_ports),
             "ipv6_open_ports": len(ipv6_open_ports),
         },
         "timing": {
             "duration_seconds": round(scan_result.duration, 6),
+            "phases_seconds": getattr(scan_result, 'phase_durations', {}),
         },
     }
 
@@ -259,6 +288,10 @@ def build_tcp_scan_document(
                     "address": result.address.address,
                     "address_family": result.address.family_name,
                     "reachable": result.is_up,
+                    "state": "reachable" if result.is_up else result.state,
+                    "scope_id": result.address.scope_id,
+                    "ports_attempted": list(result.ports),
+                    "excluded": not result.is_up,
                     "response_time_seconds": round(result.response_time, 6),
                     "error": result.error,
                 }
@@ -270,7 +303,7 @@ def build_tcp_scan_document(
     document = {
         "schema": {
             "name": "hylianscan_tcp_scan",
-            "version": 1,
+            "version": 2,
         },
         "scan": scan_document,
         "results": {
@@ -314,10 +347,7 @@ def write_tcp_json_report(
         native_open_port_count=native_open_port_count,
         host_discovery_results=host_discovery_results,
     )
-    output_path.write_text(
-        json.dumps(document, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_text_atomic(output_path, json.dumps(document, indent=2, sort_keys=True) + "\n")
 
 
 def normalize_subdomain_results(subdomains: Sequence[str]) -> list[str]:
@@ -477,10 +507,7 @@ def write_subdomain_json_report(
         httpx_result=httpx_result,
         final_subdomains=final_subdomains,
     )
-    output_path.write_text(
-        json.dumps(document, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_text_atomic(output_path, json.dumps(document, sort_keys=True) + "\n")
 
 
 def build_nmap_address_document(address: NmapAddress) -> dict[str, Any]:
@@ -500,6 +527,7 @@ def build_nmap_port_document(port: NmapPort) -> dict[str, Any]:
         "port": port.port,
         "protocol": port.protocol,
         "state": port.state,
+        "reason": port.reason,
         "service": {
             "name": service.name,
             "product": service.product,
@@ -523,6 +551,7 @@ def build_nmap_enrichment_document(
         "status": enrichment.status,
         "target": enrichment.target,
         "ports_requested": list(enrichment.ports_requested),
+        "execution": enrichment.execution,
     }
 
     if enrichment.runs:
@@ -536,16 +565,20 @@ def build_nmap_enrichment_document(
         return document
 
     if enrichment.import_result is None:
-        document["status"] = "skipped"
-        document["reason"] = "Nmap Service Scan did not return import data."
+        document["reason"] = enrichment.reason or "Nmap Service Scan did not return import data."
         return document
 
     host = require_single_up_host(enrichment.import_result)
+    document["metadata"] = asdict(enrichment.import_result.metadata)
+    document["disagreements"] = [p.port for p in host.tcp_ports if p.state != "open"]
+    document["unreported_ports"] = sorted(
+        set(enrichment.ports_requested) - {p.port for p in host.tcp_ports}
+    )
     document["ports_returned"] = [
-        port.port for port in host.open_tcp_ports
+        port.port for port in host.tcp_ports or host.open_tcp_ports
     ]
     document["results"] = [
-        build_nmap_port_document(port) for port in host.open_tcp_ports
+        build_nmap_port_document(port) for port in host.tcp_ports or host.open_tcp_ports
     ]
 
     return document
@@ -562,6 +595,7 @@ def build_nmap_xml_import_document(
     return {
         "tool": "hylianscan",
         "mode": "nmap_xml_import",
+        "status": "completed" if metadata.finished_exit == "success" else "partial",
         "source": {
             "path": source_path,
             "scanner": metadata.scanner,
@@ -570,6 +604,8 @@ def build_nmap_xml_import_document(
             "xmloutputversion": metadata.xmloutputversion,
             "start": metadata.start,
             "startstr": metadata.startstr,
+            "finished_exit": metadata.finished_exit,
+            "finished_error": metadata.finished_error,
         },
         "host": {
             "status": host.status,
@@ -592,7 +628,4 @@ def write_nmap_xml_import_json_report(
     """Write imported Nmap XML evidence as pretty JSON."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document = build_nmap_xml_import_document(import_result, source_path)
-    output_path.write_text(
-        json.dumps(document, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_text_atomic(output_path, json.dumps(document, indent=2, sort_keys=True) + "\n")

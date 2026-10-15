@@ -228,10 +228,10 @@ lab execution, Kali execution, and complete battery execution.
 
 ## Additional verification and bounded campaigns
 
-Every execution now reads the saved `scan.txt`, checking exact port membership,
-duplicates, per-port banner/status evidence and ANSI escapes against the service
-configuration. Legitimate TLS explanation bullets are not finding rows.
-TXT and JSON are independently checked; matching two reports is insufficient.
+Every execution now reads the saved `scan.txt`, checking exact open-port
+membership, duplicates, and ANSI escapes. JSON checks preserved banner bytes and
+protocol evidence against the service configuration. TXT and JSON are
+independently checked; matching two reports is insufficient.
 
 `--min-free-gib` reserves 1 GiB by default before each execution and records
 available bytes. It does not estimate the entire campaign or cap a growing file.

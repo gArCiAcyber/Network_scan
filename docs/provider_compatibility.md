@@ -4,12 +4,6 @@ Hylianscan uses the packaged `modules/provider_compatibility.json` registry for
 Subfinder, Amass, and DNSx. HTTPx and Nmap retain their existing integrations;
 they have not been added to this version policy yet.
 
-The runtime policy and local check scripts were reused from
-`fix/passive-subdomain-enum` at `284a07111f90a8714dbc8b8e7fb6e0a3045f8a5e`.
-Its release-monitoring workflow and generated real-binary evidence manifests
-are not present in this checkout. Historical real-binary checks described below
-have not been rerun by Hylianlab; see [current offline validation](benchmark_subdomain.md#validation-status).
-
 ## Startup policy
 
 1. Resolve every selected executable before starting any process.
@@ -20,8 +14,9 @@ have not been rerun by Hylianlab; see [current offline validation](benchmark_sub
    otherwise unsupported versions, including in quiet mode, then continue when
    the required CLI options are present.
 4. Stop before enumeration when the help command fails or a required CLI option
-   is absent. A version listed in `tested_versions` is **tested**; another stable
-   version in `supported_majors` is **untested** until CI evidence is reviewed.
+   is absent. A version listed in `tested_versions` is **tested**. A version in
+   `tested_platforms` is tested only on its recorded operating system and architecture;
+   other stable versions in `supported_majors` are **untested** until evidence is reviewed.
 
 Installed executables remain separately managed. Startup does not query GitHub
 or update binaries. Existing execution-time checks and process cleanup remain in
@@ -50,9 +45,7 @@ graph database, then reads scoped hostnames with `subs -names` from that same
 directory. The engine needs its own temporary home because v5 omits `Config.Dir`
 from the session configuration sent by `enum`. An already-running local engine
 is rejected without stopping it: stop that instance manually before retrying.
-The CLI retains the isolated graph beneath the TXT report directory for recovery,
-including failed extraction. Temporary storage is removed when the runner is
-called without a report workspace. The normal Amass configuration
+The temporary database is removed after the run. The normal Amass configuration
 is used for source credentials and transformations; active enumeration, brute
 forcing, alterations, and external engine/database settings are rejected,
 including `AMASS_ENGINE_*` and `AMASS_DB_*` environment overrides.
@@ -77,10 +70,8 @@ or data-source timeout; provider deadlines and partial-result status are unchang
 
 ## Release monitoring and review
 
-The source branch's `.github/workflows/provider-compatibility.yml` defines a
-daily and manually dispatched workflow. It requires a separate integration in
-this checkout before these automated checks are available. Every run queries
-each registry repository's latest stable GitHub
+`.github/workflows/provider-compatibility.yml` runs daily and can be dispatched
+manually. Every run queries each registry repository's latest stable GitHub
 release and tests the baseline, every tested version, and the latest version on
 Ubuntu amd64 and Windows amd64, including unsupported latest releases. A manual
 dispatch can add one historical provider/version pair, such as `subfinder` and
@@ -92,6 +83,20 @@ it never enumerates a real domain. Each real binary check records the exact
 version, required options, exit behavior, and provider-specific controlled
 checks. The offline suite covers normal and empty output, duplicates, errors,
 timeouts, Hylianscan parsing, provider combinations, and TXT/JSON reporting.
+
+`check_provider.py` records three distinct layers: actual offline fixture test
+results, real-binary execution/exit behavior, and observed external-source output.
+Subfinder and Amass may successfully return zero names for `example.test` or
+`hylianscan-empty.invalid`. Candidate counts never decide compatibility approval.
+All execution checks run before their statuses are classified, so a timeout or an
+empty first response does not skip the following checks. A timeout remains limited
+execution evidence; an unexpected nonzero exit remains a failure. The Subfinder
+unknown-option check expects a nonzero exit.
+
+The `source_availability` record describes only what that bounded run observed;
+`not_observed` does not establish that the external sources are unavailable.
+Parser, deduplication, empty-result handling, and report checks use offline fixtures
+and do not require populated live output.
 
 The review job classifies each provider/version automatically:
 
@@ -116,6 +121,11 @@ detection succeeds. Missing evidence is never a passing check. Registry changes
 require merging the PR; the workflow never merges it. Repeated identical results
 produce no new change. Live checks against explicitly authorized targets remain
 manual or belong in a separate explicitly authorized workflow.
+
+Subfinder 2.13.0 currently has Windows amd64 evidence only, recorded under
+`tested_platforms`. Linux and other architectures report it as untested. Promotion
+to the shared `tested_versions` list still requires the complete Linux/Windows amd64
+matrix and passing regressions.
 
 ### Enable in GitHub
 
