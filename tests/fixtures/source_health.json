@@ -1,0 +1,27 @@
+{
+  "failed": {
+    "name": "subfinder", "status": "completed", "exit_code": 0, "subdomains": [],
+    "diagnostics": [
+      "[DBG] Selected source(s) for this search: crtsh",
+      "[WRN] Encountered an error with source crtsh: dial tcp fixture.invalid:5432: i/o timeout",
+      "[WRN] Encountered an error with source crtsh: unexpected status code 502 received from https://fixture.invalid/",
+      "Source               Duration      Results   Requests     Errors",
+      "crtsh                10.897s             0          1          2"
+    ]
+  },
+  "successful": {
+    "name": "subfinder", "status": "completed", "exit_code": 0, "subdomains": ["a.hylianlab.test"],
+    "diagnostics": [
+      "[DBG] Selected source(s) for this search: hackertarget",
+      "Source               Duration      Results   Requests     Errors",
+      "hackertarget         4.591s             50          1          0"
+    ]
+  },
+  "empty": {
+    "name": "subfinder", "status": "completed", "exit_code": 0, "subdomains": [],
+    "diagnostics": ["Source Duration Results Requests Errors", "crtsh 0.102s 0 1 0"]
+  },
+  "unknown": {
+    "name": "subfinder", "status": "completed", "exit_code": 0, "subdomains": [], "diagnostics": []
+  }
+}

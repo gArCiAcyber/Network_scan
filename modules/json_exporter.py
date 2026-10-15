@@ -507,7 +507,7 @@ def write_subdomain_json_report(
         httpx_result=httpx_result,
         final_subdomains=final_subdomains,
     )
-    write_text_atomic(output_path, json.dumps(document, indent=2, sort_keys=True) + "\n")
+    write_text_atomic(output_path, json.dumps(document, sort_keys=True) + "\n")
 
 
 def build_nmap_address_document(address: NmapAddress) -> dict[str, Any]:

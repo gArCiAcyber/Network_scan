@@ -524,7 +524,7 @@ nmap_import_results.json
 ```
 
 TXT output is designed for quick reading.
-JSON output is designed for automation, parsing, evidence tracking, and later tooling.
+JSON output is designed for automation, parsing, evidence tracking, and later tooling. Passive JSON reports use one line without indentation; their schema and values are unchanged.
 Bare `-o` uses each mode's default TXT path, and `-o PATH` selects that exact file. TXT and JSON paths must resolve to different files. Each file is replaced atomically after it has been written; the two files are not a single transaction. Matching `scan.run_id` values identify a report pair.
 
 TCP JSON schema version 2 adds run status, exact port scope, connection outcomes, probe status, IPv6 scope IDs, raw collected response bytes in base64, and Nmap execution evidence. HTTP security-header absence is reported only for complete HTTP response headers. Service names derived from port numbers are labeled as hints. The schema is unchanged by the presentation refactor: `scan.status = partial` can mean that all attempts finished but some states remain unknown; read it alongside `connection_attempts_completed` and `connection_outcomes`.
@@ -544,6 +544,65 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 python3 -m compileall -q hylianscan.py core modules tests
 python3 hylianscan.py --help
 ```
+
+### Native TCP benchmark on Kali
+
+```bash
+python3 -m benchmarks --benchmark tcp_scan
+python3 -m benchmarks --benchmark tcp_scan --profile full
+```
+
+`scripts/benchmark.py` is a compatibility entry point for the same dispatcher.
+`--benchmark` selects the test type; `--profile quick|full` selects workloads
+and repetitions, defaulting to `quick`. Both profiles validate correctness.
+The isolated laboratory checks known findings and records execution time,
+combined native scan time, CPU, peak memory, and total battery time including
+preparation and cleanup. The quick profile calibrates repetitions with a pilot;
+the full profile includes 65,535 ports and a scaling case with many open ports.
+See [benchmark setup, reports, and validation status](docs/benchmark.md).
+
+### Offline subdomain benchmark
+
+```bash
+python3 scripts/benchmark.py --benchmark subdomain --scenario baseline-1k
+python3 scripts/benchmark.py --benchmark subdomain --scenario baseline-10k
+python3 scripts/benchmark.py --benchmark subdomain --profile full --scenario baseline-100k
+python3 scripts/benchmark.py --benchmark subdomain
+python3 scripts/benchmark.py --benchmark subdomain --profile full
+python3 scripts/benchmark.py --benchmark subdomain --reference /path/reference --candidate /path/candidate
+```
+
+Uses deterministic `hylianlab.test` datasets with 1,000, 10,000, and 100,000
+unique names in the two-provider union, including the base domain. Local
+Subfinder/Amass executables exercise the real passive CLI, version/flag checks,
+runner, parsing, attribution, and TXT/JSON writers. No installed providers or
+credentials are needed; the simulated Amass 5 engine uses loopback port 4000.
+
+`quick` is the default and covers 1k/10k plus fault cases; `full` adds 100k.
+Both validate exact saved findings after failures, timeouts and SIGINT, together
+with accepted-name journals and process cleanup. JSON/CSV preserve individual
+samples and failed evidence. A deliberate provider fault can pass its scenario;
+unexpected lost or extra findings invalidate performance comparisons.
+
+Windows development results and Kali acceptance are recorded separately.
+All 23 passive scenarios have functional coverage across separate Kali campaigns;
+a single default full-profile battery with its complete repetition schedule has
+not been completed. See [offline scenarios, commands, and limitations](docs/benchmark_subdomain.md)
+and the remaining [Kali laboratory stages](docs/benchmark_subdomain.md#hylianlab-kali-laboratory-plan).
+
+### Controlled real-provider and DNSx benchmarks
+
+```bash
+python3.12 scripts/benchmark.py --benchmark providers --profile full --dnsx-path /path/to/dnsx --run-timeout 240
+python3.12 scripts/benchmark.py --benchmark dnsx --profile full --dnsx-path /path/to/dnsx --resources
+python3.12 scripts/benchmark_source_health.py /path/to/passive.json --output /path/to/new-evaluation.json
+```
+
+These maintained acceptance cases use installed binaries in disposable Linux
+user/network/mount namespaces with loopback only. They do not contact public
+sources. Source-health evaluation reads an existing report without network
+requests and separates process status, source health, and finding count.
+See [pinned versions, cases, resource boundaries, and evidence](docs/benchmark_providers.md).
 
 Release validation (`python3 scripts/validate_release.py`) places its import reports
 and pip metadata build in exclusive temporary directories. Existing reports and
