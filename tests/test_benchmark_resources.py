@@ -48,6 +48,30 @@ class ResourceTests(unittest.TestCase):
                         "uninstrumented_seconds": time.perf_counter() - started,
                         "instrumented_seconds": record["execution_seconds"]}))
 
+    def test_zombie_descendant_does_not_mark_samples_unavailable(self):
+        code = (
+            "import os, time\n"
+            "pid = os.fork()\n"
+            "if pid == 0:\n"
+            "    raise SystemExit(0)\n"
+            "time.sleep(0.4)\n"
+            "os.waitpid(pid, 0)\n"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            output = directory / "zombie.json"
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "benchmarks/resources.py"),
+                 "--output", str(output), "--", sys.executable, "-c", code],
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            record = json.loads(output.read_text())
+            self.assertEqual(record["unavailable"], [])
+            self.assertEqual(record["cleanup_errors"], [])
+            self.assertIsNotNone(record["sampled_tree_peak_rss_bytes"])
+            self.assertGreaterEqual(record["sampled_tree_peak_processes"], 1)
+
     def test_deadline_cleans_owned_process(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
