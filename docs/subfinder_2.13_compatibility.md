@@ -9,13 +9,8 @@ verified each GitHub API SHA-256 digest before extraction.
 
 The captured fixture is [subfinder_real_output.json](../tests/fixtures/subfinder_real_output.json).
 It records the exact command arguments, version output, relevant help flags,
-unknown-flag behavior, empty output, timing, and release provenance. The binary
-paths used during this run were:
-
-```text
-E:/hylianscan-compatibility/subfinder/2.13.0/subfinder.exe
-E:/hylianscan-compatibility/subfinder/2.16.0/subfinder.exe
-```
+unknown-flag behavior, empty output, timing, and release provenance. Local
+binary paths are not part of the fixture.
 
 The downloaded archive SHA-256 digests were `4749e3701970d072f2f5405ae85339cf0be8bd15ad7642b239b16f3f50635fbf`
 for 2.13.0 and `ef760f0a064c22811100c75a61da35ba73d71398cb99ae85d32d0eed44496ab8`

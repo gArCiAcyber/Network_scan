@@ -316,9 +316,8 @@ Their maintained procedures are in [real-provider/DNSx cases](benchmark_provider
 
 The 2026-10-08 read-only reconciliation checked the 23 names in the maintained
 scenario list against retained reports and the reviewed completion index, with
-no missing scenario. Evidence references are recorded in
-`output/validation/coverage-reconciliation_20261008.json`. This does not combine
-timings from different campaigns into a calibrated full-profile result.
+no missing scenario. That local index is not part of the repository. This does
+not combine timings from different campaigns into a calibrated full-profile result.
 
 ```sh
 python3.12 -m unittest tests.test_benchmark_subdomain_data tests.test_benchmark_subdomain_provider tests.test_benchmark_subdomain tests.test_benchmark -v

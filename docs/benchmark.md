@@ -280,8 +280,7 @@ could not inspect a PID and retained unknown tree RSS/descriptors/processes;
 CPU, waited-child maximum RSS and traffic remained available. This is selected
 functional/resource evidence, not a calibrated optimization result. All 36
 recorded namespaces and their configurations/interfaces were absent afterward.
-Raw evidence and final checks are retained under
-`output/validation/benchmark_completion_20261008_181222/`.
+Raw evidence and final checks stayed outside the repository.
 
 Offline checks use Python 3.12 for the repository suite:
 

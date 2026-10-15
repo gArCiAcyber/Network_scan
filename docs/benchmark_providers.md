@@ -27,9 +27,9 @@ Python, Linux `ip`, `unshare`, and (for providers) `mount`/OpenSSL must be insta
 
 ```sh
 python3.12 scripts/benchmark.py --benchmark providers --profile full \
-  --dnsx-path /home/cylink/go/bin/dnsx --run-timeout 240 --resources
+  --dnsx-path /path/to/dnsx --run-timeout 240 --resources
 python3.12 scripts/benchmark.py --benchmark dnsx --profile full \
-  --dnsx-path /home/cylink/go/bin/dnsx --run-timeout 120 --resources
+  --dnsx-path /path/to/dnsx --run-timeout 120 --resources
 ```
 
 Source datasets and independent expected memberships live in the worker:
@@ -70,8 +70,8 @@ when reading that checkpoint fails. The 435-test suite and both full batteries
 passed after this correction. Final guest checks found no remaining recorded
 process births or temporary private keys. Permission failures during `/proc`
 sampling preserve unknown process-tree peaks; waited-child CPU and `ru_maxrss`
-remain separate. Raw commands, reports, logs and cleanup checks are retained in
-`output/validation/benchmark_completion_20261008_181222/`.
+remain separate. Raw commands, reports, logs and cleanup checks stayed outside
+the repository.
 
 ```sh
 python3.12 scripts/benchmark_source_health.py /path/to/passive.json \

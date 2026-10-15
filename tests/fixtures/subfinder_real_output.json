@@ -3,7 +3,7 @@
   "command": ["-d", "example.test", "-silent", "-timeout", "1", "-max-time", "1"],
   "versions": {
     "2.13.0": {
-      "version_stderr": "[INF] Current Version: v2.13.0\n[INF] Subfinder Config Directory: C:\\Users\\Erick\\AppData\\Roaming\\subfinder\n",
+      "version_stderr": "[INF] Current Version: v2.13.0\n",
       "required_flags": ["-d", "-silent", "-version", "-timeout", "-max-time"],
       "normal_stdout": [
         "test1.example.test",
@@ -21,7 +21,7 @@
       "elapsed_seconds": 2.266
     },
     "2.16.0": {
-      "version_stderr": "[INF] Current Version: v2.16.0\n[INF] Subfinder Config Directory: C:\\Users\\Erick\\AppData\\Roaming\\subfinder\n",
+      "version_stderr": "[INF] Current Version: v2.16.0\n",
       "required_flags": ["-d", "-silent", "-version", "-timeout", "-max-time"],
       "normal_stdout": [],
       "exit_code": null,
@@ -48,10 +48,6 @@
     "release_urls": {
       "2.13.0": "https://github.com/projectdiscovery/subfinder/releases/tag/v2.13.0",
       "2.16.0": "https://github.com/projectdiscovery/subfinder/releases/tag/v2.16.0"
-    },
-    "binary_paths": {
-      "2.13.0": "E:/hylianscan-compatibility/subfinder/2.13.0/subfinder.exe",
-      "2.16.0": "E:/hylianscan-compatibility/subfinder/2.16.0/subfinder.exe"
     }
   }
 }
