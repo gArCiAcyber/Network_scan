@@ -19,6 +19,15 @@ from benchmarks.cli import positive_float, write_json
 from benchmarks.subdomain import process_identity, stop_worker
 
 
+def process_is_gone_or_zombie(pid: int) -> bool:
+    """Return True when /proc no longer describes a live inspectable process."""
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().split()[2]
+    except (FileNotFoundError, IndexError, OSError):
+        return True
+    return state == "Z"
+
+
 def process_tree(pid: int) -> list[int]:
     pending, found = [pid], set()
     while pending:
@@ -77,6 +86,8 @@ def measure(command: list[str], directory: Path, timeout: float, interval: float
                 except (FileNotFoundError, ProcessLookupError):
                     continue
                 except PermissionError:
+                    if process_is_gone_or_zombie(pid):
+                        continue
                     unavailable.append(f"Cannot inspect PID {pid}")
             peaks["sampled_tree_peak_rss_bytes"] = max(peaks["sampled_tree_peak_rss_bytes"], rss)
             peaks["sampled_tree_peak_descriptors"] = max(peaks["sampled_tree_peak_descriptors"], descriptors)
